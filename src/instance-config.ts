@@ -1,6 +1,6 @@
 import configuration from "../instance-config.json";
 
-const keys = ["displayName", "adminHostname", "operationsEmailSender", "mensMenuStoreId", "stagingStoreIds"];
+const keys = new Set(["displayName", "adminHostname", "operationsEmailSender", "mensMenuStoreId", "stagingStoreIds"]);
 const storeIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 function hostname(value: unknown): string {
@@ -22,13 +22,13 @@ function storeId(value: unknown): string {
 
 export function parseInstanceConfig(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value) ||
-      Object.keys(value).length !== keys.length || Object.keys(value).some((key) => !keys.includes(key)) ||
+      Object.keys(value).length !== keys.size || Object.keys(value).some((key) => !keys.has(key)) ||
       !("displayName" in value) || !("adminHostname" in value) || !("operationsEmailSender" in value) ||
       !("mensMenuStoreId" in value) || !("stagingStoreIds" in value)) {
     throw new Error("Invalid instance configuration fields");
   }
   if (typeof value.displayName !== "string" || !value.displayName.trim() || value.displayName.length > 80 ||
-      /[\r\n\u0000]/.test(value.displayName)) throw new Error("Invalid instance display name");
+      (/[\r\n]/.test(value.displayName) || value.displayName.includes("\0"))) throw new Error("Invalid instance display name");
   if (typeof value.operationsEmailSender !== "string" ||
       !/^[a-zA-Z0-9._%+-]+@[a-z0-9.-]+$/.test(value.operationsEmailSender)) {
     throw new Error("Invalid instance email sender");

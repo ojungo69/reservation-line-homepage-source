@@ -20,6 +20,7 @@ describe("instance configuration boundary", () => {
     { ...example, adminHostname: "admin..example.invalid" },
     { ...example, adminHostname: "example.invalid\r\nother" },
     { ...example, operationsEmailSender: "noreply@example.invalid\r\nBcc:other@example.invalid" },
+    { ...example, displayName: "example\0studio" },
     { ...example, mensMenuStoreId: "" },
     { ...example, stagingStoreIds: ["sample-a", "sample-a"] },
     { ...example, stagingStoreIds: [1] },
