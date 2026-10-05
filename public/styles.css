@@ -1,0 +1,1055 @@
+@import "./glass-tokens.css";
+
+/* ── Design tokens ─────────────────────────────────────────
+   Single source = glass-tokens.css (--mg-*). This file only maps the
+   existing semantic names onto the active alias layer; raw values are
+   forbidden here (design-token-contract item 6/9). */
+:root {
+  /* Lets native controls (select dropdowns, form widgets) follow the active theme. */
+  color-scheme: light dark;
+  --color-bg: var(--mg-active-paper-elevated);
+  --color-surface: var(--mg-active-paper);
+  --color-border: var(--mg-active-hairline);
+  --color-border-focus: var(--mg-active-ink);
+  --color-text: var(--mg-active-ink);
+  --color-text-secondary: var(--mg-active-ink-secondary);
+  /* Stronger secondary for actionable secondary copy (hints, submit note). */
+  --color-text-secondary-strong: var(--mg-active-ink-secondary-strong);
+  --color-btn-bg: var(--mg-active-ink);
+  --color-btn-text: var(--mg-active-on-ink);
+  --color-btn-outline-bg: var(--mg-active-paper-elevated);
+  --color-btn-outline-border: var(--mg-active-hairline);
+  --color-slot-selected-bg: var(--mg-active-ink);
+  --color-slot-selected-text: var(--mg-active-on-ink);
+  --color-slot-unavailable-bg: var(--mg-active-fill-subtle);
+  --color-slot-unavailable-text: var(--mg-active-ink-disabled);
+  --color-step-active-bg: var(--mg-active-ink);
+  --color-step-done-bg: var(--mg-active-ink);
+  --color-step-inactive-bg: var(--mg-active-fill-subtle);
+  /* Strong secondary: the step number conveys progress (non-decorative) and
+     must clear AA on the subtle fill. */
+  --color-step-inactive-text: var(--mg-active-ink-secondary-strong);
+  --color-chip-selected-border: var(--mg-active-ink);
+  --color-chip-selected-bg: var(--mg-active-ink);
+  --color-chip-selected-text: var(--mg-active-on-ink);
+  --color-error: var(--mg-active-error);
+  --color-success: var(--mg-active-success);
+  --color-warning: var(--mg-active-warning);
+  --color-line: var(--mg-active-line);
+  --color-line-text: var(--mg-active-line-text);
+  --color-verified: var(--mg-active-verified);
+  --radius-phone: var(--mg-radius-phone);
+  --radius-field: var(--mg-radius-field);
+  --radius-btn: var(--mg-radius-btn);
+  --radius-chip: var(--mg-radius-chip);
+  --radius-logo: var(--mg-radius-logo);
+  --radius-slot: var(--mg-radius-slot);
+  --radius-card: var(--mg-radius-card);
+  --shadow-phone: var(--mg-active-glass-thick-shadow);
+}
+
+/* OS-following dark theme (FR-006): remap every active alias with a dark
+   counterpart onto --mg-dark-*. --mg-active-line / -line-text / -verified are
+   intentionally inherited (white on those greens passes AA on any surface) —
+   they are the parity test's explicit exclusion list (contract item 7). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mg-active-paper: var(--mg-dark-paper);
+    --mg-active-paper-elevated: var(--mg-dark-paper-elevated);
+    --mg-active-ink: var(--mg-dark-ink);
+    --mg-active-ink-secondary: var(--mg-dark-ink-secondary);
+    --mg-active-ink-secondary-strong: var(--mg-dark-ink-secondary-strong);
+    --mg-active-ink-disabled: var(--mg-dark-ink-disabled);
+    --mg-active-on-ink: var(--mg-dark-on-ink);
+    --mg-active-hairline: var(--mg-dark-hairline);
+    --mg-active-fill-subtle: var(--mg-dark-fill-subtle);
+    --mg-active-glass-thick-bg: var(--mg-dark-glass-thick-bg);
+    --mg-active-glass-thick-border: var(--mg-dark-glass-thick-border);
+    --mg-active-glass-thick-shadow: var(--mg-dark-glass-thick-shadow);
+    --mg-active-glass-mid-bg: var(--mg-dark-glass-mid-bg);
+    --mg-active-glass-mid-border: var(--mg-dark-glass-mid-border);
+    --mg-active-glass-mid-shadow: var(--mg-dark-glass-mid-shadow);
+    --mg-active-glass-thin-bg: var(--mg-dark-glass-thin-bg);
+    --mg-active-glass-thin-border: var(--mg-dark-glass-thin-border);
+    --mg-active-glass-thin-shadow: var(--mg-dark-glass-thin-shadow);
+    --mg-active-glass-modal-bg: var(--mg-dark-glass-modal-bg);
+    --mg-active-error: var(--mg-dark-error);
+    --mg-active-success: var(--mg-dark-success);
+    --mg-active-warning: var(--mg-dark-warning);
+  }
+}
+
+/* ── Reset ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+[hidden] { display: none !important; }
+/* Remove the 300ms tap delay + double-tap-zoom on interactive controls. */
+button, a, [role="radio"], [role="button"] { touch-action: manipulation; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP',
+    'Yu Gothic UI', 'Meiryo', sans-serif;
+  background: var(--color-surface);
+  color: var(--color-text);
+  line-height: 1.6;
+  min-height: 100dvh;
+}
+
+/* ── Accessibility ──────────────────────────────────────── */
+.skip-link {
+  position: absolute; top: -100%; left: 0;
+  background: var(--color-btn-bg); color: var(--color-btn-text);
+  padding: 0.5rem 1rem; border-radius: 0 0 var(--radius-field) 0;
+  font-size: 0.85rem; z-index: 100; text-decoration: none;
+  display: inline-flex; align-items: center; min-height: var(--mg-touch-min);
+}
+.skip-link:focus { top: 0; }
+
+/* ── Shell ──────────────────────────────────────────────── */
+.shell {
+  min-height: 100dvh;
+  display: flex; flex-direction: column; align-items: center;
+  padding:
+    calc(1.5rem + env(safe-area-inset-top))
+    calc(1rem + env(safe-area-inset-right))
+    calc(3rem + env(safe-area-inset-bottom))
+    calc(1rem + env(safe-area-inset-left));
+}
+
+/* ── Phone card ─────────────────────────────────────────── */
+/* Face color/border come from .surface (index.html) so the a11y modes in
+   glass-tokens.css stay effective; only the depth shadow is overridden here
+   (biggest surface = deepest shadow — contrast/transparency modes don't
+   touch shadows, so this override can't defeat them). */
+.reservation-panel {
+  width: 100%; max-width: 400px;
+  border-radius: var(--radius-phone);
+  box-shadow: var(--shadow-phone);
+  /* Corner clipping WITHOUT a scroll container: `overflow: hidden` gives this
+     panel a scrolling mechanism, which captures the .step-progress sticky bar
+     (it sticks to the non-scrolling panel instead of the viewport and just
+     scrolls away — measured top:-339px at 500px scroll). `clip` clips the
+     rounded corners identically but leaves sticky tracking the viewport;
+     older engines ignore it and keep `hidden` (corners still clipped, bar
+     static as before). */
+  overflow: hidden;
+  overflow: clip;
+}
+
+/* ── App header ─────────────────────────────────────────── */
+.brand-panel {
+  padding: 1.5rem 1.25rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+/* Logo lockup: the J badge pairs with exactly the two brand text lines
+   (eyebrow + title), so it centers against them instead of floating against
+   the taller text+pill column. The action pill sits on its own row below. */
+.brand-row { display: flex; align-items: center; gap: 0.75rem; }
+.brand-media {
+  width: 44px; height: 44px; border-radius: var(--radius-logo);
+  background: var(--color-text); color: var(--color-btn-text);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem; font-weight: 700; flex-shrink: 0;
+}
+.eyebrow { font-size: 0.78rem; color: var(--color-text-secondary); letter-spacing: 0.06em; margin-bottom: 0.1rem; }
+h1 { font-size: 1.15rem; font-weight: 700; color: var(--color-text); line-height: 1.2; }
+/* A clear, tappable pill instead of a faint text link — same minimal palette as the
+   menu chips/tags (chip radius + 1.5px border) so it reads as a button without
+   breaking the monochrome design. */
+/* .shell の align-items: center で .brand-panel はロゴ行幅に shrink-wrap される
+   ため、pill を左寄せのままにするとロゴ行との幅差ぶん (約 20px) 中央からずれて
+   見える — 行内で明示的に中央へ。 */
+.brand-nav { margin-top: 0.45rem; text-align: center; }
+.brand-nav a {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.45rem 0.8rem; min-height: var(--mg-touch-min);
+  border: 1.5px solid var(--color-border); border-radius: var(--radius-chip);
+  background: var(--color-surface); color: var(--color-text);
+  font-size: 0.78rem; font-weight: 600; text-decoration: none;
+  transition: border-color var(--mg-motion-fast), background-color var(--mg-motion-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+.brand-nav a:hover { border-color: var(--color-text-secondary); background: var(--color-bg); }
+.brand-nav a:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+
+/* ── Step indicator ─────────────────────────────────────── */
+/* Face/border color come from .glass-thin (index.html); only geometry here.
+   border-width keeps the bottom hairline while the material (and the
+   prefers-contrast override) still owns the border color/style. */
+.step-progress {
+  padding: 1rem 1.25rem;
+  display: flex; align-items: center;
+  position: sticky; top: 0; z-index: 10;
+  border-width: 0 0 1px;
+  border-radius: 0;
+}
+/* Items size to their label (shrinkable, ellipsis as the last resort) and the
+   connectors absorb the leftover width — an equal 5-way split (flex: 1 on both)
+   leaves each label ~42px at 375px, ellipsizing every step name. */
+.step-item { display: flex; align-items: center; gap: 0.35rem; flex: 0 1 auto; min-width: 0; }
+.step-num {
+  width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.78rem; font-weight: 700;
+  transition: background-color var(--mg-motion-fast), color var(--mg-motion-fast);
+}
+.step-item.active .step-num { background: var(--color-step-active-bg); color: var(--color-btn-text); }
+.step-item.done .step-num { background: var(--color-step-done-bg); color: var(--color-btn-text); }
+.step-item.inactive .step-num { background: var(--color-step-inactive-bg); color: var(--color-step-inactive-text); }
+.step-label { font-size: 0.78rem; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step-item.inactive .step-label { color: var(--color-step-inactive-text); }
+.step-connector { flex: 1; height: 1.5px; background: var(--color-border); margin: 0 0.2rem; transition: background-color var(--mg-motion-fast); }
+.step-connector.done { background: var(--color-step-done-bg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .step-num, .step-connector { transition: none; }
+}
+
+@media (max-width: 400px) {
+  /* 左 padding は .group と同じ 1.25rem を維持する — 0.75rem に詰めると step
+     バッジがフォーム本文の左レール (店舗/空き時間ラベル) から 8px はみ出して
+     見える。ただし左右 1.25rem のままだと 320px で 3 ラベル分の幅が足りず
+     ellipsis になる (実測 22px 不足) ため、右 padding・バッジ径・gap・
+     connector margin から捻出する。font 0.75rem は最小フォント 12px ゲートの
+     下限ちょうど。 */
+  .step-progress { padding: 0.85rem 1rem 0.85rem 1.25rem; }
+  .step-item { gap: 0.2rem; }
+  .step-num { width: 22px; height: 22px; font-size: 0.75rem; }
+  .step-label { font-size: 0.75rem; }
+  .step-connector { margin: 0; }
+}
+
+/* ── Form body ──────────────────────────────────────────── */
+.group { padding: 1.25rem; border: none; margin: 0; }
+.identity-group { padding-bottom: 0.5rem; }
+.identity-group #line-state { margin-bottom: 0; }
+.identity-verified { padding-top: 0; }
+.identity-verified legend { margin-bottom: 0.35rem; }
+.identity-verified .auth-row { margin-bottom: 0.25rem; }
+.identity-verified #line-login { flex: 0 1 auto; padding: 0.45rem 0.75rem; }
+.consent-group { padding-top: 0.25rem; }
+.group legend {
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--color-text-secondary); text-transform: uppercase;
+  display: block; float: none; width: 100%; margin-bottom: 1rem;
+}
+
+/* ── Fields ─────────────────────────────────────────────── */
+label { display: block; margin-bottom: 0.85rem; }
+label > span, .control-label { display: block; font-size: 0.78rem; color: var(--color-text-secondary); margin-bottom: 0.3rem; }
+select, input[type="tel"], input[type="text"] {
+  width: 100%; border: 1.5px solid var(--color-border); border-radius: var(--radius-field);
+  padding: 0.65rem 0.9rem; font-size: var(--mg-font-input); color: var(--color-text); background: var(--color-bg);
+  min-height: var(--mg-touch-target);
+  appearance: none; transition: border-color var(--mg-motion-fast);
+}
+select:focus, input:focus { outline: none; border-color: var(--color-border-focus); }
+/* Solid 2px keyboard focus ring (constitution/plan): declared after the
+   :focus reset so it wins the cascade; covers text fields, selects, and the
+   checkboxes inside menu/consent labels. */
+select:focus-visible, input:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+/* Standalone recovery link (at-cap / pending states): a bare text line is a
+   184×24 tap target — stretch the hit area to the 44px minimum (R12). */
+.pending-recovery a { display: inline-flex; align-items: center; min-height: var(--mg-touch-target); }
+select:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Menu chips ─────────────────────────────────────────── */
+.service-field { margin-bottom: 0.85rem; }
+.service-list {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.8rem;
+}
+.service-list input[type="checkbox"] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+.chip {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.72rem 0.8rem;
+  border-radius: var(--radius-field);
+  border: 1.5px solid var(--color-border);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--color-text);
+  background: var(--color-bg);
+  cursor: pointer; user-select: none; min-height: var(--mg-touch-target);
+  transition: border-color var(--mg-motion-fast), background-color var(--mg-motion-fast), color var(--mg-motion-fast);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.chip::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg);
+  align-self: center;
+}
+.chip:not(.selected):hover { border-color: var(--color-text-secondary); }
+/* The real checkbox is visually hidden, so surface its keyboard focus on the chip. */
+.chip:focus-within { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+/* FR-004: selected = ink fill + on-ink text. The ::before dot flips to an
+   on-ink ring with an ink core, so selection also reads without color. */
+.chip.selected { border-color: var(--color-chip-selected-border); background: var(--color-chip-selected-bg); color: var(--color-chip-selected-text); font-weight: 600; }
+.chip.selected::before {
+  border-color: var(--color-chip-selected-text);
+  background: var(--color-chip-selected-text);
+  box-shadow: inset 0 0 0 4px var(--color-chip-selected-bg);
+}
+.chip span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  /* The field-caption rule (`label > span` → secondary gray) also catches the
+     chip's text wrapper — on the selected ink fill that gray is 3.7:1 (light)
+     / 2.3:1 (dark), an AA failure. Inherit the chip's own color instead
+     (ink when idle, on-ink when selected). */
+  color: inherit;
+}
+/* Price is a second line inside the chip's single content column; keep it muted
+   and regular-weight even when the selected chip switches to font-weight 600. */
+.chip .service-price {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+/* Muted gray fails AA on the ink fill — dim via opacity instead (≈11:1). */
+.chip.selected .service-price { color: var(--color-chip-selected-text); opacity: 0.8; }
+.service-category {
+  display: grid;
+  gap: 0.45rem;
+  width: 100%;
+  /* Keep the jump target's heading clear of the sticky tools bar:
+     0.6rem×2 padding + 44px search + 0.5rem gap + 44px nav row + border,
+     plus up to ~16px horizontal nav scrollbar (desktop), minus the 0.85rem
+     sticky inset — re-measure in the browser sweep after layout changes. */
+  scroll-margin-top: 140px;
+}
+.service-category-title {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.service-option { cursor: pointer; }
+.service-category-body { display: grid; gap: 0.45rem; }
+
+/* FR-005 tool bar (002-monotone-glass): search + category jump nav. The popover
+   is the scroll container, so the bar sticks inside it — an opaque bar (no
+   blur on or inside scroll containers, research R1). */
+.services-tools {
+  position: sticky; top: -0.85rem; z-index: 5;
+  display: grid; gap: 0.5rem;
+  margin: -0.85rem -0.85rem 0.5rem; padding: 0.6rem 0.85rem;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+.services-search {
+  width: 100%; min-height: var(--mg-touch-min);
+  border: 1.5px solid var(--color-border); border-radius: var(--radius-chip);
+  background: var(--color-bg); color: var(--color-text);
+  padding: 0.45rem 0.75rem;
+  /* 1rem floor: iOS Safari zooms the page on focus below 16px. */
+  font-size: 1rem;
+}
+.services-search::placeholder { color: var(--color-text-secondary); }
+.services-search:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+/* The hit-count live region stays in the accessibility tree permanently
+   ([hidden]/display:none would drop it and lose the announcement) — an empty
+   text collapses only its box. */
+.services-search-status:empty { margin: 0; padding: 0; }
+.service-cat-nav {
+  /* Single scrollable row: a wrapping nav has an unbounded height, which the
+     sections' fixed scroll-margin-top below could not clear. Full-bleed within
+     the tools padding so the row can scroll edge to edge. */
+  display: flex; flex-wrap: nowrap; gap: 0.35rem;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  margin: 0 -0.85rem; padding: 0 0.85rem;
+}
+.service-cat-nav-btn {
+  border: 1.5px solid var(--color-border); border-radius: var(--radius-chip);
+  background: var(--color-bg); color: var(--color-text);
+  /* min-width too: category names are operator-entered, so a one-character
+     category (「顔」) would otherwise shrink under the 44px touch target. */
+  padding: 0.35rem 0.75rem; min-height: var(--mg-touch-min); min-width: var(--mg-touch-min);
+  flex: 0 0 auto; white-space: nowrap;
+  font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  transition: border-color var(--mg-motion-fast), background-color var(--mg-motion-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+.service-cat-nav-btn:hover { border-color: var(--color-text-secondary); }
+.service-cat-nav-btn:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+.service-category-title:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+
+/* ── Menu dropdown (collapsible multi-select) ───────────── */
+.services-trigger {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  border: 1.5px solid var(--color-border); border-radius: var(--radius-field);
+  padding: 0.65rem 0.9rem; min-height: var(--mg-touch-target);
+  font-size: var(--mg-font-input); color: var(--color-text); background: var(--color-bg);
+  text-align: left; cursor: pointer;
+  transition: border-color var(--mg-motion-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+.services-trigger:hover:not(:disabled) { border-color: var(--color-text-secondary); }
+.services-trigger:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+.services-trigger:disabled { opacity: 0.45; cursor: not-allowed; }
+.services-trigger-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.services-trigger[aria-expanded="false"] .services-trigger-text:not(.has-selection) { color: var(--color-text-secondary); }
+.services-trigger-caret { flex: 0 0 auto; color: var(--color-text-secondary); transition: transform var(--mg-motion-fast); }
+.services-trigger[aria-expanded="true"] .services-trigger-caret { transform: rotate(180deg); }
+/* FR-008: the caret rotation is movement — the shared reduced-motion block only
+   covers the material classes, and transitions do not inherit to children. */
+@media (prefers-reduced-motion: reduce) {
+  .services-trigger-caret { transition: none; }
+}
+/* In-flow disclosure (NOT an absolute overlay): an absolutely-positioned popover
+   would be clipped by the phone-card's `.reservation-panel { overflow: hidden }`
+   ancestor. Expanding in normal flow sidesteps that entirely — collapsed by
+   default still keeps the form short, and the list scrolls internally when long. */
+.services-popover {
+  margin-top: 0.35rem;
+  border-radius: var(--radius-field);
+  max-height: 50vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 0.85rem;
+}
+.services-popover .service-list { gap: 0.6rem; }
+.services-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+.services-tags:empty { display: none; }
+.services-total {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+/* Tags mirror the FR-004 selected state (they ARE the selection summary). */
+.services-tag {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  background: var(--color-chip-selected-bg);
+  border: 1.5px solid var(--color-chip-selected-border);
+  border-radius: var(--radius-chip);
+  padding: 0.3rem 0.4rem 0.3rem 0.7rem;
+  font-size: 0.78rem; color: var(--color-chip-selected-text); font-weight: 600;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  min-height: var(--mg-touch-min);
+}
+.services-tag:hover { opacity: 0.85; }
+.services-tag:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+.services-tag-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--color-chip-selected-text); color: var(--color-chip-selected-bg);
+  font-size: 0.8rem; line-height: 1; flex: 0 0 auto;
+}
+
+/* ── Slot region ─────────────────────────────────────────── */
+.slot-region { margin-bottom: 0.85rem; }
+.date-search-actions { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin-top: 0.5rem; }
+#next-date-status { display: block; }
+#next-date-status:empty { display: none; }
+.slot-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+.slot-header > span { font-size: 0.78rem; color: var(--color-text-secondary); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.icon-button {
+  background: none; border: none; cursor: pointer; font-size: 1rem;
+  color: var(--color-text-secondary); padding: 0.25rem; border-radius: calc(var(--mg-radius-slot) / 2);
+  min-width: var(--mg-touch-min); min-height: var(--mg-touch-min); display: flex; align-items: center; justify-content: center;
+}
+.icon-button:hover { background: var(--color-surface); }
+.slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; }
+.slots > .inline-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  padding: 0.75rem 0;
+  margin: 0;
+}
+.slot-button {
+  border: 1.5px solid var(--color-border); border-radius: var(--radius-slot);
+  padding: 0.5rem 0.25rem; text-align: center; font-size: 0.78rem;
+  color: var(--color-text); background: var(--color-bg); cursor: pointer;
+  min-height: var(--mg-touch-min); transition: border-color var(--mg-motion-fast), background-color var(--mg-motion-fast), color var(--mg-motion-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+.slot-button:hover:not(:disabled) { border-color: var(--color-text-secondary); }
+.slot-button:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+.slot-button.slot-selected { border-color: var(--color-slot-selected-bg); background: var(--color-slot-selected-bg); color: var(--color-slot-selected-text); font-weight: 600; }
+.slot-button:disabled { background: var(--color-slot-unavailable-bg); color: var(--color-slot-unavailable-text); cursor: not-allowed; text-decoration: line-through; }
+
+/* ── Status output ──────────────────────────────────────── */
+/* 左右 margin 1.25rem: フォーム直下 (fieldset の外) に置かれるため、.group の
+   padding が効かずレール (x=1.25rem) から 20px 左に落ちる。 */
+.status { display: block; font-size: 0.78rem; color: var(--color-text-secondary); margin: 0 1.25rem 0.75rem; min-height: 1.4em; }
+.pending-recovery { margin: 0 1.25rem; }
+
+.inline-state {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.75rem;
+}
+.inline-state[data-tone="danger"], .status[data-tone="danger"] { color: var(--color-error); }
+.inline-state[data-tone="ok"], .status[data-tone="ok"] { color: var(--color-text); }
+.inline-state[data-tone="success"], .status[data-tone="success"] { color: var(--color-success); font-weight: 600; }
+.inline-state[data-tone="warning"], .status[data-tone="warning"] { color: var(--color-warning); }
+/* Decorative ✓/⚠ shown via CSS so the symbol is not concatenated into the aria-live
+   text read aloud (screen readers announce the plain words, the glyph stays visual). */
+#line-state[data-tone="success"]::before { content: "✓ "; }
+#line-state[data-tone="warning"]::before,
+#line-state[data-tone="danger"]::before { content: "⚠ "; }
+.auth-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.55rem;
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin-bottom: 0.7rem;
+  /* The label is the effective hit area for its 20px checkbox (FR-008). */
+  min-height: var(--mg-touch-min);
+}
+.check input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-top: 0.12rem;
+}
+.check span {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+.turnstile-area {
+  margin: 0 1.25rem 1rem;
+  min-height: 1px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 360px) {
+  .turnstile-area {
+    margin-right: 0;
+    margin-left: 0;
+  }
+}
+
+/* ── CTA buttons ────────────────────────────────────────── */
+.cta-btn,
+.submit-button,
+.back-button,
+.auth-row button,
+.success-new-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%;
+  border-radius: var(--radius-btn);
+  padding: 0.9rem 1rem;
+  font-size: var(--mg-font-input); font-weight: 600; letter-spacing: 0;
+  cursor: pointer; min-height: var(--mg-touch-target); transition: opacity var(--mg-motion-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+.cta-btn,
+.submit-button,
+.success-new-btn,
+.auth-row button:first-child {
+  background: var(--color-btn-bg); color: var(--color-btn-text);
+  border: 1.5px solid var(--color-btn-bg);
+}
+.back-button,
+.auth-row button:not(:first-child) {
+  background: var(--color-btn-outline-bg);
+  color: var(--color-text);
+  border: 1.5px solid var(--color-btn-outline-border);
+}
+.cta-btn:disabled,
+.submit-button:disabled,
+.auth-row button:disabled {
+  opacity: 0.4; cursor: not-allowed;
+}
+.cta-btn:hover:not(:disabled),
+.submit-button:hover:not(:disabled),
+.back-button:hover:not(:disabled),
+.auth-row button:hover:not(:disabled) {
+  opacity: 0.85;
+}
+.cta-btn--outline { background: var(--color-btn-outline-bg); color: var(--color-text); border: 1.5px solid var(--color-btn-outline-border); margin-top: 0.5rem; }
+
+/* Discoverability hint: tells repeat customers they can skip name/phone entry by
+   logging in with LINE (the auto-skip itself happens after LINE verification). Lives
+   inside #contact-fields so it disappears once skip mode hides those fields. */
+.contact-skip-hint {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary-strong);
+  line-height: 1.5;
+  margin-bottom: 0.85rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-field);
+}
+
+/* Inline example under a field (e.g. phone format) */
+.field-hint {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary-strong);
+  margin-top: 0.3rem;
+}
+
+/* Recognized existing-customer contact summary (skip name/phone entry) */
+.recognized-contact {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  padding: 0.85rem 1rem;
+  border: 1.5px solid var(--color-btn-outline-border);
+  border-radius: var(--radius-btn);
+  background: var(--color-btn-outline-bg);
+}
+.recognized-line { margin: 0; font-weight: 600; }
+.recognized-phone { margin: 0; opacity: 0.85; }
+.link-button {
+  align-self: flex-start;
+  background: none; border: none; padding: 0.25rem 0;
+  color: var(--color-text); font-size: 14px; font-weight: 600;
+  text-decoration: underline; cursor: pointer; min-height: var(--mg-touch-min);
+  -webkit-tap-highlight-color: transparent;
+}
+.link-button:hover { opacity: 0.85; }
+.link-button:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; border-radius: calc(var(--mg-radius-slot) / 2); }
+
+/* Keyboard focus rings on every CTA (WCAG 2.4.7) */
+.cta-btn:focus-visible,
+.submit-button:focus-visible,
+.back-button:focus-visible,
+.auth-row button:focus-visible,
+.success-new-btn:focus-visible,
+.icon-button:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+/* LINE login button — brand green + verified ✓ morph */
+#line-login { background: var(--color-line); border-color: var(--color-line); color: var(--color-line-text); font-weight: 700; }
+#line-login:hover:not(:disabled) { opacity: 0.9; }
+#line-login.verified {
+  background: var(--color-verified); border-color: var(--color-verified); color: var(--color-line-text);
+  cursor: default; animation: lineVerifiedPop var(--mg-motion-base) var(--mg-ease-out);
+}
+.auth-row button#line-login.verified:disabled { opacity: 1; }
+.line-login-check { display: none; }
+#line-login.verified .line-login-check {
+  display: inline-block; position: relative; width: 16px; height: 16px; margin-right: 0.45rem; flex: 0 0 auto;
+}
+#line-login.verified .line-login-check::after {
+  content: ""; position: absolute; left: 5px; top: 0; width: 5px; height: 11px;
+  border: solid var(--color-line-text); border-width: 0 2px 2px 0;
+  transform: rotate(45deg); transform-origin: center;
+  animation: lineCheckDraw var(--mg-motion-base) var(--mg-ease-out) calc(var(--mg-motion-fast) / 2) both;
+}
+@keyframes lineVerifiedPop { 0% { transform: scale(1); } 50% { transform: scale(1.03); } 100% { transform: scale(1); } }
+@keyframes lineCheckDraw { 0% { transform: rotate(45deg) scale(0); } 100% { transform: rotate(45deg) scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  #line-login.verified { animation: none; }
+  #line-login.verified .line-login-check::after { animation: none; }
+}
+
+/* ── Confirm panel ──────────────────────────────────────── */
+#confirm-panel { padding: 1.25rem; }
+.confirm-panel h2,
+.success-panel h2 {
+  font-size: 1.05rem;
+  line-height: 1.35;
+  margin-bottom: 0.9rem;
+}
+.confirm-dl {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, max-content) minmax(0, 1fr);
+  gap: 0.55rem 0.9rem;
+  margin-bottom: 1rem;
+  font-size: 0.86rem;
+}
+.confirm-dl dt {
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+.confirm-dl dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.confirm-notice,
+.success-message {
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  margin-bottom: 1rem;
+}
+.confirm-actions {
+  display: grid;
+  gap: 0.65rem;
+}
+.confirm-summary { border: 1.5px solid var(--color-border); border-radius: var(--radius-card); overflow: hidden; margin-bottom: 1rem; }
+.confirm-summary-header { background: var(--color-text); color: var(--color-btn-text); padding: 0.65rem 1rem; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; }
+.confirm-summary-body { padding: 0.9rem 1rem; }
+.confirm-row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; padding: 0.35rem 0; border-bottom: 1px solid var(--color-surface); font-size: 0.8rem; }
+.confirm-row:last-child { border-bottom: none; }
+.confirm-key { color: var(--color-text-secondary); font-size: 0.78rem; flex: 0 0 auto; }
+.confirm-val { color: var(--color-text); font-weight: 500; min-width: 0; text-align: right; overflow-wrap: anywhere; }
+
+/* ── Step 2 summary card ────────────────────────────────── */
+.step2-summary-shell { padding: 0 1.25rem; margin-bottom: 1rem; }
+.step2-summary-card { background: var(--color-surface); border-radius: var(--radius-card); padding: 0.9rem 1rem; margin-bottom: 0.65rem; }
+.step2-edit-button { margin: 0; }
+.step2-row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; font-size: 0.78rem; margin-bottom: 0.35rem; }
+.step2-row:last-child { margin-bottom: 0; }
+.step2-key { color: var(--color-text-secondary); flex: 0 0 auto; }
+.step2-val { color: var(--color-text); font-weight: 500; min-width: 0; text-align: right; overflow-wrap: anywhere; }
+
+@media (max-width: 380px) {
+  .step2-row,
+  .confirm-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.05rem;
+  }
+  .step2-val,
+  .confirm-val {
+    text-align: left;
+  }
+  .confirm-dl {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+}
+
+/* ── Success panel ──────────────────────────────────────── */
+#success-panel { padding: 1.25rem; text-align: center; }
+.success-icon { width: 56px; height: 56px; border-radius: 50%; background: var(--color-text); color: var(--color-btn-text); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin: 0 auto 1rem; }
+
+/* ── Resource field (hidden, JS-controlled) ─────────────── */
+.resource-field[hidden] { display: none; }
+
+/* ── Turnstile ──────────────────────────────────────────── */
+.cf-turnstile { margin: 0.75rem 0; }
+
+/* ── Submit note ────────────────────────────────────────── */
+.submit-note { font-size: 0.75rem; color: var(--color-text-secondary-strong); text-align: center; margin-top: 0.75rem; line-height: 1.6; }
+
+/* ── Consent rows (checkbox + document links) ───────────── */
+.consent-row { margin-bottom: 0.65rem; }
+.consent-row:last-child { margin-bottom: 0; }
+.consent-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  /* Align under the checkbox label text (checkbox width + gap). */
+  padding-left: 1.85rem;
+  margin-top: 0.1rem;
+}
+.consent-links a {
+  color: var(--color-text);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  /* Standalone links (not inline-in-sentence): full 44px hit area. */
+  padding: 0.35rem 0;
+  display: inline-flex; align-items: center; min-height: var(--mg-touch-min);
+}
+.consent-links a::after {
+  /* Signal the link opens a new tab. */
+  content: " ↗";
+  font-size: 0.7em;
+}
+.consent-details {
+  /* Align under the checkbox label text, matching .consent-links. */
+  padding-left: 1.85rem;
+  margin-top: 0.1rem;
+  font-size: 0.78rem;
+}
+.consent-details > summary {
+  cursor: pointer;
+  color: var(--color-text);
+  /* 44px hit area; display stays list-item so the disclosure marker survives. */
+  padding: 0.35rem 0;
+  width: fit-content;
+  min-height: var(--mg-touch-min);
+}
+.consent-details .consent-links { padding-left: 0; }
+.consent-details ul {
+  margin: 0.2rem 0 0.3rem;
+  padding-left: 1.1rem;
+  color: var(--color-text-secondary-strong);
+  line-height: 1.5;
+}
+.consent-details li { margin-bottom: 0.2rem; }
+
+/* ── Per-store customer notice (store_settings.customer_notice) ──────────
+   Subtle informational box shown under the store select. Monotone ink accent
+   on the subtle fill so it reads as information, not decoration (FR-001).
+   Text is rendered via textContent in app.js (never innerHTML) — this is
+   free-form operator copy. */
+.store-notice {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.85rem;
+  border-left: 3px solid var(--mg-active-ink);
+  border-radius: var(--radius-field);
+  background: var(--mg-active-fill-subtle);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.store-notice[hidden] { display: none; }
+
+/* ── Duplicate-reservation warning (recognized customer holds bookings) ── */
+.duplicate-warning {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--color-warning);
+  border-left-width: 4px;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+/* Hard variant: an existing reservation is already inside the 24h cancel window. */
+.duplicate-warning[data-level="hard"] {
+  border-color: var(--color-error);
+}
+.duplicate-warning[hidden] { display: none; }
+.duplicate-warning-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+  color: var(--color-warning);
+}
+.duplicate-warning[data-level="hard"] .duplicate-warning-head { color: var(--color-error); }
+.duplicate-warning-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  font-weight: 700;
+  color: var(--color-btn-text);
+  background: var(--color-warning);
+}
+.duplicate-warning[data-level="hard"] .duplicate-warning-icon { background: var(--color-error); }
+.duplicate-warning > p {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text);
+  line-height: 1.6;
+}
+.duplicate-warning-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: var(--color-text);
+}
+.duplicate-warning-list li { margin-bottom: 0.2rem; line-height: 1.5; }
+.duplicate-warning-check {
+  margin-top: 0.75rem;
+  font-weight: 600;
+}
+
+/* Read-only re-display of the acknowledged reservations on the confirm panel. */
+.confirm-duplicate-notice {
+  margin: 0.75rem 0;
+  padding: 0.65rem 0.85rem;
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-surface);
+  border-radius: var(--radius-card);
+}
+.confirm-duplicate-notice[hidden] { display: none; }
+.confirm-duplicate-notice > p {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  color: var(--color-text);
+  line-height: 1.6;
+}
+
+/* ── Public page footer (legal links) ───────────────────── */
+.site-footer {
+  margin: 1.5rem auto 0;
+  padding: 1rem 1.25rem 1.5rem;
+  text-align: center;
+}
+.site-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem 1rem;
+}
+.site-footer a {
+  color: var(--color-text-secondary-strong);
+  font-size: 0.75rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  /* 0.85rem 上下 + 行高で実測 44px 超のタップ領域を確保する (WCAG 2.5.8)。 */
+  padding: 0.85rem 0.25rem;
+  display: inline-block;
+}
+
+/* ── Legal document pages (/legal/*.html) ───────────────── */
+.legal-body {
+  margin: 0;
+  /* Paper (not elevated): the page background must sit one layer below the
+     .legal-shell.surface card and match the <meta name="theme-color"> pair
+     (#FAFAFA / #111111). */
+  background: var(--color-surface);
+  color: var(--color-text);
+  line-height: 1.8;
+}
+.legal-shell {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+}
+.legal-header { margin-bottom: 1.5rem; }
+.legal-header .eyebrow {
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary-strong);
+  margin: 0 0 0.25rem;
+}
+.legal-header h1 { font-size: 1.35rem; margin: 0 0 0.35rem; }
+.legal-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary-strong);
+  margin: 0;
+}
+.legal-article h2 {
+  font-size: 1rem;
+  margin: 1.75rem 0 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+.legal-article h3 { font-size: 0.9rem; margin: 1.1rem 0 0.35rem; }
+.legal-article p, .legal-article li { font-size: 0.85rem; }
+.legal-article ul, .legal-article ol { padding-left: 1.4rem; }
+.legal-article li { margin-bottom: 0.25rem; }
+.legal-article a { color: var(--color-text); text-underline-offset: 2px; }
+.legal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin: 0.75rem 0;
+}
+.legal-table th, .legal-table td {
+  border: 1px solid var(--color-border);
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+.legal-table th { background: var(--color-surface); font-weight: 600; white-space: nowrap; }
+.legal-note {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary-strong);
+  background: var(--color-surface);
+  border-radius: var(--radius-card);
+  padding: 0.75rem 0.9rem;
+}
+.legal-footer {
+  margin-top: 2.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.78rem;
+  color: var(--color-text-secondary-strong);
+}
+.legal-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-bottom: 0.75rem;
+}
+/* Standalone nav rows (not inline-in-sentence): full 44px hit area. */
+.legal-footer a {
+  color: var(--color-text);
+  text-underline-offset: 2px;
+  padding: 0.25rem 0;
+  display: inline-flex; align-items: center; min-height: var(--mg-touch-min);
+}
+
+/* ── Customer reservations page (/customer/reservations, worker SSR) ─────
+   Served by src/customer/reservations-page.ts with this stylesheet as its
+   single link (glass-tokens.css arrives via the @import at the top). Class
+   names below are rendered by public/customer/reservations.js — keep them. */
+.customer-reservations-page main {
+  width: min(720px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding: 1rem 0 2rem;
+}
+.customer-reservations-page h1 { font-size: 1.25rem; margin-bottom: 0.75rem; }
+.customer-reservations-page h2 { font-size: 0.95rem; margin-bottom: 0.4rem; }
+.customer-reservations-page .muted { color: var(--color-text-secondary); margin: 0; }
+/* Face color/border come from .surface (added by reservations.js) — geometry only. */
+.customer-reservations-page .panel {
+  border-radius: var(--radius-card);
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.customer-reservations-page .panel + .panel { margin-top: 0.75rem; }
+.customer-reservations-page .change-guidance { margin-bottom: 0.75rem; }
+.customer-reservations-page .meta { color: var(--color-text-secondary); font-size: 0.8rem; }
+.customer-reservations-page .badge {
+  display: inline-block;
+  font-size: var(--mg-font-min);
+  padding: 2px 6px;
+  border-radius: calc(var(--mg-radius-slot) / 2);
+  background: var(--color-slot-unavailable-bg);
+  color: var(--color-text);
+}
+.customer-reservations-page .badge.pending {
+  background: var(--color-slot-unavailable-bg);
+  color: var(--color-warning);
+}
+/* Face color/border come from .surface (reservations-page.ts markup);
+   the tone override below re-colors only the state border/text. */
+.customer-reservations-page #status-banner {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-field);
+}
+.customer-reservations-page #status-banner[data-tone="error"] {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+.customer-reservations-page #status-banner:empty { display: none; }
+.customer-reservations-page .page-nav { margin-bottom: 0.75rem; font-size: 0.875rem; }
+/* Standalone nav link (not inline-in-sentence): full 44px hit area. The
+   underline hugs the text via text-decoration — a border-bottom would sit at
+   the bottom of the 44px flex box, far below the text. */
+.customer-reservations-page .page-nav a {
+  color: var(--color-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  display: inline-flex; align-items: center; min-height: var(--mg-touch-min);
+}
+.customer-reservations-page .page-nav a:focus-visible,
+.customer-reservations-page .page-nav a:hover { text-decoration-thickness: 2px; }
+.customer-reservations-page .legal-nav {
+  margin-top: 2.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  font-size: 0.78rem;
+}
+.customer-reservations-page .legal-nav a {
+  color: var(--color-text-secondary);
+  display: inline-flex; align-items: center; min-height: var(--mg-touch-min);
+}

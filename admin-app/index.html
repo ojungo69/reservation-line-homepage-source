@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>管理画面 — ExampleStudio</title>
+    <!--
+      crossorigin="use-credentials" is required even though this is same-origin:
+      without it the manifest is fetched with credentials omitted, Cloudflare
+      Access answers with its login page instead of the JSON, and iOS drops the
+      web-app install silently (no console error, Push simply never becomes
+      available).
+    -->
+    <link rel="manifest" href="/admin/manifest.webmanifest" crossorigin="use-credentials" />
+  </head>
+  <body class="min-h-screen bg-background text-foreground antialiased">
+    <div id="root"></div>
+    <!-- admin-spa-sentinel -->
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

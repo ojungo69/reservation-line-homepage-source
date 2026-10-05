@@ -1,0 +1,272 @@
+name: SonarQube Cloud
+run-name: Sonar for CI ${{ github.event.workflow_run.id }} attempt ${{ github.event.workflow_run.run_attempt }} revision ${{ github.event.workflow_run.head_sha }}
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+concurrency:
+  group: sonarqube-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+jobs:
+  analyze:
+    if: github.event.workflow_run.conclusion == 'success' && vars.SONAR_CI_ENABLED
+      == 'true' && github.event.workflow_run.head_repository.full_name ==
+      github.repository
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Resolve analysis context
+        id: context
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: >
+            const run = context.payload.workflow_run;
+
+            const defaultBranch = context.payload.repository.default_branch;
+
+
+            if (run.event === "push") {
+              if (run.head_branch !== defaultBranch) {
+                core.setOutput("mode", "skip");
+                core.notice(`Skipping push to non-default branch: ${run.head_branch}`);
+                return;
+              }
+              core.setOutput("mode", "main");
+              core.setOutput("checkout_sha", run.head_sha);
+              core.setOutput("revision_sha", run.head_sha);
+              return;
+            }
+
+
+            if (run.event !== "pull_request" || run.pull_requests.length !== 1)
+            {
+              core.setOutput("mode", "skip");
+              core.notice(`Skipping unsupported CI context: ${run.event}`);
+              return;
+            }
+
+
+            const candidate = run.pull_requests[0];
+
+            const { data: pull } = await github.rest.pulls.get({
+              ...context.repo,
+              pull_number: candidate.number,
+            });
+
+            if (pull.head.repo?.full_name !==
+            `${context.repo.owner}/${context.repo.repo}`) {
+              core.setOutput("mode", "skip");
+              core.notice("Skipping pull request from a fork");
+              return;
+            }
+
+
+            const headRef = candidate.head?.ref ?? pull.head.ref;
+
+            const baseRef = candidate.base?.ref ?? pull.base.ref;
+
+            if (!run.head_sha || !headRef || !baseRef) {
+              throw new Error("Incomplete pull-request analysis context");
+            }
+
+
+            // Analyze and report the exact revision that produced the CI
+            artifact.
+
+            core.setOutput("mode", "pull_request");
+
+            core.setOutput("checkout_sha", run.head_sha);
+
+            core.setOutput("revision_sha", run.head_sha);
+
+            core.setOutput("pr_number", String(pull.number));
+
+            core.setOutput("head_ref", headRef);
+
+            core.setOutput("base_ref", baseRef);
+      - name: Checkout analyzed revision
+        if: steps.context.outputs.mode != 'skip'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.context.outputs.checkout_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node.js for the scanner
+        if: steps.context.outputs.mode != 'skip'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Prepare coverage destination
+        if: steps.context.outputs.mode != 'skip'
+        shell: bash
+        run: >
+          set -euo pipefail
+
+          if [ ! -d admin-app ] || [ -L admin-app ]; then
+            echo "::error::admin-app must be a regular directory before artifact extraction"
+            exit 1
+          fi
+
+          rm -rf -- coverage admin-app/coverage
+
+          mkdir -- coverage admin-app/coverage
+      - name: Download coverage from CI
+        if: steps.context.outputs.mode != 'skip'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: coverage-report
+          path: .
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Restore trusted analysis configuration
+        if: steps.context.outputs.mode != 'skip'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: >
+            const fs = require("node:fs");
+
+            const path = require("node:path");
+
+            const trustedFiles = [
+              "sonar-project.properties",
+              "tsconfig.json",
+              "admin-app/tsconfig.app.json",
+            ];
+
+
+            const assertRegularCheckoutPath = (filePath) => {
+              const parent = path.dirname(filePath);
+              if (parent !== ".") {
+                let current = ".";
+                for (const segment of parent.split(path.sep)) {
+                  current = path.join(current, segment);
+                  const parentStat = fs.lstatSync(current);
+                  if (parentStat.isSymbolicLink() || !parentStat.isDirectory()) {
+                    throw new Error(`Trusted configuration parent is not a directory: ${current}`);
+                  }
+                }
+              }
+
+              const targetStat = fs.lstatSync(filePath);
+              if (targetStat.isSymbolicLink() || !targetStat.isFile()) {
+                throw new Error(`Trusted configuration checkout path is not a regular file: ${filePath}`);
+              }
+            };
+
+
+            for (const filePath of trustedFiles) {
+              assertRegularCheckoutPath(filePath);
+              const { data } = await github.rest.repos.getContent({
+                ...context.repo,
+                path: filePath,
+                ref: process.env.GITHUB_WORKFLOW_SHA,
+              });
+              if (Array.isArray(data) || data.type !== "file" || data.encoding !== "base64") {
+                throw new Error(`Trusted configuration is not a regular file: ${filePath}`);
+              }
+              fs.writeFileSync(
+                filePath,
+                Buffer.from(data.content.replace(/\n/g, ""), "base64"),
+              );
+            }
+      - name: Validate analysis inputs
+        if: steps.context.outputs.mode != 'skip'
+        shell: bash
+        run: >
+          set -euo pipefail
+
+
+          links=$(find src public admin-app/src -type l -print)
+
+          if [ -n "$links" ]; then
+            echo "::error::Symbolic links are not allowed in Sonar source roots:"
+            echo "$links"
+            exit 1
+          fi
+
+
+          for directory in coverage admin-app/coverage; do
+            if [ ! -d "$directory" ] || [ -L "$directory" ]; then
+              echo "::error::Coverage parent is not a regular directory: $directory"
+              exit 1
+            fi
+          done
+
+
+          for report in coverage/lcov.info admin-app/coverage/lcov.info; do
+            if [ ! -f "$report" ] || [ -L "$report" ] || [ ! -s "$report" ]; then
+              echo "::error::Missing, empty, or symbolic-link coverage report: $report"
+              exit 1
+            fi
+          done
+
+
+          coverage_sources=$(grep -h '^SF:' coverage/lcov.info
+          admin-app/coverage/lcov.info || true)
+
+          if [ -z "$coverage_sources" ]; then
+            echo "::error::Coverage reports contain no source-file records"
+            exit 1
+          fi
+
+
+          while IFS= read -r record; do
+            raw_path=${record#SF:}
+            if [[ "$raw_path" = /* ]]; then
+              source_path=$(realpath -m "$raw_path")
+            else
+              source_path=$(realpath -m "$GITHUB_WORKSPACE/$raw_path")
+            fi
+
+            case "$source_path" in
+              "$GITHUB_WORKSPACE"/src/*|\
+              "$GITHUB_WORKSPACE"/public/*|\
+              "$GITHUB_WORKSPACE"/admin-app/src/*)
+                ;;
+              *)
+                echo "::error::Coverage source escapes the approved source roots: $raw_path"
+                exit 1
+                ;;
+            esac
+
+            if [ ! -f "$source_path" ]; then
+              echo "::error::Coverage references a missing source file: $raw_path"
+              exit 1
+            fi
+          done <<< "$coverage_sources"
+      - name: Require Sonar token
+        if: steps.context.outputs.mode != 'skip'
+        shell: bash
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: >
+          if [ -z "${SONAR_TOKEN:-}" ]; then
+            echo "::error::Add the SONAR_TOKEN Actions secret before enabling SONAR_CI_ENABLED"
+            exit 1
+          fi
+      - name: Analyze main branch
+        if: steps.context.outputs.mode == 'main'
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f
+        with:
+          args: >
+            -Dsonar.scm.revision=${{ steps.context.outputs.revision_sha }}
+            -Dsonar.qualitygate.wait=true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Analyze pull request
+        if: steps.context.outputs.mode == 'pull_request'
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f
+        with:
+          args: >
+            -Dsonar.pullrequest.key=${{ steps.context.outputs.pr_number }}
+            -Dsonar.pullrequest.branch=${{ steps.context.outputs.head_ref }}
+            -Dsonar.pullrequest.base=${{ steps.context.outputs.base_ref }}
+            -Dsonar.scm.revision=${{ steps.context.outputs.revision_sha }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

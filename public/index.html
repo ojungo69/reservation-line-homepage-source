@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#FAFAFA" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111111" media="(prefers-color-scheme: dark)" />
+    <title>ExampleStudio 予約</title>
+    <link rel="preconnect" href="https://static.line-scdn.net" crossorigin />
+    <link rel="preconnect" href="https://challenges.cloudflare.com" crossorigin />
+    <link rel="stylesheet" href="/styles.css?v=20260802-glass-2" />
+    <script src="/app.js?v=20260911-webmcp-1" defer></script>
+  </head>
+  <body>
+    <a href="#reservation-form" class="skip-link">予約フォームへ</a>
+    <main class="shell" id="main">
+      <section class="brand-panel" aria-labelledby="page-title">
+        <div class="brand-row">
+          <div class="brand-media" aria-hidden="true">
+            <span>E</span>
+          </div>
+          <div>
+            <p class="eyebrow">ExampleStudio</p>
+            <h1 id="page-title">LINE予約</h1>
+          </div>
+        </div>
+        <p class="brand-nav">
+          <a href="/customer/reservations">予約の確認へ &rsaquo;</a>
+        </p>
+      </section>
+
+      <section class="reservation-panel surface" aria-label="予約フォーム">
+        <nav class="step-progress glass-thin" aria-label="予約ステップ">
+          <div class="step-item active" data-step="1">
+            <span class="step-num">1</span>
+            <span class="step-label">予約内容</span>
+          </div>
+          <div class="step-connector" id="connector-1-2"></div>
+          <div class="step-item inactive" data-step="2">
+            <span class="step-num">2</span>
+            <span class="step-label">本人確認</span>
+          </div>
+          <div class="step-connector" id="connector-2-3"></div>
+          <div class="step-item inactive" data-step="3">
+            <span class="step-num">3</span>
+            <span class="step-label">確認・送信</span>
+          </div>
+        </nav>
+        <form id="reservation-form" novalidate>
+          <output class="status" id="status" aria-live="polite">読み込んでいます…</output>
+          <p class="pending-recovery" id="pending-recovery" hidden>
+            <a href="/customer/reservations">現在のご予約を確認する &rsaquo;</a>
+          </p>
+
+          <fieldset class="group" id="group-booking">
+            <legend>予約内容</legend>
+            <p class="inline-state">お申し込み後、店舗が内容を確認して予約を確定します。</p>
+            <label>
+              <span>店舗</span>
+              <select id="store" name="storeId" required></select>
+            </label>
+            <p id="store-notice" class="store-notice" aria-live="polite" hidden></p>
+            <div class="service-field">
+              <span class="control-label" id="services-label">メニュー</span>
+              <div class="services-select">
+                <button
+                  type="button"
+                  id="services-trigger"
+                  class="services-trigger"
+                  aria-expanded="false"
+                  aria-controls="services-popover"
+                  aria-labelledby="services-label services-trigger-text"
+                >
+                  <span class="services-trigger-text" id="services-trigger-text">メニューを選択</span>
+                  <span class="services-trigger-caret" aria-hidden="true">▾</span>
+                </button>
+                <div class="services-popover surface" id="services-popover" hidden>
+                  <fieldset class="service-list" id="services" aria-labelledby="services-label"></fieldset>
+                </div>
+              </div>
+              <div class="services-tags" id="services-tags" aria-live="polite"></div>
+              <p class="services-total" id="services-total" aria-live="polite" hidden></p>
+            </div>
+            <label class="resource-field" hidden>
+              <span>予約枠</span>
+              <select id="resource" name="resourceId" required></select>
+            </label>
+            <label>
+              <span>日付</span>
+              <select id="date" name="date" required disabled></select>
+            </label>
+            <div class="slot-region">
+              <div class="slot-header">
+                <span>空き時間</span>
+                <button class="icon-button" id="refresh-slots" type="button" aria-label="空き時間を更新" title="空き時間を更新">
+                  ↻
+                </button>
+              </div>
+              <p id="slot-notice" class="store-notice" aria-live="polite" hidden></p>
+              <div class="slots" id="slots" aria-label="空き時間" aria-live="polite"></div>
+              <div class="date-search-actions">
+                <button type="button" id="find-next-date" class="link-button" disabled>次の空き日を探す</button>
+                <button type="button" id="cancel-date-search" class="link-button" hidden>検索を中止</button>
+              </div>
+              <output id="next-date-status" class="inline-state"></output>
+            </div>
+          </fieldset>
+
+          <button type="button" id="step1-next" class="cta-btn" disabled aria-label="本人確認へ進む">次へ</button>
+
+          <div id="step2-content" hidden>
+          <div class="step2-summary-shell">
+            <div class="step2-summary-card" id="step2-summary" aria-label="予約内容のサマリー" hidden></div>
+            <button type="button" id="booking-edit" class="back-button step2-edit-button">予約内容を変更する</button>
+          </div>
+          <fieldset class="group">
+            <legend>お客様情報</legend>
+            <div id="recognized-contact" class="recognized-contact" hidden>
+              <p class="recognized-line"><span id="recognized-name"></span> 様で予約します</p>
+              <p class="recognized-phone" id="recognized-phone" hidden></p>
+              <button type="button" id="contact-edit" class="link-button">情報を変更</button>
+            </div>
+            <div id="contact-fields">
+              <p class="contact-skip-hint">
+                登録済みのお客様は、下の「LINEでログイン」でお名前・電話番号の入力を省略できます。
+              </p>
+              <label>
+                <span>お名前</span>
+                <input id="display-name" name="displayName" type="text" autocomplete="name" maxlength="120" required />
+              </label>
+              <label>
+                <span>フリガナ</span>
+                <input id="display-name-kana" name="displayNameKana" type="text" autocomplete="off" maxlength="120" />
+              </label>
+              <label>
+                <span>電話番号</span>
+                <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="32" required aria-describedby="phone-hint" />
+                <span class="field-hint" id="phone-hint">例: 09012345678（ハイフンなし）</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="group identity-group">
+            <legend>本人確認</legend>
+            <p class="inline-state auth-note">予約にはLINEログインと公式アカウントの友だち追加確認が必要です。</p>
+            <div class="auth-row">
+              <button id="line-login" type="button" class="line-login-btn" aria-describedby="line-state">
+                <span class="line-login-check" aria-hidden="true"></span>
+                <span class="line-login-label">LINEでログイン</span>
+              </button>
+              <button id="friendship" type="button" disabled aria-describedby="line-state">友だち追加後に再確認</button>
+            </div>
+            <p class="inline-state" id="line-state" aria-live="polite">未確認</p>
+          </fieldset>
+
+          <fieldset class="group consent-group">
+            <legend>同意</legend>
+            <div class="consent-row">
+              <label class="check">
+                <input id="required-consent" type="checkbox" required />
+                <span>利用規約・予約前確認事項・キャンセルポリシー・プライバシーポリシーに同意します</span>
+              </label>
+              <details class="consent-details">
+                <summary>規約・ポリシーを読む</summary>
+                <span class="consent-links">
+                <a href="/legal/terms" target="_blank" rel="noopener">利用規約を読む</a>
+                <a href="/legal/notice" target="_blank" rel="noopener">予約前確認事項を読む</a>
+                <a href="/legal/cancellation" target="_blank" rel="noopener">キャンセルポリシーを読む</a>
+                <a href="/legal/privacy" target="_blank" rel="noopener">プライバシーポリシーを読む</a>
+                </span>
+              </details>
+            </div>
+            <div class="consent-row">
+              <label class="check">
+                <input id="minor-consent" type="checkbox" />
+                <span>未成年の場合は保護者同意済みです</span>
+              </label>
+              <details class="consent-details">
+                <summary>保護者同意について</summary>
+                <span class="consent-links">
+                  <a href="/legal/notice#minor-guardian" target="_blank" rel="noopener">未成年のお客様について読む</a>
+                </span>
+                <ul>
+                  <li>未成年（18歳未満）のお客様は、保護者の方の同意を得たうえでご予約ください。</li>
+                  <li>上のチェックは、保護者の方の同意を得ていることの表明となります。</li>
+                  <li>施術内容によっては、保護者の方の同伴や同意書のご提出をお願いする場合があります。詳しくは店舗へお問い合わせください。</li>
+                </ul>
+              </details>
+            </div>
+          </fieldset>
+
+          <aside class="duplicate-warning" id="duplicate-warning" hidden>
+            <div class="duplicate-warning-head">
+              <span class="duplicate-warning-icon" aria-hidden="true">!</span>
+              <strong id="duplicate-warning-title">既存のご予約があります</strong>
+            </div>
+            <p id="duplicate-warning-lead"></p>
+            <ul class="duplicate-warning-list" id="duplicate-warning-list"></ul>
+            <label class="check duplicate-warning-check" id="duplicate-consent-row">
+              <input id="duplicate-consent" type="checkbox" aria-describedby="duplicate-warning-lead" />
+              <span id="duplicate-consent-label">上記の既存のご予約・お申し込みはそのまま残ること、確定したご予約にご来店が無い場合は施術料金・キャンセル変更料の対象になることを理解しました</span>
+            </label>
+          </aside>
+
+          <div class="turnstile-area" id="turnstile-widget" aria-label="セキュリティ確認"></div>
+          <button class="submit-button" id="submit" type="submit" disabled aria-describedby="status submit-hint billing-note">内容を確認する →</button>
+          <p class="submit-note" id="submit-hint">LINEログイン・空き時間の選択・同意事項のチェックがすべて完了すると押せます。</p>
+          <p class="submit-note billing-note" id="billing-note">ご予約の変更・キャンセルをご希望の場合は、お手数ですが当店公式LINEのトークからご連絡くださいませ。<br />確定後のご予約は、ご来店の有無にかかわらずキャンセルポリシーの対象となります。</p>
+          </div>
+        </form>
+
+        <section id="confirm-panel" class="confirm-panel" hidden aria-label="予約内容確認">
+          <h2>予約内容の確認</h2>
+          <dl class="confirm-dl">
+            <dt>店舗</dt><dd id="confirm-store">-</dd>
+            <dt>メニュー</dt><dd id="confirm-services">-</dd>
+            <dt id="confirm-total-label" hidden>合計</dt><dd id="confirm-total" hidden>-</dd>
+            <dt>日時</dt><dd id="confirm-slot">-</dd>
+            <dt>お名前</dt><dd id="confirm-name">-</dd>
+            <dt>フリガナ</dt><dd id="confirm-kana">-</dd>
+            <dt>電話番号</dt><dd id="confirm-phone">-</dd>
+          </dl>
+          <div class="confirm-duplicate-notice" id="confirm-duplicate-notice" hidden>
+            <p id="confirm-duplicate-lead"></p>
+            <ul class="duplicate-warning-list" id="confirm-duplicate-list"></ul>
+          </div>
+          <p class="confirm-notice">ご予約は店舗が内容を確認・承認した時点で確定となります。確定後のご予約は、ご来店の有無にかかわらずキャンセルポリシーの対象となります。上記の内容でよろしければ「予約を申し込む」を押してください。</p>
+          <div class="confirm-actions">
+            <button id="confirm-back" type="button" class="back-button">← 修正する</button>
+            <button id="confirm-submit" type="button" class="submit-button">予約を申し込む</button>
+          </div>
+        </section>
+
+        <section id="success-panel" class="success-panel" hidden aria-label="予約完了">
+          <div class="success-icon" aria-hidden="true">&#10003;</div>
+          <h2>予約リクエストを受け付けました</h2>
+          <p class="success-message">店舗の承認後に予約が確定します。LINEが届かない場合も、下のリンクから現在のお申し込み状況をご確認いただけます。</p>
+          <dl class="confirm-dl">
+            <dt>店舗</dt><dd id="success-store">-</dd>
+            <dt>メニュー</dt><dd id="success-menu">-</dd>
+            <dt>日時</dt><dd id="success-slot">-</dd>
+          </dl>
+          <div class="confirm-actions">
+            <p class="pending-recovery">
+              <a href="/customer/reservations">現在のご予約を確認する &rsaquo;</a>
+            </p>
+            <button id="success-new" type="button" class="submit-button success-new-btn">別の予約をする</button>
+          </div>
+        </section>
+      </section>
+    <p class="muted"><a href="/source">ソースコード</a></p>
+    </main>
+    <footer class="site-footer">
+      <nav aria-label="規約・ポリシー">
+        <a href="/legal/terms">利用規約</a>
+        <a href="/legal/privacy">プライバシーポリシー</a>
+        <a href="/legal/cancellation">キャンセルポリシー</a>
+        <a href="/legal/tokusho">特定商取引法に基づく表記</a>
+      </nav>
+    </footer>
+  </body>
+</html>

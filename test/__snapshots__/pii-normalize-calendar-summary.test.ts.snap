@@ -1,0 +1,131 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`sanitizeCustomerNameForCalendarSummary — consolidation snapshot > snapshot of all vectors 1`] = `
+[
+  {
+    "input": ""田中 太郎"",
+    "label": "benign Japanese name",
+    "output": "田中 太郎",
+  },
+  {
+    "input": ""タナカ タロウ"",
+    "label": "benign katakana name",
+    "output": "タナカ タロウ",
+  },
+  {
+    "input": "null",
+    "label": "null input",
+    "output": "氏名未登録",
+  },
+  {
+    "input": """",
+    "label": "empty string",
+    "output": "氏名未登録",
+  },
+  {
+    "input": ""   \\t  "",
+    "label": "whitespace only",
+    "output": "氏名未登録",
+  },
+  {
+    "input": ""090-1234-5678"",
+    "label": "phone — hyphen separated",
+    "output": "ご予約",
+  },
+  {
+    "input": ""０９０１２３４５６７８"",
+    "label": "phone — full-width digits",
+    "output": "ご予約",
+  },
+  {
+    "input": ""０９０−１２３４−５６７８"",
+    "label": "phone — full-width dash",
+    "output": "ご予約",
+  },
+  {
+    "input": ""taro@example.com"",
+    "label": "email — ASCII",
+    "output": "ご予約",
+  },
+  {
+    "input": ""taro＠example.com"",
+    "label": "email — full-width @",
+    "output": "ご予約",
+  },
+  {
+    "input": ""1990-03-15"",
+    "label": "date — ISO",
+    "output": "ご予約",
+  },
+  {
+    "input": ""1990年3月15日"",
+    "label": "date — Japanese 年月日",
+    "output": "ご予約",
+  },
+  {
+    "input": ""１９９０年０３月１５日"",
+    "label": "date — full-width digits",
+    "output": "ご予約",
+  },
+  {
+    "input": ""𠮷野 太郎"",
+    "label": "surrogate pair name",
+    "output": "𠮷野 太郎",
+  },
+  {
+    "input": ""太郎 🎉"",
+    "label": "emoji in name",
+    "output": "太郎 🎉",
+  },
+  {
+    "input": ""田中‍太郎"",
+    "label": "zero-width joiner in name",
+    "output": "田中‍太郎",
+  },
+  {
+    "input": ""090​1234​5678"",
+    "label": "zero-width space separating phone",
+    "output": "ご予約",
+  },
+  {
+    "input": ""太郎\\u0000\\u0007花子"",
+    "label": "control chars stripped — result benign",
+    "output": "太郎花子",
+  },
+  {
+    "input": ""090(1234)5678"",
+    "label": "phone — parenthesised",
+    "output": "ご予約",
+  },
+  {
+    "input": ""075/123/4567"",
+    "label": "phone — slash separated",
+    "output": "ご予約",
+  },
+  {
+    "input": ""  田中 太郎  "",
+    "label": "name with trailing spaces",
+    "output": "田中 太郎",
+  },
+  {
+    "input": ""田中@花子"",
+    "label": "bare @ sign in name",
+    "output": "ご予約",
+  },
+  {
+    "input": ""+81 90 1234 5678"",
+    "label": "phone — international +81",
+    "output": "ご予約",
+  },
+  {
+    "input": ""０７５ー１２３ー４５６７"",
+    "label": "katakana prolonged sound dash phone",
+    "output": "ご予約",
+  },
+  {
+    "input": ""田中太郎 taro@example.com"",
+    "label": "mixed benign + PII — at-sign wins",
+    "output": "ご予約",
+  },
+]
+`;

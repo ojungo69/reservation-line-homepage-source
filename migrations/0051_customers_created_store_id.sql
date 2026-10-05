@@ -1,0 +1,19 @@
+-- Store that manually registered this customer (admin "顧客を追加" flow only).
+-- customers is a GLOBAL entity with no store_id: own-store membership is derived
+-- from reservations.store_id / customer_visits.store_id. A manually registered
+-- customer has neither yet, so without this column the staff member who just
+-- created one would immediately lose access to it (fail-closed 403). This is the
+-- third arm of the membership predicate in src/admin/customers.ts.
+--
+-- NULL for every other creation path (public booking, admin reservation create,
+-- LINE friend link) — those get their store binding from the reservation itself.
+-- No backfill: existing rows stay NULL and keep behaving exactly as before.
+--
+-- ponytail: no index. The membership arm (SELECT id FROM customers WHERE
+-- created_store_id = ?) scans customers, but the queries that use it already scan
+-- the same table (the customer list/search reads FROM customers with its own
+-- filters).
+-- Add CREATE INDEX ... ON customers(created_store_id) WHERE created_store_id IS
+-- NOT NULL (the shape used by 0014 / 0028) if the customer table ever grows past
+-- the point where a full scan per list load is noticeable.
+ALTER TABLE customers ADD COLUMN created_store_id TEXT REFERENCES stores(id);

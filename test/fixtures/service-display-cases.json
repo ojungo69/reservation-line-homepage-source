@@ -1,0 +1,10 @@
+{
+  "comment": "Shared display contract for menu-name rendering: strip the category prefix (before 全角｜), KEEP the メンズ｜ prefix, never touch trailing durations, apply per ' / '-joined segment. Referenced by BOTH implementations' tests (admin-app/src/lib/service-pricing.test.ts and test/google-calendar-sync.test.ts) so one side cannot drift without the other side's test failing.",
+  "cases": [
+    { "input": "脱毛｜全身脱毛 60分", "expected": "全身脱毛 60分" },
+    { "input": "メンズ｜全身脱毛 60分", "expected": "メンズ｜全身脱毛 60分" },
+    { "input": "カット 30分", "expected": "カット 30分" },
+    { "input": "フェイシャル｜サンプル 06", "expected": "サンプル 06" },
+    { "input": "脱毛｜全身脱毛 60分 / メンズ｜サンプル 10 / フェイシャル 45分", "expected": "全身脱毛 60分 / メンズ｜サンプル 10 / フェイシャル 45分" }
+  ]
+}

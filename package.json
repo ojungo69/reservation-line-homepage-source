@@ -1,0 +1,81 @@
+{
+  "name": "reservation-line-homepage-source",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
+    "knip": "knip",
+    "test:unit": "NODE_OPTIONS=--no-warnings=ExperimentalWarning vitest run --config vitest.config.ts",
+    "test:worker": "vitest run --config vitest.worker.config.ts",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "coverage:admin": "vitest run --config admin-app/vitest.config.ts --coverage",
+    "cf:types": "wrangler types src/worker-configuration.d.ts",
+    "cf:check": "wrangler deploy --dry-run --env=\"\"",
+    "d1:migrations:list": "wrangler d1 migrations list DB --local",
+    "d1:migrations:apply": "wrangler d1 migrations apply DB --local",
+    "d1:seed": "wrangler d1 execute DB --local --file seeds/dev.sql",
+    "audit:root": "npm_config_allow_scripts= npm audit --userconfig=/dev/null --audit-level=high",
+    "audit:admin": "npm_config_allow_scripts= npm audit --userconfig=/dev/null --audit-level=high --package-lock-only --prefix admin-app",
+    "admin:dev": "cd admin-app && npm run dev",
+    "admin:build": "cd admin-app && npm run build",
+    "admin:typecheck": "cd admin-app && npm run typecheck",
+    "admin:test": "cd admin-app && npm run test",
+    "test": "npm run test:unit && npm run test:worker",
+    "check": "npm run typecheck && npm test && npm run audit:root && npm run audit:admin"
+  },
+  "dependencies": {
+    "@sentry/cloudflare": "^10.70.0",
+    "hono": "^4.13.7",
+    "web-push-neo": "0.1.2"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "jsdom": "^30.0.1",
+    "knip": "^6.32.2",
+    "typescript": "^7.0.2",
+    "typescript-ast": "npm:typescript@^6.0.3",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.127.1",
+    "yaml": "^2.9.0"
+  },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "ws": "^8.20.1",
+    "miniflare": {
+      "undici": "^7.28.0"
+    },
+    "jsdom": {
+      "undici": "^8.9.0"
+    },
+    "sharp": "^0.35.0"
+  },
+  "description": "This repository contains the current draft implementation of the Example Studio reservation system. The specification files are still editable; if implementation work or official API documentation contradicts them, update the docs before coding against the wrong assumption.",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ojungo69/reservation-line-homepage-source.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "AGPL-3.0-only",
+  "bugs": {
+    "url": "https://github.com/ojungo69/reservation-line-homepage-source/issues"
+  },
+  "homepage": "https://github.com/ojungo69/reservation-line-homepage-source#readme",
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "fsevents@2.3.3": false,
+    "workerd@1.20260815.1": true,
+    "workerd@1.20260903.1": true
+  }
+}

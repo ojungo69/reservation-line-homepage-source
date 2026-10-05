@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "ES2023.Array"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "types": ["node", "vitest/globals", "@cloudflare/vitest-pool-workers/types"]
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "workers/**/*.ts",
+    "vitest.config.ts",
+    "vitest.worker.config.ts",
+    "src/worker-configuration.d.ts"
+  ]
+}

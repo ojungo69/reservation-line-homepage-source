@@ -1,0 +1,242 @@
+/* ══════════════════════════════════════════════════════════════════
+   Monotone Liquid Glass — shared design tokens (single source)
+   Contract: specs/002-monotone-glass/contracts/design-token-contract.md
+   - Consumed by public/styles.css (@import) and admin-app/src/index.css.
+   - No `prefers-color-scheme` here: dark remapping lives in each stack
+     (public = styles.css media query, admin = index.css .dark class).
+   - No CSS nesting (parity test regex parser reads flat blocks).
+   - Block order is load-bearing (parity test checks indexOf):
+     base tokens → material base → @supports → reduced-motion →
+     reduced-transparency → prefers-contrast.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Source tokens ─────────────────────────────────────── */
+:root {
+  /* Monotone base (spec FR-001, mock E) */
+  --mg-paper: #FAFAFA;
+  --mg-paper-elevated: #FFFFFF;
+  --mg-ink: #111111;
+  --mg-ink-secondary: #6E6E73;
+  --mg-ink-secondary-strong: #55555B;
+  --mg-ink-disabled: #C7C7CC;
+  --mg-on-ink: #FFFFFF;
+  --mg-hairline: #E5E5EA;
+  --mg-fill-subtle: #F2F2F4;
+
+  /* Glass tiers — heavier surface = stronger blur + deeper shadow */
+  --mg-glass-thick-bg: rgba(255, 255, 255, 0.72);
+  --mg-glass-thick-border: rgba(17, 17, 17, 0.07);
+  --mg-glass-thick-shadow: 0 8px 40px rgba(0, 0, 0, 0.10);
+  --mg-glass-thick-blur: 24px;
+  --mg-glass-mid-bg: rgba(255, 255, 255, 0.60);
+  --mg-glass-mid-border: rgba(17, 17, 17, 0.06);
+  --mg-glass-mid-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  --mg-glass-mid-blur: 16px;
+  --mg-glass-thin-bg: rgba(255, 255, 255, 0.45);
+  --mg-glass-thin-border: rgba(17, 17, 17, 0.05);
+  --mg-glass-thin-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  --mg-glass-thin-blur: 10px;
+  /* Modal glass + scrim: dialog/sheet faces sit on the darkened scrim, where
+     thick's 72% fill drops muted text to ~3:1 — the 95% modal fill keeps
+     ink-secondary ≥4.5:1 over scrim×paper (border/shadow/blur reuse thick). */
+  --mg-glass-modal-bg: rgba(255, 255, 255, 0.95);
+  --mg-scrim: rgba(0, 0, 0, 0.80);
+
+  /* Functional colors (not decorative accents — spec FR-001 allows them) */
+  --mg-error: #C62828;
+  --mg-success: #1B7A3D;
+  --mg-warning: #8A5A00;
+  --mg-line: #0A7D3A;
+  --mg-line-text: #FFFFFF;
+  --mg-verified: #066B30;
+
+  /* Radius scale */
+  --mg-radius-phone: 24px;
+  --mg-radius-card: 12px;
+  --mg-radius-field: 10px;
+  --mg-radius-btn: 12px;
+  --mg-radius-chip: 20px;
+  --mg-radius-slot: 8px;
+  --mg-radius-logo: 10px;
+
+  /* Motion scale — never applied to filter/backdrop-filter (FR-011) */
+  --mg-motion-fast: 120ms;
+  --mg-motion-base: 260ms;
+  --mg-ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --mg-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Functional fixed sizes (values must not change — token contract item 11) */
+  --mg-font-input: 16px;
+  --mg-font-min: 12px;
+  --mg-touch-target: 48px;
+  --mg-touch-min: 44px;
+
+  /* Dark counterparts (colors only; remapped by each stack) */
+  --mg-dark-paper: #111111;
+  --mg-dark-paper-elevated: #1C1C1E;
+  --mg-dark-ink: #F0F0F0;
+  --mg-dark-ink-secondary: #A1A1A6;
+  --mg-dark-ink-secondary-strong: #B8B8B8;
+  --mg-dark-ink-disabled: #48484A;
+  --mg-dark-on-ink: #111111;
+  --mg-dark-hairline: #2C2C2E;
+  --mg-dark-fill-subtle: #1A1A1A;
+  --mg-dark-glass-thick-bg: rgba(28, 28, 30, 0.72);
+  --mg-dark-glass-thick-border: rgba(255, 255, 255, 0.08);
+  --mg-dark-glass-thick-shadow: 0 8px 40px rgba(0, 0, 0, 0.50);
+  --mg-dark-glass-mid-bg: rgba(28, 28, 30, 0.60);
+  --mg-dark-glass-mid-border: rgba(255, 255, 255, 0.07);
+  --mg-dark-glass-mid-shadow: 0 4px 24px rgba(0, 0, 0, 0.40);
+  --mg-dark-glass-thin-bg: rgba(28, 28, 30, 0.45);
+  --mg-dark-glass-thin-border: rgba(255, 255, 255, 0.06);
+  --mg-dark-glass-thin-shadow: 0 2px 12px rgba(0, 0, 0, 0.30);
+  --mg-dark-glass-modal-bg: rgba(28, 28, 30, 0.95);
+  /* --mg-scrim stays one value: a black scrim dims both themes correctly. */
+  --mg-dark-error: #FF6B6B;
+  --mg-dark-success: #4CD07A;
+  --mg-dark-warning: #D6A13A;
+  /* --mg-line / --mg-line-text / --mg-verified stay light-value in dark:
+     white on those greens passes AA on any surrounding surface. */
+
+  /* Active alias layer — the only names consumers may reference for color.
+     Each stack remaps these to --mg-dark-* for its dark theme. */
+  --mg-active-paper: var(--mg-paper);
+  --mg-active-paper-elevated: var(--mg-paper-elevated);
+  --mg-active-ink: var(--mg-ink);
+  --mg-active-ink-secondary: var(--mg-ink-secondary);
+  --mg-active-ink-secondary-strong: var(--mg-ink-secondary-strong);
+  --mg-active-ink-disabled: var(--mg-ink-disabled);
+  --mg-active-on-ink: var(--mg-on-ink);
+  --mg-active-hairline: var(--mg-hairline);
+  --mg-active-fill-subtle: var(--mg-fill-subtle);
+  --mg-active-glass-thick-bg: var(--mg-glass-thick-bg);
+  --mg-active-glass-thick-border: var(--mg-glass-thick-border);
+  --mg-active-glass-thick-shadow: var(--mg-glass-thick-shadow);
+  --mg-active-glass-mid-bg: var(--mg-glass-mid-bg);
+  --mg-active-glass-mid-border: var(--mg-glass-mid-border);
+  --mg-active-glass-mid-shadow: var(--mg-glass-mid-shadow);
+  --mg-active-glass-thin-bg: var(--mg-glass-thin-bg);
+  --mg-active-glass-thin-border: var(--mg-glass-thin-border);
+  --mg-active-glass-thin-shadow: var(--mg-glass-thin-shadow);
+  --mg-active-glass-modal-bg: var(--mg-glass-modal-bg);
+  --mg-active-scrim: var(--mg-scrim);
+  --mg-active-error: var(--mg-error);
+  --mg-active-success: var(--mg-success);
+  --mg-active-warning: var(--mg-warning);
+  --mg-active-line: var(--mg-line);
+  --mg-active-line-text: var(--mg-line-text);
+  --mg-active-verified: var(--mg-verified);
+}
+
+/* 外部予定ブロック (Google 由来) の斜め縞 — 消色の「操作対象外」表現。
+   consumer 側は生値を書けない (contract item 9) ため、縞はここで一度だけ
+   トークン参照で定義する。 */
+.stripe-hairline {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 4px,
+    var(--mg-active-hairline) 4px,
+    var(--mg-active-hairline) 8px
+  );
+}
+
+/* ── Material classes: opaque base (blur is progressive enhancement) ── */
+.surface {
+  background: var(--mg-active-paper-elevated);
+  border: 1px solid var(--mg-active-hairline);
+  box-shadow: var(--mg-active-glass-thin-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.glass-thick {
+  background: var(--mg-active-paper-elevated);
+  border: 1px solid var(--mg-active-glass-thick-border);
+  box-shadow: var(--mg-active-glass-thick-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.glass-mid {
+  background: var(--mg-active-paper-elevated);
+  border: 1px solid var(--mg-active-glass-mid-border);
+  box-shadow: var(--mg-active-glass-mid-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.glass-thin {
+  background: var(--mg-active-paper-elevated);
+  border: 1px solid var(--mg-active-glass-thin-border);
+  box-shadow: var(--mg-active-glass-thin-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.glass-modal {
+  background: var(--mg-active-paper-elevated);
+  border: 1px solid var(--mg-active-glass-thick-border);
+  box-shadow: var(--mg-active-glass-thick-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* ── Translucency: only inside @supports (contract item 4) ── */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-thick {
+    background: var(--mg-active-glass-thick-bg);
+    -webkit-backdrop-filter: blur(var(--mg-glass-thick-blur)) saturate(1.8);
+    backdrop-filter: blur(var(--mg-glass-thick-blur)) saturate(1.8);
+  }
+  .glass-mid {
+    background: var(--mg-active-glass-mid-bg);
+    -webkit-backdrop-filter: blur(var(--mg-glass-mid-blur)) saturate(1.8);
+    backdrop-filter: blur(var(--mg-glass-mid-blur)) saturate(1.8);
+  }
+  .glass-thin {
+    background: var(--mg-active-glass-thin-bg);
+    -webkit-backdrop-filter: blur(var(--mg-glass-thin-blur)) saturate(1.8);
+    backdrop-filter: blur(var(--mg-glass-thin-blur)) saturate(1.8);
+  }
+  .glass-modal {
+    background: var(--mg-active-glass-modal-bg);
+    -webkit-backdrop-filter: blur(var(--mg-glass-thick-blur)) saturate(1.8);
+    backdrop-filter: blur(var(--mg-glass-thick-blur)) saturate(1.8);
+  }
+}
+
+/* ── Reduced motion: gentle cross-fades, no travel ── */
+@media (prefers-reduced-motion: reduce) {
+  .surface,
+  .glass-thick,
+  .glass-mid,
+  .glass-thin,
+  .glass-modal {
+    transition-duration: 0.01ms;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+}
+
+/* ── Reduced transparency: back to opaque (contract item 4) ── */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-thick,
+  .glass-mid,
+  .glass-thin,
+  .glass-modal {
+    background: var(--mg-active-paper-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ── Increased contrast: solid surface with a defined border ── */
+@media (prefers-contrast: more) {
+  .surface,
+  .glass-thick,
+  .glass-mid,
+  .glass-thin,
+  .glass-modal {
+    background: var(--mg-active-paper-elevated);
+    border: 1px solid var(--mg-active-ink);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}

@@ -1,0 +1,166 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "reservation-system",
+  "main": "src/index.ts",
+  "upload_source_maps": true,
+  "compatibility_date": "2026-05-08",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "html_handling": "auto-trailing-slash",
+    "run_worker_first": true
+  },
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    }
+  },
+  "vars": {
+    "ENVIRONMENT": "local",
+    "SPEC_VERSION": "v1.5-draft",
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": "",
+    "LINE_CHANNEL_ID": "",
+    "LINE_LIFF_ID": "",
+    "LINE_OFFICIAL_ACCOUNT_ID": "",
+    "GOOGLE_CALENDAR_WEBHOOK_URL": "",
+    "GOOGLE_IMPORT_ENABLED": "true",
+    "GOOGLE_LIVE_AVAILABILITY_ENABLED": "true",
+    "GOOGLE_DRIFT_ALERT_LIVE": "false",
+    "GOOGLE_CONFLICT_BURST_ALERT_LIVE": "false",
+    "GOOGLE_SERVICE_ACCOUNT_EMAIL": "",
+    "TURNSTILE_SITE_KEY": "",
+    "TURNSTILE_EXPECTED_HOSTNAME": "",
+    "TURNSTILE_EXPECTED_ACTION": "reservation-submit",
+    "RESERVATION_NOTICE_VERSION": "notice-terms-2026-06",
+    "RESERVATION_CANCELLATION_POLICY_VERSION": "cancel-2026-08-31",
+    "RESERVATION_PRIVACY_POLICY_VERSION": "privacy-2026-06",
+    "RESERVATION_MINOR_GUARDIAN_VERSION": "minor-guardian-2026-06",
+    "RESERVATION_DUPLICATE_WARNING_VERSION": "dup-warning-2026-08-31",
+    "RESERVATION_REMINDER_DISPATCH_ENABLED": "false",
+    "DAILY_OPS_SUMMARY_DISPATCH_ENABLED": "false",
+    "OPERATIONS_NOTIFICATION_EMAIL": "",
+    "PENDING_APPROVAL_OWNER_EMAIL": "",
+    "VAPID_PUBLIC_KEY": "",
+    "SENTRY_DSN": "",
+    "SENTRY_TRACES_SAMPLE_RATE_OVERRIDE": "",
+    "MAINTENANCE_MODE": "",
+    "D1_SESSION_ENABLED": "false",
+    "CSV_ARCHIVE_ENABLED": "false"
+  },
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "STORAGE",
+      "bucket_name": "reservation-system-storage"
+    }
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "METRICS",
+      "dataset": "reservation_metrics"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "reservation-system-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "GOOGLE_SYNC_QUEUE",
+        "queue": "reservation-google-sync"
+      },
+      {
+        "binding": "LINE_NOTIFICATION_QUEUE",
+        "queue": "reservation-line-notifications"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "reservation-google-sync",
+        "max_batch_size": 10,
+        "max_retries": 5,
+        "dead_letter_queue": "reservation-google-sync-dlq"
+      },
+      {
+        "queue": "reservation-line-notifications",
+        "max_batch_size": 10,
+        "max_retries": 5,
+        "max_concurrency": 1,
+        "dead_letter_queue": "reservation-line-notifications-dlq"
+      },
+      {
+        "queue": "reservation-google-sync-dlq",
+        "max_batch_size": 100,
+        "max_batch_timeout": 60,
+        "max_retries": 3,
+        "max_concurrency": 1
+      },
+      {
+        "queue": "reservation-line-notifications-dlq",
+        "max_batch_size": 100,
+        "max_batch_timeout": 60,
+        "max_retries": 3,
+        "max_concurrency": 1
+      }
+    ]
+  },
+  "workflows": [
+    {
+      "binding": "RESERVATION_WORKFLOW",
+      "name": "reservation-confirm-workflow",
+      "class_name": "ReservationConfirmWorkflow"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/10 * * * *",
+      "3 19 * * *",
+      "0 11 * * *",
+      "5 16 * * *"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LINE_RATE_LIMITER",
+        "class_name": "LineRateLimiter"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "LineRateLimiter"
+      ]
+    }
+  ],
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA"
+  }
+}

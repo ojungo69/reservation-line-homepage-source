@@ -1,0 +1,10 @@
+{
+  "name": "ExampleStudio 予約管理",
+  "short_name": "予約管理",
+  "lang": "ja",
+  "start_url": "/admin/",
+  "scope": "/admin/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff"
+}

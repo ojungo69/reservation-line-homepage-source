@@ -1,0 +1,12 @@
+{
+  "displayName": "Example Studio",
+  "adminHostname": "admin.example.invalid",
+  "operationsEmailSender": "noreply@example.invalid",
+  "mensMenuStoreId": "kyoto",
+  "stagingStoreIds": [
+    "kyoto",
+    "nagoya",
+    "osaka",
+    "wakayama"
+  ]
+}

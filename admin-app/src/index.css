@@ -1,0 +1,106 @@
+@import "../../public/glass-tokens.css";
+@import "tailwindcss";
+
+/* dark:* utilities は use-theme.ts の .dark クラスに追従させる (research R3)。
+   これが無いと Tailwind v4 既定の prefers-color-scheme で動き、明示 light × OS dark
+   などでコンポーネントの dark:* だけ逆テーマになる。 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* クロームはモノトーン (FR-001/FR-009): セマンティック色はすべて共有トークン
+   (public/glass-tokens.css) の active alias 参照。生値は書かない (contract item 9/12)。
+   予約状態など業務セマンティック色は Tailwind utility のまま維持し
+   contract item 13 の allowlist で管理する。 */
+@theme inline {
+  --color-background: var(--mg-active-paper);
+  --color-foreground: var(--mg-active-ink);
+  --color-card: var(--mg-active-paper-elevated);
+  --color-card-foreground: var(--mg-active-ink);
+  --color-popover: var(--mg-active-paper-elevated);
+  --color-popover-foreground: var(--mg-active-ink);
+  /* 主色は墨 (R6: indigo → 墨)。hover:bg-primary/90 でも on-ink 白と AA を保つ */
+  --color-primary: var(--mg-active-ink);
+  --color-primary-foreground: var(--mg-active-on-ink);
+  --color-secondary: var(--mg-active-fill-subtle);
+  --color-secondary-foreground: var(--mg-active-ink);
+  --color-muted: var(--mg-active-fill-subtle);
+  --color-muted-foreground: var(--mg-active-ink-secondary);
+  --color-accent: var(--mg-active-fill-subtle);
+  --color-accent-foreground: var(--mg-active-ink);
+  --color-destructive: var(--mg-active-error);
+  --color-destructive-foreground: var(--mg-active-on-ink);
+  --color-border: var(--mg-active-hairline);
+  --color-input: var(--mg-active-hairline);
+  --color-ring: var(--mg-active-ink);
+  --color-sidebar-background: var(--mg-active-paper);
+  --color-sidebar-foreground: var(--mg-active-ink-secondary);
+  --color-sidebar-primary: var(--mg-active-ink);
+  --color-sidebar-primary-foreground: var(--mg-active-on-ink);
+  /* サイドバーの選択状態は墨塗り+白抜き (顧客フォームの選択状態と同じ言語 — FR-004) */
+  --color-sidebar-accent: var(--mg-active-ink);
+  --color-sidebar-accent-foreground: var(--mg-active-on-ink);
+  --color-sidebar-border: var(--mg-active-hairline);
+  --color-sidebar-ring: var(--mg-active-ink-disabled);
+  /* Radix overlay の暗幕 (dialog/sheet/alert-dialog 共通) */
+  --color-scrim: var(--mg-active-scrim);
+
+  /* 固定対応 (contract item 12(b)): lg=card / md=btn / sm=field */
+  --radius-lg: var(--mg-radius-card);
+  --radius-md: var(--mg-radius-btn);
+  --radius-sm: var(--mg-radius-field);
+
+  /* 共有トークンモデル外 (contract item 12(c)): 現行値維持 */
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* ネイティブ UI (date/time 入力等) もテーマへ追従させる (research R3) */
+:root {
+  color-scheme: light;
+}
+
+/* dark テーマ: dark 対を持つ active alias を全量再写像 (contract item 12(d))。
+   --mg-active-line / -line-text / -verified は意図的に light 値を継承
+   (item 7 と共通の除外リスト)。 */
+.dark {
+  color-scheme: dark;
+  --mg-active-paper: var(--mg-dark-paper);
+  --mg-active-paper-elevated: var(--mg-dark-paper-elevated);
+  --mg-active-ink: var(--mg-dark-ink);
+  --mg-active-ink-secondary: var(--mg-dark-ink-secondary);
+  --mg-active-ink-secondary-strong: var(--mg-dark-ink-secondary-strong);
+  --mg-active-ink-disabled: var(--mg-dark-ink-disabled);
+  --mg-active-on-ink: var(--mg-dark-on-ink);
+  --mg-active-hairline: var(--mg-dark-hairline);
+  --mg-active-fill-subtle: var(--mg-dark-fill-subtle);
+  --mg-active-glass-thick-bg: var(--mg-dark-glass-thick-bg);
+  --mg-active-glass-thick-border: var(--mg-dark-glass-thick-border);
+  --mg-active-glass-thick-shadow: var(--mg-dark-glass-thick-shadow);
+  --mg-active-glass-mid-bg: var(--mg-dark-glass-mid-bg);
+  --mg-active-glass-mid-border: var(--mg-dark-glass-mid-border);
+  --mg-active-glass-mid-shadow: var(--mg-dark-glass-mid-shadow);
+  --mg-active-glass-thin-bg: var(--mg-dark-glass-thin-bg);
+  --mg-active-glass-thin-border: var(--mg-dark-glass-thin-border);
+  --mg-active-glass-thin-shadow: var(--mg-dark-glass-thin-shadow);
+  --mg-active-glass-modal-bg: var(--mg-dark-glass-modal-bg);
+  --mg-active-error: var(--mg-dark-error);
+  --mg-active-success: var(--mg-dark-success);
+  --mg-active-warning: var(--mg-dark-warning);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+}
+
+/* 空状態の入場 (motion-safe 側でのみ animate-[empty-state-in_...] から参照される) */
+@keyframes empty-state-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

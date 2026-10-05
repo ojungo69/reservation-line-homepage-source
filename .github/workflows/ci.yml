@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --prefix admin-app
+      - run: npm run cf:types
+      - run: npm run typecheck
+      - run: npm run knip
+      - run: npm run test:unit -- --coverage
+      - run: npm run test:worker
+      - run: npm run admin:typecheck
+      - run: npm run admin:build
+      - run: npm run coverage:admin
+      - run: npm run cf:check
+      - run: npm run audit:root
+      - run: npm run audit:admin
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-report
+          path: |
+            coverage/lcov.info
+            admin-app/coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 14
