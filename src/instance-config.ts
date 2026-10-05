@@ -30,7 +30,9 @@ export function parseInstanceConfig(value: unknown) {
   if (typeof value.displayName !== "string" || !value.displayName.trim() || value.displayName.length > 80 ||
       (/[\r\n]/.test(value.displayName) || value.displayName.includes("\0"))) throw new Error("Invalid instance display name");
   if (typeof value.operationsEmailSender !== "string" ||
-      !/^[a-zA-Z0-9._%+-]+@[a-z0-9.-]+$/.test(value.operationsEmailSender)) {
+      value.operationsEmailSender.length > 254 ||
+      !/^[a-zA-Z0-9_%+-]+(?:\.[a-zA-Z0-9_%+-]+)*@[a-z0-9.-]+$/.test(value.operationsEmailSender) ||
+      value.operationsEmailSender.indexOf("@") > 64) {
     throw new Error("Invalid instance email sender");
   }
   const staffEmailDomain = hostname(value.operationsEmailSender.slice(value.operationsEmailSender.indexOf("@") + 1));

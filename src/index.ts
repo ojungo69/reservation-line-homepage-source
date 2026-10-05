@@ -485,11 +485,13 @@ async function routeRequest(
   }
 
   // admin.example.invalid is operator-only. Any non-admin path on that host (e.g. /,
-  // /styles.css, /api/public/*) 301-redirects to /admin so customers never see the
+  // /styles.css, /api/public/*) redirects to /admin. The GET/HEAD source offer is public,
+  // so all remote users can obtain this version without entering the booking UI. Customers never see the
   // reservation UI on the admin domain and operators always land on the dashboard.
   // The check lives here — BEFORE the worker/ASSETS split — because Hono middleware
   // never sees the asset paths (/, /styles.css) that fall straight through to ASSETS.
-  if (isAdminHost(host) && !isAdminPrivatePath(url.pathname)) {
+  const publicSourceOffer = url.pathname === "/source" && (request.method === "GET" || request.method === "HEAD");
+  if (isAdminHost(host) && !isAdminPrivatePath(url.pathname) && !publicSourceOffer) {
     return redirectToAdmin(url.search);
   }
 

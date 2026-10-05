@@ -83,7 +83,7 @@ export const PUBLIC_LIFF_CSP = [
 // so the header is only ever emitted over HTTPS.
 //
 // `includeSubDomains` is safe here: the header is served on
-// reserve./admin.example.invalid, so it only constrains *their* nested
+// reserve.example.invalid and admin.example.invalid, so it only constrains their nested
 // subdomains (none exist). The apex (separate Pages site) is unaffected
 // by a subdomain's header. `preload` is intentionally omitted —
 // preload-list inclusion requires the header on the apex and is
