@@ -159,6 +159,12 @@ export function Sidebar({ collapsed, onNavigate }: Readonly<SidebarProps>) {
       </nav>
 
       <div className="border-t p-3">
+        <a href="https://github.com/ojungo69/reservation-line-homepage-source"
+          target="_blank" rel="noreferrer"
+          className="mb-2 flex min-h-11 items-center justify-center text-xs underline"
+          aria-label="ソースコード">
+          {collapsed ? "</>" : "ソースコード"}
+        </a>
         <p className="truncate text-xs text-muted-foreground">{user.email}</p>
         {!collapsed && <p className="text-xs capitalize text-muted-foreground">{user.role}</p>}
       </div>

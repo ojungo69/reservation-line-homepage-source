@@ -20,6 +20,8 @@ export default defineConfig({
     },
   },
   test: {
+    // CI runs DOM suites serially to keep coverage work within the existing test budgets.
+    maxWorkers: process.env.CI === "true" ? 1 : undefined,
     projects: [
       {
         extends: true,
