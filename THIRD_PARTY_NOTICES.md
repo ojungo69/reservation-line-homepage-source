@@ -120,6 +120,6 @@ The following packages are reachable from production dependency declarations in 
 
 ## Build and test dependencies
 
-Other lockfile entries are used for local development, testing, or packaging. In particular, `sharp@0.35.4` and optional `@img/sharp-libvips-*@1.3.3` appear only outside the production dependency closures. Their binaries are not included in this source release. If a binary or build image is distributed separately, its own license and source obligations need a separate distribution check. The operational Sentry CLI is absent from the current public lockfile; runtime `@sentry/cloudflare` remains listed above.
+Other lockfile entries are used for local development, testing, or packaging. In particular, `sharp@0.35.5` and optional `@img/sharp-libvips-*@1.3.4` appear only outside the production dependency closures. Their binaries are not included in this source release. If a binary or build image is distributed separately, its own license and source obligations need a separate distribution check. The operational Sentry CLI is absent from the current public lockfile; runtime `@sentry/cloudflare` remains listed above.
 
 The lockfiles retain each package's exact version and source archive. The local publication inventory records the full classification, lock hashes, and notice origins.
