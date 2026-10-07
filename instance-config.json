@@ -2,6 +2,7 @@
   "displayName": "Example Studio",
   "adminHostname": "admin.example.invalid",
   "operationsEmailSender": "noreply@example.invalid",
+  "staffEmailDomain": "example.invalid",
   "mensMenuStoreId": "kyoto",
   "stagingStoreIds": [
     "kyoto",

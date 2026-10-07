@@ -5,13 +5,21 @@ const example = {
   displayName: "Example Studio",
   adminHostname: "admin.example.invalid",
   operationsEmailSender: "noreply@example.invalid",
+  staffEmailDomain: "example.invalid",
   mensMenuStoreId: "sample-a",
   stagingStoreIds: ["sample-a", "sample-b"]
 };
 
 describe("instance configuration boundary", () => {
+  it("keeps the staff email domain independent of the notification sender subdomain", () => {
+    expect(parseInstanceConfig({ ...example, operationsEmailSender: "noreply@mail.example.invalid", staffEmailDomain: "example.invalid" })).toMatchObject({
+      operationsEmailSender: "noreply@mail.example.invalid",
+      staffEmailDomain: "example.invalid"
+    });
+  });
+
   it("supports fictional operator values without accepting a credential field", () => {
-    expect(parseInstanceConfig(example)).toEqual({ ...example, staffEmailDomain: "example.invalid" });
+    expect(parseInstanceConfig(example)).toEqual(example);
     expect(() => parseInstanceConfig({ ...example, secret: "must-stay-in-env" })).toThrow();
   });
 
@@ -24,6 +32,7 @@ describe("instance configuration boundary", () => {
     { ...example, operationsEmailSender: "..@example.invalid" },
     { ...example, operationsEmailSender: "name.@example.invalid" },
     { ...example, operationsEmailSender: "first..last@example.invalid" },
+    { ...example, staffEmailDomain: "example.invalid/path" },
     { ...example, mensMenuStoreId: "" },
     { ...example, stagingStoreIds: ["sample-a", "sample-a"] },
     { ...example, stagingStoreIds: [1] },

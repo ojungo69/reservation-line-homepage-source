@@ -1,6 +1,6 @@
 import configuration from "../instance-config.json";
 
-const keys = new Set(["displayName", "adminHostname", "operationsEmailSender", "mensMenuStoreId", "stagingStoreIds"]);
+const keys = new Set(["displayName", "adminHostname", "operationsEmailSender", "staffEmailDomain", "mensMenuStoreId", "stagingStoreIds"]);
 const storeIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 function hostname(value: unknown): string {
@@ -23,7 +23,7 @@ function storeId(value: unknown): string {
 export function parseInstanceConfig(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value) ||
       Object.keys(value).length !== keys.size || Object.keys(value).some((key) => !keys.has(key)) ||
-      !("displayName" in value) || !("adminHostname" in value) || !("operationsEmailSender" in value) ||
+      !("displayName" in value) || !("adminHostname" in value) || !("operationsEmailSender" in value) || !("staffEmailDomain" in value) ||
       !("mensMenuStoreId" in value) || !("stagingStoreIds" in value)) {
     throw new Error("Invalid instance configuration fields");
   }
@@ -35,7 +35,8 @@ export function parseInstanceConfig(value: unknown) {
       value.operationsEmailSender.indexOf("@") > 64) {
     throw new Error("Invalid instance email sender");
   }
-  const staffEmailDomain = hostname(value.operationsEmailSender.slice(value.operationsEmailSender.indexOf("@") + 1));
+  hostname(value.operationsEmailSender.slice(value.operationsEmailSender.indexOf("@") + 1));
+  const staffEmailDomain = hostname(value.staffEmailDomain);
   if (!Array.isArray(value.stagingStoreIds) || !value.stagingStoreIds.length) {
     throw new Error("Invalid instance staging stores");
   }
