@@ -1,0 +1,41 @@
+name: 不具合・導入の問題
+description: 架空データで再現できる問題を報告する
+body:
+  - type: markdown
+    attributes:
+      value: |
+        脆弱性は公開せず [非公開窓口](https://github.com/ojungo69/reservation-line-homepage-source/security/advisories/new)へ報告してください。
+        token、Secret、メールアドレス、顧客・予約の実データ、DB dump を添付しないでください。
+  - type: input
+    id: revision
+    attributes:
+      label: 対象 commit / release tag
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 実行環境
+      description: OS、Node.js・Wrangler の版、ローカルか配備先か。アカウントIDや秘密値は不要です。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 架空データによる再現手順
+      description: 実行した手順・コマンドを秘密値なしで記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待する挙動と実際の挙動
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 公開内容の確認
+      options:
+        - label: 実データ・資格情報を含めず、機密性のある脆弱性報告ではないことを確認しました。
+          required: true

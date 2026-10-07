@@ -27,6 +27,12 @@ npm run audit:admin
 
 公開側にはアプリのテストを収録しています。本番配備・バックアップ・復旧・監視と、それらの運用契約テストは非公開の運用側で維持します。公開リポジトリに本番 Secret や常設の本番 runner を接続しないでください。
 
+## 導入後の保守と報告
+
+自分の環境の更新・バックアップ・復旧は[運用手順](docs/OPERATIONS.md)を参照してください。検証した版は [Releases](https://github.com/ojungo69/reservation-line-homepage-source/releases) に記録します。初回は導入検証用の prerelease とし、第三者の新規アカウントでの Access・LINE・Google・Turnstile・Email の通し確認は未実施です。
+
+通常の不具合・改善提案は [Issue](https://github.com/ojungo69/reservation-line-homepage-source/issues/new/choose)、機密性のある脆弱性は[非公開報告窓口](SECURITY.md)を使ってください。外部コード PR の受け入れ条件は [CONTRIBUTING.md](CONTRIBUTING.md) に記載しています。
+
 ## ライセンスと対応するソース
 
 Original software copyright 2026 ojungo69. GNU Affero General Public License version 3 only. [LICENSE](LICENSE) と [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。対応する公開ソースは https://github.com/ojungo69/reservation-line-homepage-source です。自分の改変版を配備する場合は、配備版に対応するソースを公開し、[公開ソースへのリンク](public/source.html)もその版に合わせて確認してください。
