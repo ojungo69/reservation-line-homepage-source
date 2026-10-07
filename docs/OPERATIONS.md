@@ -25,7 +25,9 @@ npm run cf:check
 
 `wrangler whoami`、`wrangler d1 info DB`、自分の設定の Worker 名・DB ID を照合し、対象アカウントと DB を確認します。複数環境を使う場合は config/env 指定をすべてのコマンドで統一します。以下は INSTALL と同じ default config の例です。
 
-予約を受け付けない時間帯を決め、HTTP 以外の scheduled、Queue/DLQ、Workflow、外部 webhook、別ツールからの書き込みも確認します。`MAINTENANCE_MODE=d1-dr-freeze` は配備されて初めて入口で働きます。設定ファイルの編集だけでは停止しません。新しい HTTP は503、scheduled は処理せず、Queue は再試行等の挙動になります。すでに実行中の処理や古い Worker/Workflow、すべての Queue 消費を止めた証拠にはなりません。書き込み元の停止・処理終了を確認してから migration や復旧に進みます。
+予約を受け付けない時間帯を決め、HTTP 以外の scheduled、Queue/DLQ、Workflow、外部 webhook、別ツールからの書き込みも確認します。`MAINTENANCE_MODE=d1-dr-freeze` は配備されて初めて入口で働きます。設定ファイルの編集だけでは停止しません。新しい HTTP は503、scheduled は処理せず、通常 Queue は再試行しますが、DLQ consumer は freeze 判定より前にメッセージを ack します。すでに実行中の処理や古い Worker/Workflow、すべての Queue 消費を止めた証拠にはなりません。
+
+freeze 配備前に、自分の通常 Queue と DLQ の配送を [Cloudflare の pause-delivery](https://developers.cloudflare.com/queues/configuration/pause-purge/) で停止します。対象アカウントと4つの Queue 名を確認し、各 Queue に `./node_modules/.bin/wrangler queues pause-delivery QUEUE_NAME` を実行します。停止中も新着メッセージは保存されますが、保持期限は延長されません。進行中の処理も終了したことを確認してから DB 操作へ進みます。再開は復旧・整合性確認後に各 Queue の `resume-delivery` で行い、停止のために `purge` を使いません。
 
 このフラグで停止する場合は、**更新前の現行コード**と自分の現行設定を用意した checkout で `MAINTENANCE_MODE=d1-dr-freeze` を設定し、build/dry-run 後に `npm run deploy` で停止を配備します。自分のホストの `/.well-known/sdj-d1-dr-freeze` が503、`reason: d1-dr-freeze`、`sentinel: true` を返すことを確認します。これは後述の新版配備とは別の操作で、**DB のバックアップ・migration より前**に完了させます。停止が確認できない場合は DB 操作へ進みません。
 
