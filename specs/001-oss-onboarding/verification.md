@@ -42,3 +42,11 @@ Reproducible commands: quickstart.md and docs/INSTALL.md. Raw command logs, nati
 screenshots are under ignored output/oss-onboarding and are retained outside the temporary tree at
 closeout. No real provider credentials or customer data were used. Real Access/LINE/Google/Turnstile/
 Email booking and notification checks remain the installing operator's explicit readiness steps.
+
+## PR review clarifications
+Documented an explicit Calendar-ID update/readback, native resource creation and deployment
+commands, and the fixed queue-name constraint. CLI flags were checked with installed Wrangler
+--help. Initial data precedes first deployment; an already-warmed catalog follows the existing
+60-second TTL-only contract. No runtime cache policy changed. The fixture now books an actually
+advertised slot and compares the reservation start/end against it. Updated focused17/typecheck
+PASS. Independent task verification was performed once before this review clarification.

@@ -36,6 +36,21 @@ npm run admin:build
 
 この手順では queue 名を変更しません。`reservation-google-sync`、`reservation-line-notifications`、`reservation-google-sync-dlq`、`reservation-line-notifications-dlq` を自分のアカウント内に新規作成し、producer と consumer に同じ名前を指定します。アプリは固定の queue 名で処理を振り分けるため、任意名では処理できません。同名の queue を別アプリが使用中なら混用せず、環境の分離を先に設計してください。
 
+自分の Cloudflare アカウントへログインし、`whoami` で対象を確認してから作成します。複数アカウントを使う場合は `wrangler.jsonc` の `account_id` も対象に固定してください。以下の D1・bucket 名は自分の新規インストール用に選び、返された ID と名前を設定へ反映します。queue 名は上記の制約を守ります。
+
+```sh
+set -eu
+./node_modules/.bin/wrangler login
+./node_modules/.bin/wrangler whoami
+./node_modules/.bin/wrangler d1 create reservation-system-db
+./node_modules/.bin/wrangler kv namespace create CACHE
+./node_modules/.bin/wrangler r2 bucket create reservation-system-storage
+./node_modules/.bin/wrangler queues create reservation-google-sync
+./node_modules/.bin/wrangler queues create reservation-line-notifications
+./node_modules/.bin/wrangler queues create reservation-google-sync-dlq
+./node_modules/.bin/wrangler queues create reservation-line-notifications-dlq
+```
+
 | 設定 | このアプリでの用途 | 導入時の扱い |
 | --- | --- | --- |
 | `DB` / D1 | 店舗、管理者、予約の正本 | 必須。新規 DB にすべての migration を適用 |
@@ -65,17 +80,44 @@ set -eu
 ./node_modules/.bin/wrangler d1 execute DB --remote --file .wrangler/bootstrap.sql
 ```
 
+初期データは初回の Worker 配備より前に適用してください。すでに確認用の配備へアクセスした場合は、KV に空のカタログが残ることがあります。既存のカタログ cache は有効期限が60秒なので、期限後に公開 options を再取得し、1店舗になったことを確認します。
+
 初回ログインでは一致するメールの `pending:` 行だけが検証済み Access subject に結び付きます。別メール、別 subject、無効化済み owner が拒否されることを確認します。ローカルの開発用 owner 表示で代用しません。
 
 LINE Login channel とその LIFF app、Messaging API channel と公式アカウントを自分の Provider 内に設定します。`LINE_CHANNEL_ID`、`LINE_LIFF_ID`、`LINE_CHANNEL_SECRET`、`LINE_OFFICIAL_ACCOUNT_ID`、`LINE_MESSAGING_CHANNEL_ACCESS_TOKEN` は別の値です。Login 側と公式アカウントの連携、`profile` scope と友だち状態、公開ホストの LIFF URL、`/api/line/webhook` の署名検証を実接続で確認します。[LIFF の設定](https://developers.line.biz/en/docs/liff/developing-liff-apps/)と[Messaging webhook](https://developers.line.biz/en/docs/messaging-api/receiving-messages/)を参照してください。
 
+`LINE_CHANNEL_ID` は Login 側の ID、`LINE_CHANNEL_SECRET` は webhook 署名検証に使う Messaging API 側の channel secret です。非秘密値は `wrangler.jsonc` の `vars`、秘密値は自分の Worker の secrets に設定します。`.dev.vars` の値はリモートへ自動反映されません。
+
 Google Calendar API を自分の project で使い、対象店舗の Calendar ID、service account email / private key、予定の読み書きに必要な Calendar 共有権限を設定します。`GOOGLE_CALENDAR_WEBHOOK_URL` は実公開ホストの `/api/google/calendar/webhook` に合わせます。Google import と live availability は Calendar 共有、service account のアクセス、watch/webhook、競合・同期処理を実接続で確認するまで false のままにします。確認後は `GOOGLE_IMPORT_ENABLED=true` と `GOOGLE_LIVE_AVAILABILITY_ENABLED=true` に設定し、空き枠と同期を再確認してください。[Calendar 共有権限](https://developers.google.com/workspace/calendar/api/concepts/sharing)と[push 通知](https://developers.google.com/workspace/calendar/api/guides/push)を確認してください。
+
+初期データの Calendar ID は NULL です。次の SQL を gitignored の `.wrangler/calendar.sql` に保存し、例の値を Calendar の設定画面で確認した実 ID に置き換えてください。ID が未設定のまま Google のフラグを有効にすると、空き枠・予約の検証が失敗します。
+
+```sql
+UPDATE stores SET google_calendar_id = 'calendar-id@example.invalid' WHERE id = 'kyoto';
+```
+
+```sh
+set -eu
+./node_modules/.bin/wrangler d1 execute DB --remote --file .wrangler/calendar.sql
+./node_modules/.bin/wrangler d1 execute DB --remote --command "SELECT id, google_calendar_id FROM stores WHERE id = 'kyoto'"
+```
 
 Turnstile widget を予約ホスト名に登録し、site key と Worker secret の `TURNSTILE_SECRET_KEY` を別々に設定します。`TURNSTILE_EXPECTED_HOSTNAME` と `TURNSTILE_EXPECTED_ACTION` は実際の hostname / `reservation-submit` と揃え、サーバーの Siteverify 成功・拒否・hostname/action 不一致を確認します。[Siteverify](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/)が公開前の確認対象です。[Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/)を使い、秘密値を git や公開ログへ置かないでください。
 
 owner の承認待ち通知を受け取れるよう、`OPERATIONS_NOTIFICATION_EMAIL` または `PENDING_APPROVAL_OWNER_EMAIL` と `EMAIL` binding を設定します。送信元は `instance-config.json` の `operationsEmailSender` で、[Email Service の送信元ドメイン](https://developers.cloudflare.com/email-service/get-started/send-emails/)として使えることを確認します。受信先は自分のアカウントで許可・確認し、実際の到達を確認してください。Web Push は VAPID 鍵と連絡先を設定した場合の補助です。通知を受け取れないまま承認待ち予約を受け付けないでください。
 
 ## 3. 実予約前の確認
+
+自分の設定・Secret・初期データ・公開文書を揃えてから、確認用の公開先へ配備します。Google の2フラグは初回配備時に明示的に false とし、実 Calendar の ID・共有・接続確認後に true にして再配備します。
+
+```sh
+set -eu
+npm run admin:build
+npm run cf:check
+npm run deploy
+```
+
+この配備は導入作業者自身が行うものです。以下の実接続チェックが終わるまで実予約を案内しません。
 
 - `public/legal/` のプライバシー、規約、通知、取消、事業者・料金・連絡先を実態に合わせ、関連する `RESERVATION_*_VERSION` も更新する。
 - 配備した版と対応する AGPL ソースが公開され、`public/source.html` の URL がその版を指すことを確かめる。

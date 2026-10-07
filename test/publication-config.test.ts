@@ -162,6 +162,8 @@ describe("one-store OSS installation", () => {
     if (!availability.ok) throw new Error(availability.reason);
     expect(availability.availabilityStatus).toBe("ready");
     expect(availability.slots.length).toBeGreaterThan(0);
+    const slot = availability.slots[0];
+    if (!slot) throw new Error("Bootstrap must advertise a bookable slot");
 
     const options = await listPublicReservationOptions({ db, env });
     if (!options.ok) throw new Error(options.reason);
@@ -171,7 +173,7 @@ describe("one-store OSS installation", () => {
       request: {
         idempotencyKey: "bootstrap-booking", storeId: "kyoto",
         serviceId: "service_kyoto_bootstrap", resourceId: "resource_kyoto_bootstrap",
-        startAt: "2030-01-02T01:00:00.000Z",
+        startAt: slot.startAt,
         customer: { displayName: "Example Customer", phone: "09000000000" },
         consents: {
           noticeVersion: options.consentVersions.notice,
@@ -180,7 +182,10 @@ describe("one-store OSS installation", () => {
         }
       }
     });
-    expect(result).toMatchObject({ ok: true, status: "pending_approval", storeId: "kyoto" });
+    expect(result).toMatchObject({
+      ok: true, status: "pending_approval", storeId: "kyoto",
+      startAt: slot.startAt, endAt: slot.endAt
+    });
     expect(database.sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 });
