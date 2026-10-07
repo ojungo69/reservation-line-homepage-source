@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 脆弱性を非公開で報告する
+    url: https://github.com/ojungo69/reservation-line-homepage-source/security/advisories/new
+    about: 認証・認可、情報漏えいなど機密性のある問題はこちらへ。
+  - name: 初回導入の手順
+    url: https://github.com/ojungo69/reservation-line-homepage-source/blob/main/docs/INSTALL.md
+    about: 自分のアカウントを設定する前にローカルで確認できます。
