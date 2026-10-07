@@ -1,4 +1,4 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: 脆弱性を非公開で報告する
     url: https://github.com/ojungo69/reservation-line-homepage-source/security/advisories/new

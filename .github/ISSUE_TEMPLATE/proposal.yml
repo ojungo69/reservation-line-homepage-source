@@ -1,0 +1,28 @@
+name: 改善提案
+description: 機能や導入手順の改善を提案する
+body:
+  - type: markdown
+    attributes:
+      value: |
+        実データや資格情報を含めないでください。脆弱性は [非公開窓口](https://github.com/ojungo69/reservation-line-homepage-source/security/advisories/new)へ報告してください。
+        外部コード PR の取り込みは、CONTRIBUTING.md の条件確認まで保留しています。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解決したい問題
+      description: 利用場面や困っている点を、架空の例で説明してください。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 改善案
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 公開内容の確認
+      options:
+        - label: 実データ・資格情報を含めず、機密性のある脆弱性報告ではないことを確認しました。
+          required: true

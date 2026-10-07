@@ -27,6 +27,8 @@ npm run cf:check
 
 予約を受け付けない時間帯を決め、HTTP 以外の scheduled、Queue/DLQ、Workflow、外部 webhook、別ツールからの書き込みも確認します。`MAINTENANCE_MODE=d1-dr-freeze` は配備されて初めて入口で働きます。設定ファイルの編集だけでは停止しません。新しい HTTP は503、scheduled は処理せず、Queue は再試行等の挙動になります。すでに実行中の処理や古い Worker/Workflow、すべての Queue 消費を止めた証拠にはなりません。書き込み元の停止・処理終了を確認してから migration や復旧に進みます。
 
+このフラグで停止する場合は、**更新前の現行コード**と自分の現行設定を用意した checkout で `MAINTENANCE_MODE=d1-dr-freeze` を設定し、build/dry-run 後に `npm run deploy` で停止を配備します。自分のホストの `/.well-known/sdj-d1-dr-freeze` が503、`reason: d1-dr-freeze`、`sentinel: true` を返すことを確認します。これは後述の新版配備とは別の操作で、**DB のバックアップ・migration より前**に完了させます。停止が確認できない場合は DB 操作へ進みません。
+
 ## D1 をバックアップする
 
 [D1 export](https://developers.cloudflare.com/d1/best-practices/import-export-data/) は schema と data を SQL に保存します。export 中は他の DB 要求がブロックされるため、低負荷帯に実施し、完了とサービスへの影響を確認します。次は自分のリモート DB を読み出す例です。
