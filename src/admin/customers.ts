@@ -284,16 +284,26 @@ export type CustomerListRow = {
 // except transient D1 errors, which are only logged (safeCaptureException's default).
 export const recordStaffCustomerListView = async (
   db: D1Database,
-  admin: { id: string; store_id: string | null }
+  admin: { id: string; store_id: string | null },
+  fetchSite?: string
 ): Promise<void> => {
   const jstDay = jstDayKey(Date.now());
+  // Another site can make a staff browser fetch the list first. Such a request gets its own
+  // row, so it cannot claim the day's record and the real view is still recorded. Skipping it
+  // instead would let anyone sending the header avoid the record.
+  const otherSite = fetchSite === "cross-site" || fetchSite === "same-site" ? fetchSite : null;
   try {
     await db
       .prepare(
         `INSERT OR IGNORE INTO audit_logs (id, actor_type, actor_id, action, target_type, target_id, metadata_json)
          VALUES (?, 'staff', ?, 'customer.list_view', 'admin_user', ?, ?)`
       )
-      .bind(`customer_list_view:${admin.id}:${jstDay}`, admin.id, admin.id, JSON.stringify({ adminStoreId: admin.store_id }))
+      .bind(
+        `customer_list_view:${admin.id}:${jstDay}${otherSite ? `:${otherSite}` : ""}`,
+        admin.id,
+        admin.id,
+        JSON.stringify({ adminStoreId: admin.store_id, ...(otherSite ? { fetchSite: otherSite } : {}) })
+      )
       .run();
   } catch (error) {
     safeCaptureException(error, { tags: { component: "admin-customer-list", outcome: "list_view_audit_failed" } });

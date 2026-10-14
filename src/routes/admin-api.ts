@@ -1259,13 +1259,7 @@ adminApiRoutes.get("/customers", async (c) => {
       Number.isNaN(offset) ? 0 : offset,
       { archivedOnly, storeScope }
     );
-    // Another site can make a staff browser fetch this URL without reading the response,
-    // and with one deterministic row per day that would claim the day's record early.
-    // Record only same-origin or user-typed requests, and clients without Fetch Metadata.
-    const fetchSite = c.req.header("Sec-Fetch-Site");
-    if (isStaff && (fetchSite === undefined || fetchSite === "same-origin" || fetchSite === "none")) {
-      await recordStaffCustomerListView(db, admin);
-    }
+    if (isStaff) await recordStaffCustomerListView(db, admin, c.req.header("Sec-Fetch-Site"));
     return c.json(result, 200, ADMIN_PRIVATE_HEADERS);
   }
 
