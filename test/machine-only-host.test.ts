@@ -35,6 +35,13 @@ describe("machine-only host", () => {
     }
   );
 
+  it("treats the admin host spelled with a root dot as the admin host", async () => {
+    // The shared host parsing drops the root dot, so the admin host keeps its redirect too.
+    const response = await send("admin.example.invalid.", "/", "staging");
+    expect(response.status).toBe(301);
+    expect(response.headers.get("location")).toBe("/admin");
+  });
+
   it("refuses a reservation submission in production", async () => {
     const response = await send(MACHINE_HOST, "/api/public/reservations", "production", {
       method: "POST", body: "{}", headers: { "content-type": "application/json" }
