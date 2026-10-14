@@ -164,12 +164,15 @@ const setup = async (cap: number | null = null) => {
     getDecodedIDToken: () => ({ nonce: "nonce_1" }),
     requestFriendship: async () => undefined
   };
+  let freshToken: ((token: string) => void) | undefined;
   win.turnstile = {
     render: (_el: unknown, opts: { callback?: (t: string) => void }) => {
+      freshToken = opts.callback;
       opts.callback?.("turnstile-token");
       return "turnstile-widget-1";
     },
-    reset: () => {},
+    // Model the SDK issuing a fresh token for the consent-version retry.
+    reset: () => freshToken?.("turnstile-fresh-token"),
     remove: () => {}
   };
   window.eval(appJs);
@@ -522,6 +525,7 @@ describe("duplicate-reservation warning (JSDOM)", () => {
     checkBaseConsents();
     q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     expect(q("confirm-panel").hidden).toBe(false);
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     // After the 409, the client re-runs the gate (now reporting the new reservation) and
     // the warning becomes visible on the form again.
@@ -584,6 +588,7 @@ describe("duplicate-reservation warning (JSDOM)", () => {
     checkBaseConsents();
     q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     expect(q("confirm-panel").hidden).toBe(false);
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     // 409 後: options 再取得 + gate 再取得で警告がフォームに出る。
     await vi.waitFor(() => {
@@ -595,6 +600,7 @@ describe("duplicate-reservation warning (JSDOM)", () => {
     ack.checked = true;
     fireChange(ack);
     q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     await vi.waitFor(() => {
       const consents = (capturedReservationBody as { consents?: Record<string, unknown> } | null)?.consents;
@@ -668,6 +674,7 @@ describe("duplicate-reservation warning (JSDOM)", () => {
     fireChange(ack);
     q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     expect(q("confirm-panel").hidden).toBe(false);
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     await vi.waitFor(() => {
       if (!capturedReservationBody) throw new Error("reservation not submitted yet");
@@ -683,6 +690,7 @@ describe("duplicate-reservation warning (JSDOM)", () => {
     await login();
     checkBaseConsents();
     q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     await vi.waitFor(() => {
       if (!capturedReservationBody) throw new Error("reservation not submitted yet");

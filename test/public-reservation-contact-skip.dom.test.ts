@@ -17,6 +17,7 @@ const OPTIONS_BODY = {
   stores: [{ id: "st1", name: "本店", timezone: "Asia/Tokyo" }],
   services: [{ id: "s1", storeId: "st1", name: "カット｜カット", durationMinutes: 60 }],
   resources: [{ id: "r1", storeId: "st1", name: "枠1" }],
+  turnstile: { siteKey: "test-site-key", action: "reservation-submit" },
   consentVersions: { notice: "1", cancellationPolicy: "1", privacyPolicy: "1", minorGuardian: "1" },
   liffId: "liff-1"
 };
@@ -38,6 +39,8 @@ let dom: JSDOM;
 let gateCustomer: GateCustomer | null = null;
 let gateAllowed = true;
 let capturedReservationBody: Record<string, unknown> | null = null;
+let bookingNow = Date.parse("2026-06-01T00:00:00.000Z");
+let availabilityResponder = () => Promise.resolve(jsonResponse(AVAILABILITY_BODY));
 // Override the /api/public/reservations response body (default = success).
 let reservationResponse: Record<string, unknown> = {
   ok: true,
@@ -48,7 +51,7 @@ let reservationResponse: Record<string, unknown> = {
 
 const stubFetch = (url: string, init?: { body?: string }) => {
   if (url.includes("/api/public/reservation-options")) return Promise.resolve(jsonResponse(OPTIONS_BODY));
-  if (url.includes("/api/public/availability")) return Promise.resolve(jsonResponse(AVAILABILITY_BODY));
+  if (url.includes("/api/public/availability")) return availabilityResponder();
   if (url.includes("/api/public/reservation-gate")) {
     if (!gateAllowed) {
       return Promise.resolve(jsonResponse({ allowed: false, reason: "line_not_friend" }));
@@ -73,6 +76,8 @@ const setup = async () => {
   gateCustomer = null;
   gateAllowed = true;
   capturedReservationBody = null;
+  bookingNow = Date.parse("2026-06-01T00:00:00.000Z");
+  availabilityResponder = () => Promise.resolve(jsonResponse(AVAILABILITY_BODY));
   reservationResponse = {
     ok: true,
     reservationId: "r-1",
@@ -89,16 +94,15 @@ const setup = async () => {
   // once the real wall-clock passes 2026-06-01 the hardcoded date is no longer a
   // selectable option and no slot renders. The app runs via window.eval in THIS realm,
   // so the Node global Date / vi fake timers never reach it — override window.Date.
-  const FIXED_NOW = new Date("2026-06-01T00:00:00.000Z").getTime();
   const RealDate = window.Date;
   // Proxy (not an ES6 subclass) so `Date()` called WITHOUT `new` also works — a
   // subclass throws "Class constructor cannot be invoked without 'new'" if app.js
   // or a dependency ever calls Date() as a function. construct → new Date() frozen;
   // apply → Date() frozen string; get → Date.now() frozen, other statics intact.
   const FixedDate = new Proxy(RealDate, {
-    construct: (target, args) => Reflect.construct(target, args.length === 0 ? [FIXED_NOW] : args),
-    apply: () => new RealDate(FIXED_NOW).toString(),
-    get: (target, prop, receiver) => (prop === "now" ? () => FIXED_NOW : Reflect.get(target, prop, receiver))
+    construct: (target, args) => Reflect.construct(target, args.length === 0 ? [bookingNow] : args),
+    apply: () => new RealDate(bookingNow).toString(),
+    get: (target, prop, receiver) => (prop === "now" ? () => bookingNow : Reflect.get(target, prop, receiver))
   });
   (win as { Date: DateConstructor }).Date = FixedDate as unknown as DateConstructor;
   win.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
@@ -175,7 +179,7 @@ const loginWith = async (customer: GateCustomer | null, allowed = true): Promise
 const fireChange = (el: HTMLInputElement) => el.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
 
 // Pick store/service/resource/date so loadAvailability fetches and renders a slot.
-const selectSlot = async (): Promise<void> => {
+const loadSlots = async (): Promise<void> => {
   const svc = dom.window.document.querySelector("#services input[name='serviceIds']") as HTMLInputElement;
   svc.checked = true;
   fireChange(svc);
@@ -188,12 +192,80 @@ const selectSlot = async (): Promise<void> => {
   await vi.waitFor(() => {
     if (!dom.window.document.querySelector(".slot-button")) throw new Error("slot not rendered yet");
   });
+};
+
+const selectSlot = async (): Promise<void> => {
+  await loadSlots();
   (dom.window.document.querySelector(".slot-button") as HTMLButtonElement).click();
 };
 
 describe("recognized existing-customer skip mode (JSDOM)", () => {
   beforeEach(setup);
   afterEach(() => dom?.window.close());
+
+  it("keeps confirmation usable when a background result arrives after time selection", async () => {
+    await loadSlots();
+    let release: ((response: ReturnType<typeof jsonResponse>) => void) | undefined;
+    availabilityResponder = () => new Promise((resolve) => { release = resolve; });
+    bookingNow += 31_000;
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    await vi.waitFor(() => expect(release).toBeDefined());
+    (dom.window.document.querySelector(".slot-button") as HTMLButtonElement).click();
+    (q("step1-next") as HTMLButtonElement).click();
+    await loginWith({ displayName: "サンプル 花子", displayNameKana: "サンプル ハナコ", phoneMasked: "****5678" });
+    input("required-consent").checked = true;
+    fireChange(input("required-consent"));
+    q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    expect(q("confirm-panel").hidden).toBe(false);
+    release?.(jsonResponse({
+      ...AVAILABILITY_BODY,
+      slots: [{ startAt: "2026-06-01T03:00:00.000Z", endAt: "2026-06-01T04:00:00.000Z", resourceId: "r1" }]
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
+    (q("confirm-submit") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(capturedReservationBody?.startAt).toBe("2026-06-01T01:00:00.000Z"));
+  });
+
+  it("keeps confirmation usable when the store-local date changes", async () => {
+    await selectSlot();
+    (q("step1-next") as HTMLButtonElement).click();
+    await loginWith({ displayName: "サンプル 花子", displayNameKana: "サンプル ハナコ", phoneMasked: "****5678" });
+    input("required-consent").checked = true;
+    fireChange(input("required-consent"));
+    q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    expect(q("confirm-panel").hidden).toBe(false);
+    bookingNow = Date.parse("2026-06-01T15:00:00.000Z");
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    expect(input("date").value).toBe("2026-06-01");
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
+    (q("confirm-submit") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(capturedReservationBody?.startAt).toBe("2026-06-01T01:00:00.000Z"));
+  });
+
+  it.each(["confirm-panel", "success-panel"])("explains the 24-hour approval deadline on %s", async (panelId) => {
+    await selectSlot();
+    (q("step1-next") as HTMLButtonElement).click();
+    await loginWith({ displayName: "サンプル 花子", displayNameKana: "サンプル ハナコ", phoneMasked: "****5678" });
+    input("required-consent").checked = true;
+    fireChange(input("required-consent"));
+    q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    expect(q("confirm-panel").hidden).toBe(false);
+    if (panelId === "success-panel") {
+      await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
+      (q("confirm-submit") as HTMLButtonElement).click();
+      await vi.waitFor(() => expect(q("success-panel").hidden).toBe(false));
+    } else {
+      // Revisiting confirmation must not append the same disclosure twice.
+      (q("confirm-back") as HTMLButtonElement).click();
+      q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    }
+    const notice = "お申し込みから24時間以内（それより前にご予約の時間が終わる場合は、その時点まで）に店舗で確認できない場合、お申し込みは自動的に取り消されます。承認されなかったお申し込みや期限切れのお申し込みは、「予約の確認」の一覧には表示されません。ご不明な点は、公式LINEのトークからお問い合わせください。";
+    expect(q(panelId).hidden).toBe(false);
+    expect(q(panelId).textContent).toContain(notice);
+    expect(q(panelId).textContent?.split(notice)).toHaveLength(2);
+  });
 
   it("hides + disables the inputs and shows the confirmation line when a phone is on file", async () => {
     await loginWith({ displayName: "山田 花子", displayNameKana: "ヤマダ ハナコ", phoneMasked: "****5678" });
@@ -258,6 +330,7 @@ describe("recognized existing-customer skip mode (JSDOM)", () => {
     // must let it through even though name/phone are empty + required.
     q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     expect(q("confirm-panel").hidden).toBe(false);
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     await vi.waitFor(() => {
       if (!capturedReservationBody) throw new Error("reservation not submitted yet");
@@ -291,6 +364,7 @@ describe("recognized existing-customer skip mode (JSDOM)", () => {
     reservationResponse = { ok: false, reason: "auth_failed", authReason: "line_not_friend" };
     q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     expect(q("confirm-panel").hidden).toBe(false);
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     await vi.waitFor(() => {
       if (input("display-name").value !== "") throw new Error("PII not cleared yet");

@@ -1,10 +1,11 @@
 "use strict";
 
-const IDEMPOTENCY_STORAGE_KEY = "salon-de-jouet-reservation-submit-key";
-const IDEMPOTENCY_SIGNATURE_STORAGE_KEY = "salon-de-jouet-reservation-submit-signature";
-const LIFF_REAUTH_STORAGE_PREFIX = "salon-de-jouet-liff-reauth-attempted:";
+const IDEMPOTENCY_STORAGE_KEY = "reservation-submit-key";
+const IDEMPOTENCY_SIGNATURE_STORAGE_KEY = "reservation-submit-signature";
+const LIFF_REAUTH_STORAGE_PREFIX = "liff-reauth-attempted:";
 const LIFF_SCRIPT_URL = "https://static.line-scdn.net/liff/edge/2/sdk.js";
 const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+const MAX_SERVICE_SELECTIONS = 12;
 
 const createIdempotencyKey = () => {
   if (globalThis.crypto?.randomUUID) {
@@ -86,6 +87,7 @@ const state = {
   turnstileWidgetId: null,
   turnstileLoading: false,
   turnstileUnavailable: false,
+  reservationSubmitting: false,
   availabilityPollTimer: null,
   // Epoch ms of the last successful availability render; gates the on-return
   // refresh so quick alt-tabs don't flicker the slot list with a refetch.
@@ -97,7 +99,7 @@ const state = {
   availabilityFetchStartedAt: 0,
   // True while the CURRENT availability request is unresolved. Auto refreshes
   // must never start behind it — `availability === null` alone can't tell
-  // "loading" from "failed" (loadAvailability nulls it at fetch start).
+  // "loading" from "failed" (manual loads null it at fetch start).
   availabilityFetchInFlight: false,
   // True when the current request finished without rendering (HTTP/body error
   // or network throw). Lets the on-return refresh bypass the freshness gate
@@ -184,6 +186,55 @@ const elements = {
   contactEdit: document.getElementById("contact-edit")
 };
 
+// The form (including #status) is hidden during confirmation, so that panel needs
+// its own live region for submission progress and failures.
+const confirmStatus = document.createElement("output");
+confirmStatus.id = "confirm-status";
+confirmStatus.className = "inline-state";
+confirmStatus.setAttribute("role", "status");
+elements.confirmPanel.querySelector(".confirm-actions").before(confirmStatus);
+
+const initRetry = document.createElement("button");
+initRetry.id = "init-retry";
+initRetry.type = "button";
+initRetry.className = "back-button";
+initRetry.textContent = "再試行";
+initRetry.setAttribute("aria-label", "予約画面の読み込みを再試行");
+initRetry.hidden = true;
+elements.status.after(initRetry);
+
+const turnstileStatus = document.createElement("p");
+turnstileStatus.id = "turnstile-status";
+turnstileStatus.className = "inline-state";
+turnstileStatus.setAttribute("role", "status");
+turnstileStatus.dataset.tone = "warning";
+const turnstileRetry = document.createElement("button");
+turnstileRetry.id = "turnstile-retry";
+turnstileRetry.type = "button";
+turnstileRetry.className = "back-button";
+turnstileRetry.textContent = "再試行";
+turnstileRetry.setAttribute("aria-label", "セキュリティ確認の読み込みを再試行");
+turnstileRetry.hidden = true;
+// Keep recovery outside the widget: the SDK owns and can replace its contents.
+document.getElementById("turnstile-widget").after(turnstileStatus, turnstileRetry);
+
+const servicesLimitStatus = document.createElement("p");
+servicesLimitStatus.id = "services-limit-status";
+servicesLimitStatus.className = "inline-state";
+servicesLimitStatus.setAttribute("role", "status");
+// Outside the popover so the limit remains visible when the picker is closed.
+elements.servicesTags.after(servicesLimitStatus);
+
+const PENDING_APPROVAL_NOTICE = "お申し込みから24時間以内（それより前にご予約の時間が終わる場合は、その時点まで）に店舗で確認できない場合、お申し込みは自動的に取り消されます。承認されなかったお申し込みや期限切れのお申し込みは、「予約の確認」の一覧には表示されません。ご不明な点は、公式LINEのトークからお問い合わせください。";
+// HTML is an instance overlay. Add the disclosure once to the existing notices
+// so returning to confirmation does not duplicate it or replace instance copy.
+for (const notice of [
+  elements.confirmPanel?.querySelector(".confirm-notice"),
+  elements.successPanel?.querySelector(".success-message")
+]) {
+  notice?.append(` ${PENDING_APPROVAL_NOTICE}`);
+}
+
 const updateStepIndicator = (stepNumber) => {
   const items = document.querySelectorAll(".step-item[data-step]");
   const connectors = document.querySelectorAll(".step-connector");
@@ -257,6 +308,12 @@ const showIdentityStep = () => {
   focusRegion(elements.contactFields?.closest("fieldset") ?? elements.step2Content);
 };
 
+const closeConfirmPanel = () => {
+  elements.confirmPanel.hidden = true;
+  elements.form.hidden = false;
+  showIdentityStep();
+};
+
 const updateStep2Summary = () => {
   const card = document.getElementById("step2-summary");
   if (!card) return;
@@ -301,12 +358,15 @@ const setStatus = (message, tone) => {
   // happen first — otherwise the current message is announced at the previous politeness
   // and only the NEXT message gets the assertive treatment.
   elements.status.setAttribute("aria-live", tone === "danger" ? "assertive" : "polite");
-  if (tone) {
-    elements.status.dataset.tone = tone;
-  } else {
-    delete elements.status.dataset.tone;
+  confirmStatus.setAttribute("role", tone === "danger" ? "alert" : "status");
+  for (const status of [elements.status, confirmStatus]) {
+    if (tone) {
+      status.dataset.tone = tone;
+    } else {
+      delete status.dataset.tone;
+    }
+    status.textContent = message;
   }
-  elements.status.textContent = message;
 };
 
 const setLineState = (message, tone) => {
@@ -712,6 +772,7 @@ const renderServices = (services) => {
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.name = "serviceIds";
+      checkbox.setAttribute("aria-describedby", "services-limit-status");
       checkbox.value = service.id;
       checkbox.checked = previouslySelected.has(service.id);
       checkbox.addEventListener("change", requestAvailabilityUpdate);
@@ -754,12 +815,23 @@ const renderServices = (services) => {
   tools.append(buildServicesSearch());
   const status = document.createElement("p");
   status.className = "services-search-status inline-state";
-  // role=status + aria-live: present in the a11y tree from creation — never
+  // role=status: present in the a11y tree from creation — never
   // hidden, so every textContent update is announced.
   status.setAttribute("role", "status");
-  status.setAttribute("aria-live", "polite");
   elements.services.prepend(tools, status);
   updateServicesSummary();
+};
+
+const updateServicesTotal = (selected) => {
+  if (!elements.servicesTotal) return;
+  const totalAmount = selectionTotalAmount(selected);
+  if (totalAmount === null) {
+    elements.servicesTotal.hidden = true;
+    elements.servicesTotal.textContent = "";
+  } else {
+    elements.servicesTotal.textContent = `合計 ${formatTotalAmount(totalAmount)}`;
+    elements.servicesTotal.hidden = false;
+  }
 };
 
 // Reflect the current checkbox selection in the collapsed dropdown trigger label
@@ -770,6 +842,12 @@ const updateServicesSummary = () => {
   const storeServices = getStoreServices();
   const selectedIds = new Set(selectedServiceIds());
   const selected = storeServices.filter((service) => selectedIds.has(service.id));
+  const atLimit = selectedIds.size >= MAX_SERVICE_SELECTIONS;
+  for (const checkbox of elements.services.querySelectorAll("input[name='serviceIds']")) {
+    // Selected menus stay enabled so the customer can free a place by deselecting.
+    checkbox.disabled = atLimit && !checkbox.checked;
+  }
+  servicesLimitStatus.textContent = atLimit ? `メニューは${MAX_SERVICE_SELECTIONS}件まで選択できます` : "";
 
   if (elements.servicesTrigger) {
     const noMenus = storeServices.length === 0;
@@ -791,16 +869,7 @@ const updateServicesSummary = () => {
     }
   }
 
-  if (elements.servicesTotal) {
-    const totalAmount = selectionTotalAmount(selected);
-    if (totalAmount === null) {
-      elements.servicesTotal.hidden = true;
-      elements.servicesTotal.textContent = "";
-    } else {
-      elements.servicesTotal.textContent = `合計 ${formatTotalAmount(totalAmount)}`;
-      elements.servicesTotal.hidden = false;
-    }
-  }
+  updateServicesTotal(selected);
 
   if (elements.servicesTags) {
     elements.servicesTags.replaceChildren();
@@ -937,6 +1006,23 @@ const populateDateOptions = (store) => {
   elements.date.disabled = false;
 };
 
+const refreshDateOptionsIfNeeded = () => {
+  // Do not change the booking behind the identity, confirmation or success panel.
+  if (elements.form.hidden || elements.bookingGroup.hidden) return;
+  const store = getSelectedStore();
+  if (!store || elements.date.options[0]?.value === formatDateInput(new Date(), store.timezone)) return;
+  const previousDate = elements.date.value;
+  populateDateOptions(store);
+  // A long-lived tab may cross store-local midnight. Preserve valid choices,
+  // but invalidate old slots and requests before fetching a replacement date.
+  if (elements.date.value !== previousDate) {
+    requestAvailabilityUpdate();
+    setStatus("日付が変わったため、日付と時間を選び直してください。", "warning");
+  } else {
+    updateDateSearchControls();
+  }
+};
+
 // Show the selected store's owner-configured notice. textContent (never innerHTML)
 // so free-form operator copy can never inject markup. Empty/absent → hidden.
 const renderStoreNotice = () => {
@@ -1003,9 +1089,9 @@ const formatUpcomingDateTime = (iso) => {
 // The submit button's hint text, restored when no duplicate warning is shown and
 // augmented (so the disabled reason is announced via aria-describedby="...submit-hint")
 // while the acknowledgement is pending.
-const SUBMIT_HINT_BASE = "LINEログイン・空き時間の選択・同意事項のチェックがすべて完了すると押せます。";
+const SUBMIT_HINT_BASE = "LINEログイン・空き時間の選択・同意事項のチェック・セキュリティ確認がすべて完了すると押せます。";
 const SUBMIT_HINT_WITH_DUPLICATE =
-  "LINEログイン・空き時間の選択・同意事項のチェックに加え、上記の既存のご予約についての確認にチェックを入れると押せます。";
+  "LINEログイン・空き時間の選択・同意事項のチェック・セキュリティ確認に加え、上記の既存のご予約についての確認にチェックを入れると押せます。";
 // Shown when the customer already holds the store's maximum number of active
 // reservations: no combination of inputs can make the submit succeed.
 // キャンセル申請機能は 2026-08-01 に廃止 — 解消手段は店舗連絡のみ。
@@ -1193,7 +1279,9 @@ const updateSubmitState = () => {
   ) {
     void startTurnstileRender();
   }
-  elements.submit.disabled = !(readyForSecurityCheck && state.turnstileToken);
+  const canSubmit = readyForSecurityCheck && state.turnstileToken && !state.reservationSubmitting;
+  elements.submit.disabled = !canSubmit;
+  elements.confirmSubmit.disabled = !canSubmit;
 };
 
 // "Skip mode": a LINE-recognized existing customer with a phone on file, who has not
@@ -1304,6 +1392,9 @@ const clearSlots = (message) => {
 };
 
 const selectSlotButton = (button, slot) => {
+  // Choosing a time ends auto-refreshing. Cancel an outstanding response too,
+  // so it cannot remove the choice after the customer advances to confirmation.
+  if (state.availabilityFetchInFlight) cancelAvailabilityRequest();
   for (const item of elements.slots.querySelectorAll(".slot-button")) {
     item.setAttribute("aria-checked", "false");
     item.classList.remove("slot-selected");
@@ -1357,6 +1448,7 @@ const renderSlots = () => {
     const button = document.createElement("button");
     button.className = "slot-button";
     button.type = "button";
+    button.dataset.startAt = slot.startAt;
     button.setAttribute("role", "radio");
     button.setAttribute("aria-checked", "false");
     button.tabIndex = index === 0 ? 0 : -1;
@@ -1696,13 +1788,55 @@ const findNextAvailableDate = async () => {
   }
 };
 
-const loadAvailability = async () => {
+const showAvailabilityResponseError = (response, body, background) => {
+  state.availabilityLastFetchFailed = true;
+  if (background) return;
+  setSlotNotice("");
+  // A response can cross midnight after its date was valid at fetch start.
+  const dateExpired = response.status === 400 && body?.reason === "invalid_request" &&
+    elements.date.value < formatDateInput(new Date(), getSelectedStore().timezone);
+  // The duration cap has a dedicated reason so the customer learns the fix
+  // (fewer menus) instead of reading a generic availability failure.
+  let message = "空き時間を取得できませんでした";
+  if (body?.reason === "duration_limit_exceeded") {
+    message = "選択されたメニューの合計施術時間が上限（235分）を超えています。メニューの数を減らして再度お試しください。";
+  } else if (dateExpired) {
+    message = "日付を選び直してください";
+  }
+  clearSlots(message);
+};
+
+const renderUpdatedAvailabilitySlots = (body, previousAvailability, background) => {
+  const previousSlots = previousAvailability?.slots ?? [];
+  const slotsUnchanged = background && previousAvailability && previousAvailability.timezone === body.timezone &&
+    previousSlots.length === (body.slots?.length ?? 0) &&
+    previousSlots.every((slot, index) => slot.startAt === body.slots[index].startAt);
+  if (slotsUnchanged) return;
+
+  const focusedStartAt = background && elements.slots.contains(document.activeElement)
+    ? document.activeElement?.dataset.startAt : undefined;
+  renderSlots();
+  if (!focusedStartAt) return;
+
+  const replacement = Array.from(elements.slots.querySelectorAll(".slot-button"))
+    .find(button => button.dataset.startAt === focusedStartAt);
+  if (!replacement) {
+    focusRegion(elements.slots);
+    return;
+  }
+  elements.slots.querySelector(".slot-button[tabindex='0']")?.setAttribute("tabindex", "-1");
+  replacement.tabIndex = 0;
+  replacement.focus({ preventScroll: true });
+};
+
+const loadAvailability = async ({ background = false } = {}) => {
   cancelAvailabilityRequest();
   state.nextDateSearchCursor = "";
   if (elements.nextDateStatus) elements.nextDateStatus.textContent = "";
   updateDateSearchControls();
   const requestId = state.availabilityRequestId;
-  state.availability = null;
+  const previousAvailability = state.availability;
+  if (!background) state.availability = null;
   const serviceIds = selectedServiceIds();
 
   // The notice belongs to a store + menu selection, not to a date. Drop it the
@@ -1726,10 +1860,12 @@ const loadAvailability = async () => {
 
   state.availabilityFetchStartedAt = Date.now();
   state.availabilityFetchInFlight = true;
-  clearSlots("空き時間を確認中です…");
-  // Announce "busy" to assistive tech while the slot list is loading (the visible
-  // text is already swapped, but #slots is a live region so AT hears the state).
-  elements.slots.setAttribute("aria-busy", "true");
+  // Automatic refreshes must not remove a focused button or re-announce an
+  // unchanged live region. Explicit loads still show loading and error states.
+  if (!background) {
+    clearSlots("空き時間を確認中です…");
+    elements.slots.setAttribute("aria-busy", "true");
+  }
   const params = availabilityParams(elements.date.value);
   const controller = new AbortController();
   state.availabilityController = controller;
@@ -1741,17 +1877,9 @@ const loadAvailability = async () => {
       return;
     }
     state.availabilityFetchInFlight = false;
-    elements.slots.setAttribute("aria-busy", "false");
+    if (!background) elements.slots.setAttribute("aria-busy", "false");
     if (!response.ok || !body.ok || body.availabilityStatus === "unavailable") {
-      state.availabilityLastFetchFailed = true;
-      setSlotNotice("");
-      // The duration cap has a dedicated reason so the customer learns the fix
-      // (fewer menus) instead of reading a generic availability failure.
-      clearSlots(
-        body?.reason === "duration_limit_exceeded"
-          ? "選択されたメニューの合計施術時間が上限（235分）を超えています。メニューの数を減らして再度お試しください。"
-          : "空き時間を取得できませんでした"
-      );
+      showAvailabilityResponseError(response, body, background);
       return;
     }
     state.availabilityLastFetchFailed = false;
@@ -1760,14 +1888,16 @@ const loadAvailability = async () => {
     // Set before renderSlots so the "選択できる空き時間がありません" case (a men's
     // menu on a closed weekday) is shown together with the reason.
     setSlotNotice(body.notice);
-    renderSlots();
+    renderUpdatedAvailabilitySlots(body, previousAvailability, background);
   } catch {
     if (requestId === state.availabilityRequestId) {
       state.availabilityFetchInFlight = false;
       state.availabilityLastFetchFailed = true;
-      elements.slots.setAttribute("aria-busy", "false");
-      setSlotNotice("");
-      clearSlots("空き時間を取得できませんでした");
+      if (!background) {
+        elements.slots.setAttribute("aria-busy", "false");
+        setSlotNotice("");
+        clearSlots("空き時間を取得できませんでした");
+      }
     }
   }
 };
@@ -1804,6 +1934,7 @@ const startAvailabilityPolling = () => {
     // Hidden tabs get throttled timers anyway and nobody sees the result —
     // skip the fetch; the on-return refresh below covers the staleness.
     if (document.hidden) return;
+    refreshDateOptionsIfNeeded();
     if (!canAutoRefreshAvailability()) return;
     if (state.availabilityFetchInFlight) return;
     // A pending requestAvailabilityUpdate debounce means a user-initiated
@@ -1811,7 +1942,7 @@ const startAvailabilityPolling = () => {
     // (its callback has no coalesce guard and would discard this request).
     if (state.availabilityRequestTimer !== null) return;
     if (Date.now() - state.availabilityFetchStartedAt < AVAILABILITY_REFRESH_COALESCE_MS) return;
-    void loadAvailability();
+    void loadAvailability({ background: true });
   }, AVAILABILITY_POLL_INTERVAL_MS);
 };
 
@@ -1822,7 +1953,9 @@ const startAvailabilityPolling = () => {
 // last fetch (availability === null, error message showing) always warrants
 // the refetch — don't leave the customer staring at a stale error.
 const refreshAvailabilityOnReturn = () => {
-  if (document.hidden || !canAutoRefreshAvailability()) return;
+  if (document.hidden) return;
+  refreshDateOptionsIfNeeded();
+  if (!canAutoRefreshAvailability()) return;
   if (state.availabilityFetchInFlight) return;
   // A pending input-change debounce (e.g. a date-picker change committed on
   // tab-away) fires its own ungated loadAvailability within 120ms of timers
@@ -1834,7 +1967,7 @@ const refreshAvailabilityOnReturn = () => {
   // Re-anchor the poll cadence to this refresh so the next tick lands a full
   // interval later instead of double-fetching right behind it.
   startAvailabilityPolling();
-  void loadAvailability();
+  void loadAvailability({ background: true });
 };
 document.addEventListener("visibilitychange", refreshAvailabilityOnReturn);
 globalThis.addEventListener("focus", refreshAvailabilityOnReturn);
@@ -1916,10 +2049,19 @@ const waitForScriptGlobal = async (scriptId, src, globalName) => {
   return waitForGlobal(globalName);
 };
 
+const SECURITY_CHECK_REQUIRED_MESSAGE = "セキュリティ確認を完了してから、もう一度お試しください";
+const handleTurnstileTokenLoss = () => {
+  state.turnstileToken = "";
+  if (!elements.confirmPanel.hidden && !state.reservationSubmitting) {
+    closeConfirmPanel();
+    setStatus(SECURITY_CHECK_REQUIRED_MESSAGE, "warning");
+  }
+  updateSubmitState();
+};
+
 const renderTurnstile = async () => {
-  const siteKey = state.options?.turnstile.siteKey;
+  const siteKey = state.options?.turnstile?.siteKey;
   if (!siteKey) {
-    setStatus("セキュリティ確認の設定が未完了です", "warning");
     return false;
   }
 
@@ -1936,13 +2078,9 @@ const renderTurnstile = async () => {
       state.turnstileToken = token;
       updateSubmitState();
     },
-    "expired-callback": () => {
-      state.turnstileToken = "";
-      updateSubmitState();
-    },
+    "expired-callback": handleTurnstileTokenLoss,
     "error-callback": () => {
-      state.turnstileToken = "";
-      updateSubmitState();
+      handleTurnstileTokenLoss();
       return true;
     }
   });
@@ -2308,6 +2446,10 @@ const reasonMessage = (reason) => {
   );
 };
 
+// NFKC handles full-width digits and separators; U+2010 is a common IME hyphen
+// that NFKC leaves intact. Send the same digits we validated to the server.
+const normalizePhoneInput = (value) => value.normalize("NFKC").replace(/[\s\-‐().]/g, "");
+
 const buildReservationPayload = () => {
   const consentVersions = state.options.consentVersions;
   const serviceIds = selectedServiceIds();
@@ -2330,7 +2472,7 @@ const buildReservationPayload = () => {
           customer: {
             displayName: elements.displayName.value.trim(),
             displayNameKana: elements.displayNameKana.value.trim() || undefined,
-            phone: elements.phone.value.trim()
+            phone: normalizePhoneInput(elements.phone.value)
           }
         }),
     consents: {
@@ -2427,6 +2569,8 @@ const showConfirmPanel = () => {
     elements.confirmDuplicateList.replaceChildren();
   }
 
+  setStatus("");
+  updateSubmitState();
   elements.form.hidden = true;
   elements.confirmPanel.hidden = false;
   setStep(3);
@@ -2441,6 +2585,7 @@ const setPendingRecoveryVisible = (visible) => {
 };
 
 const renderReservationSuccess = (body, originalConfirmLabel) => {
+  setStatus("");
   elements.successSlot.textContent = new Date(body.startAt).toLocaleString("ja-JP", {
     timeZone: state.availability.timezone,
     year: "numeric",
@@ -2457,6 +2602,9 @@ const renderReservationSuccess = (body, originalConfirmLabel) => {
   if (elements.successMenu) {
     elements.successMenu.textContent = elements.confirmServices?.textContent ?? "";
   }
+  const cap = selectedStoreReservationCap();
+  // The request just accepted counts toward the cap even while awaiting approval.
+  elements.successNew.hidden = cap !== null && state.upcomingReservations.length + 1 >= cap;
   setPendingRecoveryVisible(false);
   elements.confirmSubmit.textContent = originalConfirmLabel;
   elements.confirmPanel.hidden = true;
@@ -2527,14 +2675,21 @@ const returnToIdentityStep = (reason, body) => {
 };
 
 const actuallySubmitReservation = async () => {
-  if (!state.lineContext || !state.selectedSlot) {
+  if (!state.lineContext || !state.selectedSlot || state.reservationSubmitting) {
     return;
   }
+  // A token can expire while the confirmation panel is open. Never send an empty
+  // token; the widget is on step 2, where the customer can complete it again.
+  if (!state.turnstileToken) {
+    closeConfirmPanel();
+    updateSubmitState();
+    setStatus(SECURITY_CHECK_REQUIRED_MESSAGE, "warning");
+    return;
+  }
+  state.reservationSubmitting = true;
   setStatus("送信中です…");
-  elements.confirmSubmit.disabled = true;
+  updateSubmitState();
   elements.confirmBack.disabled = true;
-  // Visible busy feedback on the confirm panel itself (the #status line is scrolled
-  // away on this panel, so the disabled button alone reads as "nothing happened").
   const originalConfirmLabel = elements.confirmSubmit.textContent;
   elements.confirmSubmit.textContent = "送信中…";
 
@@ -2547,14 +2702,16 @@ const actuallySubmitReservation = async () => {
       body: JSON.stringify(requestBody)
     }));
   } catch {
+    state.reservationSubmitting = false;
     resetTurnstile();
-    elements.confirmSubmit.disabled = false;
     elements.confirmBack.disabled = false;
     elements.confirmSubmit.textContent = originalConfirmLabel;
+    closeConfirmPanel();
     setStatus("通信エラーが発生しました。もう一度お試しください。", "danger");
     return;
   }
 
+  state.reservationSubmitting = false;
   resetTurnstile();
   if (response.ok && body.ok) {
     renderReservationSuccess(body, originalConfirmLabel);
@@ -2565,7 +2722,6 @@ const actuallySubmitReservation = async () => {
   const requiresSlotReselect = SLOT_RESELECT_REASONS.has(reason) || OPTION_RELOAD_REASONS.has(reason);
   elements.confirmPanel.hidden = true;
   elements.form.hidden = false;
-  elements.confirmSubmit.disabled = false;
   elements.confirmBack.disabled = false;
   elements.confirmSubmit.textContent = originalConfirmLabel;
   setStatus(reasonMessage(reason), "danger");
@@ -2602,18 +2758,79 @@ const startTurnstileRender = async () => {
   if (state.turnstileLoading || state.turnstileWidgetId !== null || state.turnstileUnavailable) {
     return;
   }
+  const retryHadFocus = document.activeElement === turnstileRetry;
   state.turnstileLoading = true;
+  turnstileRetry.disabled = true;
+  turnstileRetry.setAttribute("aria-busy", "true");
+  turnstileStatus.textContent = "読み込んでいます…";
   try {
     const rendered = await renderTurnstile();
     if (!rendered) {
       state.turnstileUnavailable = true;
+      turnstileStatus.textContent = "セキュリティ確認の準備ができていないため、現在お申し込みいただけません。お手数ですが店舗へお問い合わせください。";
+      if (retryHadFocus && (document.activeElement === turnstileRetry || document.activeElement === document.body)) {
+        focusRegion(turnstileStatus);
+      }
+      turnstileRetry.hidden = true;
+      return;
     }
+    turnstileStatus.textContent = "";
+    if (retryHadFocus && (document.activeElement === turnstileRetry || document.activeElement === document.body)) {
+      updateSubmitState();
+      if (!elements.submit.disabled) {
+        elements.submit.focus({ preventScroll: true });
+      } else {
+        const widget = document.getElementById("turnstile-widget");
+        focusRegion(widget.querySelector("iframe") ?? widget);
+      }
+    }
+    turnstileRetry.hidden = true;
   } catch {
     state.turnstileUnavailable = true;
-    setStatus("セキュリティ確認を読み込めませんでした", "warning");
+    const message = "セキュリティ確認を読み込めませんでした。再試行してください。解決しない場合は、ページを再読み込みしてください。";
+    turnstileStatus.textContent = message;
+    turnstileRetry.hidden = false;
   } finally {
     state.turnstileLoading = false;
+    turnstileRetry.disabled = false;
+    turnstileRetry.setAttribute("aria-busy", "false");
+    if (!turnstileRetry.hidden && retryHadFocus && document.activeElement === document.body) {
+      turnstileRetry.focus({ preventScroll: true });
+    }
     updateSubmitState();
+  }
+};
+
+const loadInitialOptions = async () => {
+  const retrying = !initRetry.hidden;
+  const retryHadFocus = document.activeElement === initRetry;
+  initRetry.disabled = true;
+  initRetry.setAttribute("aria-busy", "true");
+  if (retrying) setStatus("読み込んでいます…");
+  try {
+    await loadOptions();
+    setStatus("");
+    if (retryHadFocus && (document.activeElement === initRetry || document.activeElement === document.body)) {
+      elements.store.focus({ preventScroll: true });
+    }
+    initRetry.hidden = true;
+    void loadAvailability();
+    // Auto-verify LINE identity at load when the LIFF session is already present
+    // (opened inside the LINE app, or a cached external-browser session) so existing
+    // customers are recognized without pressing "LINEでログイン". Stays silent — and
+    // never redirects — for not-logged-in visitors. Fire-and-forget: any failure leaves
+    // the manual button intact.
+    void verifyLineGate({ interactive: false }).catch(() => {});
+  } catch {
+    setStatus("予約画面を初期化できませんでした。再試行してください。解決しない場合は、ページを再読み込みしてください。", "danger");
+    initRetry.hidden = false;
+    elements.submit.disabled = true;
+  } finally {
+    initRetry.disabled = false;
+    initRetry.setAttribute("aria-busy", "false");
+    if (!initRetry.hidden && retryHadFocus && document.activeElement === document.body) {
+      initRetry.focus({ preventScroll: true });
+    }
   }
 };
 
@@ -2623,21 +2840,7 @@ const init = async () => {
   setStatus("ご予約はLINEアカウントが必要です");
   showBookingStep();
   clearSlots("空き時間を準備しています…");
-  try {
-    await loadOptions();
-    setStatus("");
-    void loadAvailability();
-    // Auto-verify LINE identity at load when the LIFF session is already present
-    // (opened inside the LINE app, or a cached external-browser session) so existing
-    // customers are recognized without pressing "LINEでログイン". Stays silent — and
-    // never redirects — for not-logged-in visitors. Fire-and-forget: any failure leaves
-    // the manual button intact.
-    void verifyLineGate({ interactive: false }).catch(() => {});
-  } catch {
-    setStatus("予約画面を初期化できませんでした", "danger");
-    elements.submit.disabled = true;
-  }
-
+  await loadInitialOptions();
   if (elements.step1Next) {
     elements.step1Next.addEventListener("click", () => {
       // The at-cap guard backs up the disabled sync above for programmatic activation.
@@ -2653,6 +2856,15 @@ const init = async () => {
     if (elements.phone) elements.phone.focus();
   });
 };
+
+initRetry.addEventListener("click", loadInitialOptions);
+turnstileRetry.addEventListener("click", () => {
+  // A loaded script can time out before exposing the SDK. Remove that stale id
+  // so retry loads it again instead of waiting on the same failed load forever.
+  if (!globalThis.turnstile) document.getElementById("turnstile-sdk")?.remove();
+  state.turnstileUnavailable = false;
+  void startTurnstileRender();
+});
 
 elements.store.addEventListener("change", () => {
   syncDependentControls();
@@ -2723,6 +2935,11 @@ elements.friendship.addEventListener("click", async () => {
 });
 elements.requiredConsent.addEventListener("change", updateSubmitState);
 elements.duplicateConsent.addEventListener("change", updateSubmitState);
+// Native validation runs before the next submit event. Clear a previous custom
+// error on editing so a corrected value can reach the submit-time checks again.
+for (const input of [elements.displayName, elements.phone]) {
+  input.addEventListener("input", () => input.setCustomValidity(""));
+}
 elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
   if (!state.lineContext || !state.selectedSlot) {
@@ -2737,14 +2954,13 @@ elements.form.addEventListener("submit", (event) => {
     updateSubmitState();
     return;
   }
-  // Mirror the server's normalizePhone (src/admin/shared.ts): strip separators, then
-  // require 8-16 digits. Without this the server rejects as a bare invalid_request
-  // and the customer never learns the phone format is the problem. Skip mode keeps
-  // the input disabled, which excludes it from reportValidity. The server also folds
-  // +81 to the domestic form, but that never changes whether a value is accepted, so
-  // the client only needs the length check.
+  if (!elements.displayName.disabled) {
+    elements.displayName.setCustomValidity(elements.displayName.value.trim() ? "" : "お名前を入力してください");
+  }
+  // Match the server's 8-16 digit range after normalizing Japanese IME input.
+  // Disabled contact inputs are excluded from reportValidity in recognized mode.
   if (elements.phone && !elements.phone.disabled) {
-    const normalizedPhone = elements.phone.value.replace(/[\s\-().]/g, "");
+    const normalizedPhone = normalizePhoneInput(elements.phone.value);
     elements.phone.setCustomValidity(
       /^\+?\d{8,16}$/.test(normalizedPhone) ? "" : "電話番号は数字8〜16桁で入力してください（例: 09012345678）"
     );
@@ -2755,22 +2971,18 @@ elements.form.addEventListener("submit", (event) => {
   showConfirmPanel();
 });
 
-elements.confirmBack.addEventListener("click", () => {
-  elements.confirmPanel.hidden = true;
-  elements.form.hidden = false;
-  showIdentityStep();
-});
+elements.confirmBack.addEventListener("click", closeConfirmPanel);
 
 elements.confirmSubmit.addEventListener("click", async () => {
   try {
     await actuallySubmitReservation();
   } catch {
+    state.reservationSubmitting = false;
+    elements.confirmBack.disabled = false;
     resetTurnstile();
     setStatus("予約を送信できませんでした", "danger");
     elements.confirmSubmit.textContent = "予約を申し込む";
-    elements.confirmPanel.hidden = true;
-    elements.form.hidden = false;
-    showBookingStep({ focus: true });
+    closeConfirmPanel();
   }
 });
 
@@ -2791,6 +3003,9 @@ elements.successNew.addEventListener("click", () => {
   elements.confirmBack.disabled = false;
   updateSubmitState();
   void loadAvailability();
+  // Refresh the just-created request and any concurrent bookings before the
+  // customer starts choosing again; reuse the non-interactive LINE gate.
+  void verifyLineGate({ interactive: false }).catch(() => {});
 });
 
 registerPublicWebMcp();

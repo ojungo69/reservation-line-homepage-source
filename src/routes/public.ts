@@ -32,20 +32,7 @@ const parseServiceIdsQuery = (value: string | undefined) => {
   if (!value) {
     return undefined;
   }
-  const items: string[] = [];
-  const seen = new Set<string>();
-  for (const item of value.split(",")) {
-    const normalized = item.trim();
-    if (!normalized || normalized.length > 128 || seen.has(normalized)) {
-      continue;
-    }
-    seen.add(normalized);
-    items.push(normalized);
-    if (items.length >= MAX_SERVICE_SELECTIONS) {
-      break;
-    }
-  }
-  return items.length > 0 ? items : undefined;
+  return getStringArray({ serviceIds: value.split(",") }, "serviceIds", MAX_SERVICE_SELECTIONS, 128);
 };
 
 const parseReservationGateRequest = (
@@ -76,6 +63,21 @@ const parseReservationGateRequest = (
   };
 };
 
+const parsePublicReservationCustomer = (
+  customerObj: Record<string, unknown> | undefined
+): PublicReservationRequest["customer"] => {
+  if (!customerObj) {
+    return undefined;
+  }
+  const displayName = getString(customerObj, "displayName", 120);
+  const displayNameKana = getString(customerObj, "displayNameKana", 120);
+  const phone = getString(customerObj, "phone", 32);
+  if (!displayName || !phone) {
+    return undefined;
+  }
+  return { displayName, displayNameKana, phone };
+};
+
 const parsePublicReservationSubmitRequest = (
   body: unknown,
   remoteIp: string | undefined
@@ -100,11 +102,14 @@ const parsePublicReservationSubmitRequest = (
   const storeId = getString(body, "storeId", 64);
   const serviceId = getString(body, "serviceId", 128);
   const serviceIds = getStringArray(body, "serviceIds", MAX_SERVICE_SELECTIONS, 128);
+  // An explicitly invalid array must not fall back to the singular serviceId.
+  // Both availability and submit reject overflow before any selection is truncated.
+  if (Object.hasOwn(body, "serviceIds") && !serviceIds) {
+    return undefined;
+  }
   const resourceId = getString(body, "resourceId", 128);
   const startAt = getString(body, "startAt", 64);
-  const displayName = customerObj ? getString(customerObj, "displayName", 120) : undefined;
-  const displayNameKana = customerObj ? getString(customerObj, "displayNameKana", 120) : undefined;
-  const phone = customerObj ? getString(customerObj, "phone", 32) : undefined;
+  const customer = parsePublicReservationCustomer(customerObj);
   const noticeVersion = getString(body.consents, "noticeVersion", 64);
   const cancellationPolicyVersion = getString(body.consents, "cancellationPolicyVersion", 64);
   const privacyPolicyVersion = getString(body.consents, "privacyPolicyVersion", 64);
@@ -130,7 +135,7 @@ const parsePublicReservationSubmitRequest = (
     return undefined;
   }
   // When a customer object is supplied, it must carry a usable name + phone.
-  if (customerObj && (!displayName || !phone)) {
+  if (customerObj && !customer) {
     return undefined;
   }
 
@@ -150,9 +155,7 @@ const parsePublicReservationSubmitRequest = (
       serviceIds,
       resourceId,
       startAt,
-      ...(customerObj && displayName && phone
-        ? { customer: { displayName, displayNameKana, phone } }
-        : {}),
+      ...(customer ? { customer } : {}),
       consents: {
         noticeVersion,
         cancellationPolicyVersion,
@@ -250,12 +253,17 @@ publicRoutes.get("/reservation-options", async (c) => {
 });
 
 publicRoutes.get("/availability", async (c) => {
+  const query = c.req.query("serviceIds");
+  const serviceIds = parseServiceIdsQuery(query);
+  if (query && !serviceIds) {
+    return c.json({ ok: false, reason: "invalid_request" }, 400, PUBLIC_RESERVATION_HEADERS);
+  }
   const result = await listPublicAvailability({
     db: c.env.DB,
     env: c.env,
     storeId: c.req.query("storeId"),
     serviceId: c.req.query("serviceId"),
-    serviceIds: parseServiceIdsQuery(c.req.query("serviceIds")),
+    serviceIds,
     resourceId: c.req.query("resourceId"),
     date: c.req.query("date")
   });
@@ -295,7 +303,7 @@ publicRoutes.post("/reservations", async (c) => {
   try {
     body = await c.req.json();
   } catch {
-    return c.json({ error: "invalid_request" }, 400);
+    return c.json({ ok: false, reason: "invalid_request" }, 400, PUBLIC_RESERVATION_HEADERS);
   }
 
   const parsed = parsePublicReservationSubmitRequest(
@@ -303,7 +311,7 @@ publicRoutes.post("/reservations", async (c) => {
     c.req.header("CF-Connecting-IP") ?? undefined
   );
   if (!parsed) {
-    return c.json({ error: "invalid_request" }, 400);
+    return c.json({ ok: false, reason: "invalid_request" }, 400, PUBLIC_RESERVATION_HEADERS);
   }
 
   const gate = await evaluateReservationGate({

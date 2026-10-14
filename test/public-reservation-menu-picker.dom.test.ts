@@ -220,7 +220,7 @@ describe("category-jump menu picker (FR-005, JSDOM)", () => {
     expect(search).not.toBeNull();
     expect(status).not.toBeNull();
     if (!search || !status) return;
-    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(status.getAttribute("aria-live")).toBeNull();
     expect(status.getAttribute("role")).toBe("status");
     // The live region must sit in the accessibility tree from the start —
     // [hidden] would display:none it, and the announcement of the update that

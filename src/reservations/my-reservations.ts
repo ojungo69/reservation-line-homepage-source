@@ -91,12 +91,17 @@ export const listMyReservations = async (
           )
         )
           AND r.status IN ('pending_approval', 'confirmed')
+          AND (
+            r.status != 'pending_approval'
+            OR r.pending_expires_at IS NULL
+            OR julianday(r.pending_expires_at) > julianday(?)
+          )
           AND r.end_at > ?
         ORDER BY r.start_at ASC
         LIMIT ?
       `
     )
-    .bind(input.lineIdentityId, input.lineIdentityId, input.nowIso, limit)
+    .bind(input.lineIdentityId, input.lineIdentityId, input.nowIso, input.nowIso, limit)
     .all<MyReservationDbRow>();
 
   return (rows.results ?? []).map((row) => ({
