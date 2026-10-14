@@ -261,7 +261,7 @@ describe("recognized existing-customer skip mode (JSDOM)", () => {
       (q("confirm-back") as HTMLButtonElement).click();
       q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     }
-    const notice = "お申し込みから24時間以内に店舗で確認できない場合、お申し込みは自動的に取り消されます。承認されなかったお申し込みや期限切れのお申し込みは、「予約の確認」の一覧には表示されません。ご不明な点は、公式LINEのトークからお問い合わせください。";
+    const notice = "お申し込みから24時間以内（それより前にご予約の時間が終わる場合は、その時点まで）に店舗で確認できない場合、お申し込みは自動的に取り消されます。承認されなかったお申し込みや期限切れのお申し込みは、「予約の確認」の一覧には表示されません。ご不明な点は、公式LINEのトークからお問い合わせください。";
     expect(q(panelId).hidden).toBe(false);
     expect(q(panelId).textContent).toContain(notice);
     expect(q(panelId).textContent?.split(notice)).toHaveLength(2);

@@ -225,7 +225,7 @@ servicesLimitStatus.setAttribute("role", "status");
 // Outside the popover so the limit remains visible when the picker is closed.
 elements.servicesTags.after(servicesLimitStatus);
 
-const PENDING_APPROVAL_NOTICE = "お申し込みから24時間以内に店舗で確認できない場合、お申し込みは自動的に取り消されます。承認されなかったお申し込みや期限切れのお申し込みは、「予約の確認」の一覧には表示されません。ご不明な点は、公式LINEのトークからお問い合わせください。";
+const PENDING_APPROVAL_NOTICE = "お申し込みから24時間以内（それより前にご予約の時間が終わる場合は、その時点まで）に店舗で確認できない場合、お申し込みは自動的に取り消されます。承認されなかったお申し込みや期限切れのお申し込みは、「予約の確認」の一覧には表示されません。ご不明な点は、公式LINEのトークからお問い合わせください。";
 // HTML is an instance overlay. Add the disclosure once to the existing notices
 // so returning to confirmation does not duplicate it or replace instance copy.
 for (const notice of [
