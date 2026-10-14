@@ -311,12 +311,35 @@ describe("searchAdminCustomers", () => {
     expect(result.customers[0].id).toBe("cust_yamamoto");
   });
 
+  it.each([
+    { count: 20, limit: undefined, returned: 20, truncated: false },
+    { count: 21, limit: undefined, returned: 20, truncated: true },
+    { count: 1, limit: 1, returned: 1, truncated: false },
+    { count: 2, limit: 1, returned: 1, truncated: true },
+  ])("reports search truncation for $count matches with limit $limit", async ({ count, limit, returned, truncated }) => {
+    const insert = d1.sqlite.prepare(`
+      INSERT INTO customers (id, display_name, block_status, updated_at)
+      VALUES (?, 'Example Search Customer', 'active', ?)
+    `);
+    for (let i = 1; i <= count; i += 1) {
+      insert.run(`search_${i}`, `2026-05-13T${String(i).padStart(2, "0")}:00:00.000Z`);
+    }
+
+    const result = await searchAdminCustomers({ db: d1 as unknown as D1Database, query: "Example", limit });
+
+    expect(result).toMatchObject({ ok: true, truncated });
+    if (!result.ok) throw new Error("search failed");
+    expect(result.customers).toHaveLength(returned);
+    expect(result.customers[0].id).toBe(`search_${count}`);
+    expect(result.customers.at(-1)?.id).toBe(`search_${count - returned + 1}`);
+  });
+
   it("returns empty array when no rows match", async () => {
     const result = await searchAdminCustomers({
       db: d1 as unknown as D1Database,
       query: "存在しない人物"
     });
-    expect(result).toEqual({ ok: true, customers: [] });
+    expect(result).toEqual({ ok: true, customers: [], truncated: false });
   });
 
   it("excludes merged tombstones (merged_into_id set) from results", async () => {

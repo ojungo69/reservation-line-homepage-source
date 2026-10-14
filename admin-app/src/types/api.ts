@@ -312,6 +312,7 @@ export type CustomerSearchItem = {
 export type CustomerSearchResponse = {
   ok: true;
   customers: CustomerSearchItem[];
+  truncated: boolean;
 };
 
 export type ReservationOrigin = "minimo" | "phone" | "walk_in" | "other";

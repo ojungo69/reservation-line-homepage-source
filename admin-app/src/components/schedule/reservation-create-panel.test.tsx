@@ -1,11 +1,16 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createReservation = vi.fn();
+const customerState = vi.hoisted(() => ({ empty: false, isPrivileged: true, truncated: false, pending: false }));
+
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ isPrivileged: customerState.isPrivileged }),
+}));
 
 vi.mock("@/hooks/use-reservations", () => ({
-  useCreateReservation: () => ({ mutate: createReservation, isPending: false }),
+  useCreateReservation: () => ({ mutate: createReservation, isPending: customerState.pending }),
   useAvailableSlots: () => ({
     data: {
       ok: true,
@@ -58,7 +63,8 @@ vi.mock("@/hooks/use-customers", () => ({
   useCustomerSearch: () => ({
     data: {
       ok: true,
-      customers: [{
+      truncated: customerState.truncated,
+      customers: customerState.empty ? [] : [{
         id: "customer-2",
         displayName: "検索 花子",
         displayNameKana: "ケンサク ハナコ",
@@ -72,11 +78,211 @@ vi.mock("@/hooks/use-customers", () => ({
 
 import { ReservationCreatePanel } from "./reservation-create-panel";
 
+async function dismissPanel(user: ReturnType<typeof userEvent.setup>, dismissal: string) {
+  if (dismissal === "Escape") {
+    await user.keyboard("{Escape}");
+  } else if (dismissal === "オーバーレイ") {
+    const overlay = screen.getByRole("dialog", { name: "予約作成" }).previousElementSibling;
+    if (!overlay) throw new Error("sheet overlay missing");
+    await user.click(overlay);
+  } else {
+    await user.click(screen.getByRole("button", { name: dismissal }));
+  }
+}
+
 beforeEach(() => {
   createReservation.mockReset();
+  customerState.empty = false;
+  customerState.isPrivileged = true;
+  customerState.truncated = false;
+  customerState.pending = false;
 });
 
 describe("ReservationCreatePanel", () => {
+  it("顧客検索中に Esc で閉じようとして編集に戻っても検索語を保持する", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <ReservationCreatePanel
+        open
+        onClose={onClose}
+        defaultStoreId="store-1"
+        defaultResourceId="resource-1"
+        defaultDate={new Date("2026-07-24T00:00:00+09:00")}
+        defaultMinutes={600}
+      />,
+    );
+    const search = screen.getByLabelText("既存顧客を検索");
+    await user.type(search, "検索");
+    await screen.findByRole("list", { name: "顧客候補" });
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "編集に戻る" }));
+
+    expect(search).toHaveProperty("value", "検索");
+  });
+
+  it.each(["メニュー", "顧客検索", "既存顧客", "リソース", "日付", "時間", "カナ", "電話番号", "予約経路", "店舗"])("%s だけの入力でも閉じる前に確認する", async (field) => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <ReservationCreatePanel
+        open
+        onClose={onClose}
+        defaultStoreId={field === "店舗" ? null : "store-1"}
+        defaultResourceId={field === "リソース" ? null : "resource-1"}
+        defaultDate={new Date("2026-07-24T00:00:00+09:00")}
+        defaultMinutes={600}
+      />,
+    );
+
+    if (field === "メニュー") {
+      await user.click(screen.getByRole("checkbox", { name: /基本メニュー/ }));
+    } else if (field === "顧客検索" || field === "既存顧客") {
+      fireEvent.change(screen.getByLabelText("既存顧客を検索"), { target: { value: "検索" } });
+      if (field === "既存顧客") await user.click(await screen.findByRole("button", { name: /検索 花子/ }));
+    } else if (field === "日付" || field === "時間") {
+      fireEvent.change(screen.getByLabelText(field), { target: { value: field === "日付" ? "2026-07-25" : "11:00" } });
+    } else if (field === "カナ" || field === "電話番号") {
+      await user.click(screen.getByRole("tab", { name: "新規のお客様" }));
+      await user.type(screen.getByLabelText(field), field === "カナ" ? "ハナコ" : "09012345678");
+    } else {
+      const label = field === "リソース" ? "担当A" : field === "店舗" ? "新宿店" : "その他";
+      const select = screen.getByRole("combobox", { name: field });
+      select.focus();
+      await user.keyboard(label);
+      expect(select.textContent).toContain(label);
+    }
+
+    await user.click(screen.getByRole("button", { name: "キャンセル" }));
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog", { name: "予約の入力を取り消しますか？" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "編集に戻る" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("予約作成中は Esc でも閉じず、作成成功後は破棄確認なしで閉じる", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const props = {
+      open: true,
+      onClose,
+      defaultStoreId: "store-1",
+      defaultResourceId: "resource-1",
+      defaultDate: new Date("2026-07-24T00:00:00+09:00"),
+      defaultMinutes: 600,
+      defaultServiceIds: ["service-1"],
+      defaultCustomer: { id: "customer-1", displayName: "既存 花子" },
+    };
+    const { rerender } = render(<ReservationCreatePanel {...props} />);
+    customerState.pending = true;
+    rerender(<ReservationCreatePanel {...props} />);
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+
+    customerState.pending = false;
+    rerender(<ReservationCreatePanel {...props} />);
+    createReservation.mockImplementationOnce((_payload, callbacks: { onSuccess: () => void }) => callbacks.onSuccess());
+    await user.click(screen.getByRole("button", { name: "予約作成" }));
+    await user.click(screen.getByRole("button", { name: "この内容で予約" }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alertdialog", { name: "予約の入力を取り消しますか？" })).toBeNull();
+  });
+
+  it.each(["キャンセル", "Close", "Escape", "オーバーレイ"])("書きかけの予約は %s で閉じる前に確認し、編集に戻れる", async (dismissal) => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <ReservationCreatePanel
+        open
+        onClose={onClose}
+        defaultStoreId="store-1"
+        defaultResourceId="resource-1"
+        defaultDate={new Date("2026-07-24T00:00:00+09:00")}
+        defaultMinutes={600}
+      />,
+    );
+    await user.click(screen.getByRole("tab", { name: "新規のお客様" }));
+    await user.type(screen.getByLabelText("氏名"), "入力途中 花子");
+
+    await dismissPanel(user, dismissal);
+
+    expect(onClose).not.toHaveBeenCalled();
+    const confirmation = screen.getByRole("alertdialog", { name: "予約の入力を取り消しますか？" });
+    await user.click(within(confirmation).getByRole("button", { name: "編集に戻る" }));
+    expect(screen.getByLabelText("氏名")).toHaveProperty("value", "入力途中 花子");
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "キャンセル" }));
+    await user.click(screen.getByRole("button", { name: "取り消す" }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(createReservation).not.toHaveBeenCalled();
+  });
+
+  it.each(["キャンセル", "Close", "Escape", "オーバーレイ"])("未入力の予約は %s で確認せず閉じる", async (dismissal) => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <ReservationCreatePanel
+        open
+        onClose={onClose}
+        defaultStoreId="store-1"
+        defaultResourceId="resource-1"
+        defaultDate={new Date("2026-07-24T00:00:00+09:00")}
+        defaultMinutes={600}
+      />,
+    );
+
+    await dismissPanel(user, dismissal);
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it.each([true, false])("顧客候補の切り詰め %s を名前の絞り込み案内に反映する", async (truncated) => {
+    customerState.truncated = truncated;
+    render(
+      <ReservationCreatePanel
+        open
+        onClose={() => {}}
+        defaultStoreId="store-1"
+        defaultResourceId="resource-1"
+        defaultDate={new Date("2026-07-24T00:00:00+09:00")}
+        defaultMinutes={600}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("既存顧客を検索"), { target: { value: "検索" } });
+    await screen.findByRole("list", { name: "顧客候補" });
+
+    expect(screen.queryByText("20件を超えています。名前をもう少し入力してください") !== null).toBe(truncated);
+  });
+
+  it.each(["123", "1234", "1234567890"])("スタッフの顧客候補検索 %s は全桁入力を案内する", async (query) => {
+    customerState.isPrivileged = false;
+    customerState.empty = true;
+    render(
+      <ReservationCreatePanel
+        open
+        onClose={() => {}}
+        defaultStoreId="store-1"
+        defaultResourceId="resource-1"
+        defaultDate={new Date("2026-07-24T00:00:00+09:00")}
+        defaultMinutes={600}
+      />,
+    );
+
+    const search = screen.getByLabelText("既存顧客を検索");
+    fireEvent.change(search, { target: { value: query } });
+    await screen.findByText("該当する顧客がいません。");
+
+    expect(screen.queryByText("電話番号は全桁で入力してください")).not.toBeNull();
+    expect(search.getAttribute("placeholder")).toBe("名前・カナ・電話番号（全桁）で検索");
+  });
+
   it("複数メニューと新規顧客を確認して予約作成へ渡す", async () => {
     const user = userEvent.setup();
     render(

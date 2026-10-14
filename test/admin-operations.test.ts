@@ -1840,6 +1840,7 @@ describe("GET /api/admin/customers (search)", () => {
       expect(response.headers.get("pragma")).toBe("no-cache");
       await expect(response.json()).resolves.toEqual({
         ok: true,
+        truncated: false,
         customers: [
           {
             id: "cust_api_yamada",
@@ -1955,6 +1956,7 @@ describe("GET /api/admin/customers (search)", () => {
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({
         ok: true,
+        truncated: false,
         customers: []
       });
     } finally {

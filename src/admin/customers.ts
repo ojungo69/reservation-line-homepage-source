@@ -17,7 +17,7 @@ type AdminCustomerSearchItem = {
 };
 
 export type AdminCustomerSearchResult =
-  | { ok: true; customers: AdminCustomerSearchItem[] }
+  | { ok: true; customers: AdminCustomerSearchItem[]; truncated: boolean }
   | { ok: false; reason: "invalid_request" };
 
 type CustomerRow = {
@@ -228,7 +228,8 @@ export async function searchAdminCustomers(input: {
   bindings.push(...scope.params);
 
   const limit = input.limit ?? 20;
-  bindings.push(limit);
+  // One extra in-scope match distinguishes a full page from omitted results.
+  bindings.push(limit + 1);
 
   const rows = await input.db
     .prepare(
@@ -245,9 +246,11 @@ export async function searchAdminCustomers(input: {
     .bind(...bindings)
     .all<CustomerRow>();
 
+  const matchingRows = rows.results ?? [];
   return {
     ok: true,
-    customers: (rows.results ?? []).map((r) => ({
+    truncated: matchingRows.length > limit,
+    customers: matchingRows.slice(0, limit).map((r) => ({
       id: r.id,
       displayName: r.display_name,
       displayNameKana: r.display_name_kana,

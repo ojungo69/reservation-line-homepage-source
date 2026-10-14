@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLogItem } from "@/types/api";
 
@@ -7,6 +8,7 @@ let auditState: {
   isPending: boolean;
   isError: boolean;
 };
+const refetchAuditLogs = vi.fn();
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { role: "owner" } }),
@@ -17,7 +19,7 @@ vi.mock("@/hooks/use-settings", () => ({
 }));
 
 vi.mock("@/hooks/use-audit-logs", () => ({
-  useAuditLogs: () => auditState,
+  useAuditLogs: () => ({ ...auditState, refetch: refetchAuditLogs }),
 }));
 
 import ActivityPage from "./activity";
@@ -39,6 +41,7 @@ beforeEach(() => {
   // フィクスチャがいずれ範囲外になり無変更で腐る ([[date-dependent-admin-tests-rot]])。
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-07-24T12:00:00+09:00"));
+  refetchAuditLogs.mockClear();
   auditState = { data: undefined, isPending: true, isError: false };
 });
 
@@ -85,5 +88,35 @@ describe("ActivityPage", () => {
     };
     rerender(<ActivityPage />);
     expect(screen.queryByText(/表示件数が上限に達しました/)).toBeNull();
+  });
+
+  it("取得失敗時は空一覧を表示せず再読み込みできる", async () => {
+    auditState = { data: undefined, isPending: false, isError: true };
+    render(<ActivityPage />);
+
+    expect(screen.getByRole("alert").textContent).toContain("操作記録の取得に失敗しました。");
+    expect(screen.queryByText("該当する操作記録はありません")).toBeNull();
+    await userEvent.setup().click(screen.getByRole("button", { name: "再読み込み" }));
+    expect(refetchAuditLogs).toHaveBeenCalledTimes(1);
+  });
+
+  it("再取得に失敗したとき前回の記録と上限警告を表示しない", () => {
+    auditState = {
+      data: { ok: true, auditLogs: Array.from({ length: 200 }, (_, i) => auditLog(i)) },
+      isPending: false,
+      isError: false,
+    };
+    const { rerender } = render(<ActivityPage />);
+    expect(screen.getByRole("button", { name: "IDをコピー: reservation-0" })).toBeTruthy();
+    expect(screen.getByText(/表示件数が上限に達しました/)).toBeTruthy();
+
+    auditState = { ...auditState, isError: true };
+    rerender(<ActivityPage />);
+
+    expect(screen.getByRole("alert").textContent).toContain("操作記録の取得に失敗しました。");
+    expect(screen.queryAllByRole("button", { name: /IDをコピー:/ }).length).toBe(0);
+    expect(screen.queryByText(/表示件数が上限に達しました/)).toBeNull();
+    expect(screen.queryByText("該当する操作記録はありません")).toBeNull();
+    expect(screen.getByRole("button", { name: "再読み込み" })).toBeTruthy();
   });
 });
