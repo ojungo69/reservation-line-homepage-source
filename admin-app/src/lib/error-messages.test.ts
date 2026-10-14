@@ -29,6 +29,12 @@ describe("error message lookup", () => {
     ).toBe("同じ時間帯に既に予約があります");
   });
 
+  it("explains that an unavailable LINE check leaves approval blocked and can be retried", () => {
+    expect(actionErrorMessage(new ApiError(503, { reason: "line_check_unavailable" }))).toBe(
+      "LINEへの到達状況を確認できないため、承認できません。時間をおいてもう一度お試しください。",
+    );
+  });
+
   it("uses the ApiError error field when reason is absent", () => {
     expect(
       actionErrorMessage(

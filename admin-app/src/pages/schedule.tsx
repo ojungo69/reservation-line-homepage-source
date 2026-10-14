@@ -62,7 +62,7 @@ export default function SchedulePage() {
   } = useReservations(dateKey);
   const { data: pendingData, isPending: pendingLoading, isError: pendingError } = usePendingReservations();
   const { data: settingsData, isPending: settingsLoading, isError: settingsError, dataUpdatedAt: settingsUpdatedAt, refetch: refetchSettings } = useSettings({ live: true });
-  const { data: blocksData, isPending: blocksLoading, isError: blocksError, dataUpdatedAt: blocksUpdatedAt, refetch: refetchBlocks } = useExternalBlocks();
+  const { data: blocksData, isPending: blocksLoading, isError: blocksError, dataUpdatedAt: blocksUpdatedAt, refetch: refetchBlocks } = useExternalBlocks(dateKey);
   const cancelBlockMutation = useExternalBlockCancel();
 
   const settings = settingsData?.ok ? settingsData.settings : null;
@@ -85,6 +85,13 @@ export default function SchedulePage() {
         void refetchSettings();
       }}>再読み込み</Button>
     </div>
+      );
+    }
+    if (blocksData?.ok && blocksData.truncated) {
+      return (
+        <p role="alert" className="mx-4 mt-2 text-sm text-destructive">
+          ブロックの表示件数が上限を超えています。一部の予定が表示されていないため、空き状況を正確に確認できません。
+        </p>
       );
     }
     if (lastUpdatedAt <= 0) return null;
@@ -282,7 +289,7 @@ export default function SchedulePage() {
           onSelect={handleReservationClick}
         />
         {/* 週の各日の予約失敗は WeekView 内で表示する。 */}
-        {(settingsError || blocksError) && renderDataStatus()}
+        {(settingsError || blocksError || blocksData?.truncated) && renderDataStatus()}
         <WeekView
           date={date}
           storeId={selectedStoreId}

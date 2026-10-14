@@ -1568,13 +1568,38 @@ export async function getAdminCustomerDetail(input: {
 export async function listAdminExternalBlocks(input: {
   db: D1Database;
   admin: AdminUser;
+  from?: string;
+  to?: string;
+  status?: string;
 }) {
   if (input.admin.role === "staff" && !input.admin.store_id) {
-    return { ok: true as const, externalBlocks: [] as AdminExternalBlockListItem[] };
+    return { ok: true as const, externalBlocks: [] as AdminExternalBlockListItem[], truncated: false };
   }
 
   const storeFilter = input.admin.role === "staff" ? input.admin.store_id : null;
-  const whereClause = storeFilter ? "WHERE external_blocks.store_id = ?" : "";
+  const conditions: string[] = [];
+  const params: string[] = [];
+  if (storeFilter) {
+    conditions.push("external_blocks.store_id = ?");
+    params.push(storeFilter);
+  }
+  if (input.from !== undefined || input.to !== undefined) {
+    const fromRange = input.from ? jstDayRangeFromKey(input.from) : null;
+    const toRange = input.to ? jstDayRangeFromKey(input.to) : null;
+    if (!fromRange || !toRange) return { ok: false as const, reason: "invalid_date" };
+    if (fromRange.startAt > toRange.startAt) return { ok: false as const, reason: "invalid_range" };
+    // Overlap includes blocks that began before the viewed day; filter before applying the cap.
+    conditions.push("external_blocks.start_at < ?", "external_blocks.end_at > ?");
+    params.push(toRange.endAt, fromRange.startAt);
+  }
+  if (input.status !== undefined) {
+    if (input.status !== "active" && input.status !== "cancelled") {
+      return { ok: false as const, reason: "invalid_request" };
+    }
+    conditions.push("external_blocks.status = ?");
+    params.push(input.status);
+  }
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const stmt = input.db.prepare(
     `
@@ -1597,11 +1622,11 @@ export async function listAdminExternalBlocks(input: {
       JOIN store_resources ON store_resources.id = external_blocks.resource_id
       ${whereClause}
       ORDER BY external_blocks.start_at DESC
-      LIMIT 200
+      LIMIT 201
     `
   );
 
-  const result = await (storeFilter ? stmt.bind(storeFilter) : stmt).all<{
+  const result = await (params.length ? stmt.bind(...params) : stmt).all<{
       id: string;
       store_id: string;
       store_name: string;
@@ -1619,7 +1644,8 @@ export async function listAdminExternalBlocks(input: {
 
   return {
     ok: true as const,
-    externalBlocks: (result.results ?? []).map((block): AdminExternalBlockListItem => ({
+    truncated: (result.results ?? []).length > 200,
+    externalBlocks: (result.results ?? []).slice(0, 200).map((block): AdminExternalBlockListItem => ({
       id: block.id,
       storeId: block.store_id,
       storeName: block.store_name,
@@ -2165,7 +2191,7 @@ export async function getAvailableSlots(input: {
   // from write. Only create mode — which opens NEW bookings — restricts to
   // active resources.
   const activeResourceClause = input.excludeReservationId ? "" : " AND active = 1";
-  const [hoursResult, resourcesResult, locksResult, blocksResult, customerLocksResult] =
+  const [hoursResult, resourcesResult, locksResult, blocksResult, customerLocksResult, closuresResult] =
     await Promise.all([
       input.db
         .prepare(
@@ -2189,6 +2215,10 @@ export async function getAvailableSlots(input: {
         .bind(input.storeId, range.endAt, range.startAt)
         .all<{ resource_id: string; start_at: string; end_at: string }>(),
       queryCustomerTimeLocks(input.db, range, input.customerId, input.excludeReservationId),
+      input.db
+        .prepare("SELECT starts_at, ends_at FROM store_closures WHERE store_id = ? AND starts_at < ? AND ends_at > ?")
+        .bind(input.storeId, range.endAt, range.startAt)
+        .all<{ starts_at: string; ends_at: string }>(),
     ]);
 
   const activeHours = normalizeBusinessHours(
@@ -2203,6 +2233,7 @@ export async function getAvailableSlots(input: {
     (customerLocksResult.results ?? []).map((l) => l.slot_at)
   );
   const blocks = blocksResult.results ?? [];
+  const closures = closuresResult.results ?? [];
   const resources = resourcesResult.results ?? [];
   // Callers pass the raw treatment time; the buffer is added here so this layout agrees
   // with what createAdminReservation will actually accept and lock. Without it the last
@@ -2212,6 +2243,8 @@ export async function getAvailableSlots(input: {
     (input.durationMinutes ?? DEFAULT_SLOT_DURATION_MINUTES) + RESERVATION_INTERVAL_MINUTES;
   const slotsPerBooking = Math.max(1, Math.ceil(duration / LOCK_GRANULARITY_MINUTES));
   const dayStartMs = new Date(range.startAt).getTime();
+  // Both admin write paths require a future start; use one instant for the whole response.
+  const nowMs = Date.now();
 
   const slots = new Map<string, AvailableSlot>();
   for (const resource of resources) {
@@ -2221,8 +2254,11 @@ export async function getAvailableSlots(input: {
         const startIso = new Date(slotStartMs).toISOString();
         const endIso = new Date(slotStartMs + duration * 60_000).toISOString();
         const available =
+          slotStartMs > nowMs &&
           !isBookingWindowLocked(lockedSet, resource.id, slotStartMs, slotsPerBooking) &&
           !isSlotBlocked(blocks, resource.id, startIso, endIso) &&
+          // Closures apply to every resource and the whole occupied window, including its buffer.
+          !closures.some((closure) => closure.starts_at < endIso && closure.ends_at > startIso) &&
           !isCustomerWindowBusy(customerBusySet, slotStartMs, slotsPerBooking);
         slots.set(`${resource.id}:${startIso}`, {
           resourceId: resource.id,

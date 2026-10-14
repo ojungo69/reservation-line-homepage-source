@@ -313,24 +313,32 @@ describe("external block and store-login queries", () => {
     vi.clearAllMocks();
   });
 
-  it("uses the external-blocks key and endpoint", async () => {
+  it("requests active blocks for the viewed JST day and keeps each day in a separate cache", async () => {
     const response = { ok: true, externalBlocks: [] };
     mocks.api.get.mockResolvedValue(response);
     const client = createClient();
-    const { result } = renderHook(() => useExternalBlocks(), {
+    const { result, rerender } = renderHook(({ date }) => useExternalBlocks(date), {
+      initialProps: { date: "2026-07-24" },
       wrapper: createWrapper(client),
     });
 
     await waitFor(() => expect(result.current.data).toBe(response));
     expect(mocks.api.get).toHaveBeenCalledWith(
-      "/api/admin/external-blocks",
+      "/api/admin/external-blocks?from=2026-07-24&to=2026-07-24&status=active",
     );
     expect(
       client.getQueryCache().find({
-        queryKey: ["external-blocks"],
+        queryKey: ["external-blocks", "2026-07-24"],
         exact: true,
       }),
     ).toBeDefined();
+
+    rerender({ date: "2026-07-25" });
+    await waitFor(() => expect(mocks.api.get).toHaveBeenCalledWith(
+      "/api/admin/external-blocks?from=2026-07-25&to=2026-07-25&status=active",
+    ));
+    expect(client.getQueryData(["external-blocks", "2026-07-24"])).toBe(response);
+    await waitFor(() => expect(client.getQueryData(["external-blocks", "2026-07-25"])).toBe(response));
   });
 
   it("selects store-logins from the store-logins response", async () => {

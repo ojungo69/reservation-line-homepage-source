@@ -376,7 +376,7 @@ export const listAllCustomers = async (
         ORDER BY (SELECT MAX(${VISITED_AT_JST_ORDER_KEY})
                   FROM customer_visits cv
                   WHERE cv.customer_id = c.id AND cv.status = 'valid'${visitStore}) DESC NULLS LAST,
-                 c.created_at DESC
+                 c.created_at DESC, c.id DESC
         LIMIT ? OFFSET ?
         `
       )

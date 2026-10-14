@@ -729,6 +729,10 @@ const runReservationActionRoute = async (
     request: expectedVersion !== undefined ? { ...request, expectedVersion } : request
   });
 
+  if (!result.ok && result.reason === "line_check_unavailable") {
+    return c.json(result, 503, ADMIN_PRIVATE_HEADERS);
+  }
+
   if (result.ok) {
     if (result.status === "confirmed" && !result.replayed && isWorkflowEnabled(c.env)) {
       triggerReservationWorkflow(c, result.reservationId, result.version);
@@ -2771,10 +2775,13 @@ adminApiRoutes.get("/external-blocks", async (c) => {
 
   const result = await listAdminExternalBlocks({
     db: gate.db,
-    admin: gate.admin
+    admin: gate.admin,
+    from: c.req.query("from"),
+    to: c.req.query("to"),
+    status: c.req.query("status")
   });
 
-  return c.json(result, 200, ADMIN_PRIVATE_HEADERS);
+  return c.json(result, result.ok ? 200 : 400, ADMIN_PRIVATE_HEADERS);
 });
 
 // 15. POST /external-blocks

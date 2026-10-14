@@ -9,6 +9,7 @@ import {
 import { trackEvent, type ReservationEventType } from "../analytics/metrics";
 import { sha256Hex } from "../crypto-utils";
 import { captureBatchWriteFailure } from "../sentry-helpers";
+import { withOutboundTimeout } from "../outbound-timeout";
 import { isNonEmptyString } from "./reservation-time-utils";
 
 const ACTION_TO_EVENT: Record<AdminReservationAction, ReservationEventType> = {
@@ -73,6 +74,8 @@ type AdminReservationFailure = {
 };
 
 export type AdminReservationActionResult = AdminReservationSuccess | AdminReservationFailure;
+
+type LineCheckUnavailableResult = { ok: false; reason: "line_check_unavailable" };
 
 export type PendingReservationListItem = {
   id: string;
@@ -286,17 +289,17 @@ const checkLineReachability = async (input: {
   env: Partial<WorkerBindings>;
   lineUserId: string | null;
   fetcher?: typeof fetch;
-}) => {
+}): Promise<boolean | undefined> => {
   if (!isNonEmptyString(input.lineUserId, 128)) {
     return false;
   }
   const token = input.env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN;
   if (!isNonEmptyString(token, 4096)) {
-    return false;
+    return undefined;
   }
 
   try {
-    const fetcher = input.fetcher ?? fetch.bind(globalThis);
+    const fetcher = withOutboundTimeout(input.fetcher ?? fetch.bind(globalThis), 5_000);
     const response = await fetcher(
       `https://api.line.me/v2/bot/profile/${encodeURIComponent(input.lineUserId)}`,
       {
@@ -305,9 +308,12 @@ const checkLineReachability = async (input: {
         }
       }
     );
-    return response.ok;
+    if (response.ok) return true;
+    // Only 404 establishes that this user cannot be reached. Upstream or configuration
+    // failures leave approval blocked without misclassifying the customer as unreachable.
+    return response.status === 404 ? false : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 };
 
@@ -818,7 +824,7 @@ const verifyApprovalLineReachability = async (input: {
   action: AdminReservationAction;
   reservation: ReservationActionRow;
   fetcher?: typeof fetch;
-}): Promise<AdminReservationFailure | undefined> => {
+}): Promise<AdminReservationFailure | LineCheckUnavailableResult | undefined> => {
   if (input.action !== "approve") {
     return undefined;
   }
@@ -828,14 +834,13 @@ const verifyApprovalLineReachability = async (input: {
     lineUserId: input.reservation.line_user_id,
     fetcher: input.fetcher
   });
-  if (reachable) {
+  if (reachable === true) {
     return undefined;
   }
 
-  return {
-    ok: false,
-    reason: "line_not_reachable"
-  };
+  return reachable === false
+    ? { ok: false, reason: "line_not_reachable" }
+    : { ok: false, reason: "line_check_unavailable" };
 };
 
 const buildApproveStatements = (input: {
@@ -1429,7 +1434,7 @@ export async function runAdminReservationAction(input: {
   request: AdminActionRequest;
   fetcher?: typeof fetch;
   now?: () => number;
-}): Promise<AdminReservationActionResult> {
+}): Promise<AdminReservationActionResult | LineCheckUnavailableResult> {
   const now = input.now ?? Date.now;
   const nowMs = now();
   // Single clock for the whole action: the idempotency TTL read, the

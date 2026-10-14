@@ -10,11 +10,12 @@ import type {
 
 const EXTERNAL_BLOCKS_KEY = ["external-blocks"] as const;
 
-export function useExternalBlocks() {
+export function useExternalBlocks(dateKey: string) {
+  const params = new URLSearchParams({ from: dateKey, to: dateKey, status: "active" });
   return useQuery({
-    queryKey: EXTERNAL_BLOCKS_KEY,
+    queryKey: [...EXTERNAL_BLOCKS_KEY, dateKey],
     queryFn: () =>
-      api.get<ExternalBlocksResponse>("/api/admin/external-blocks"),
+      api.get<ExternalBlocksResponse & { truncated: boolean }>(`/api/admin/external-blocks?${params}`),
     staleTime: 30_000,
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,

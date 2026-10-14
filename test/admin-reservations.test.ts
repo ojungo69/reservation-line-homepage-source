@@ -205,7 +205,8 @@ const adminRequest = async (
   db: SqliteD1Database,
   path: string,
   token: string,
-  body?: Record<string, unknown>
+  body?: Record<string, unknown>,
+  envOverrides: Record<string, unknown> = {}
 ) => {
   const app = createApp();
   return app.request(
@@ -218,7 +219,7 @@ const adminRequest = async (
         "Cf-Access-Jwt-Assertion": token
       }
     },
-    baseEnv(db)
+    { ...baseEnv(db), ...envOverrides }
   );
 };
 
@@ -1088,6 +1089,110 @@ describe("admin reservation API", () => {
         friend_flag: 1,
         official_friend_status: "friend"
       });
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
+  it.each([400, 401, 403, 429, 500, 503])(
+    "blocks approval with a retryable LINE check error for HTTP %i and permits retry with the same key",
+    async (lineStatus) => {
+      const db = createMigratedSqliteD1();
+      const access = createAccessJwtFixture();
+      vi.stubGlobal("fetch", createFetchMock(access.jwk, lineStatus));
+      try {
+        insertAdminUser(db);
+        insertPendingReservation(db);
+        const path = `/api/admin/reservations/${RESERVATION_ID}/approve`;
+        const body = { idempotencyKey: "admin-approve-line-unavailable" };
+
+        const response = await adminRequest(db, path, access.token, body);
+        expect(response.status).toBe(503);
+        await expect(response.json()).resolves.toEqual({ ok: false, reason: "line_check_unavailable" });
+        expect(db.sqlite.prepare("SELECT status FROM reservations WHERE id = ?").get(RESERVATION_ID))
+          .toMatchObject({ status: "pending_approval" });
+
+        vi.stubGlobal("fetch", createFetchMock(access.jwk));
+        const retry = await adminRequest(db, path, access.token, body);
+        expect(retry.status).toBe(200);
+        await expect(retry.json()).resolves.toMatchObject({ ok: true, status: "confirmed", replayed: false });
+      } finally {
+        db.sqlite.close();
+      }
+    },
+  );
+
+  it("bounds the default LINE profile fetch and returns a retryable error when it times out", async () => {
+    const db = createMigratedSqliteD1();
+    const access = createAccessJwtFixture();
+    const normalFetch = createFetchMock(access.jwk);
+    let profileSignal: AbortSignal | null | undefined;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (requestUrl(input) !== `https://api.line.me/v2/bot/profile/${LINE_USER_ID}`) {
+        return normalFetch(input);
+      }
+      profileSignal = init?.signal;
+      return new Promise<Response>((_, reject) => {
+        if (!profileSignal) {
+          reject(new Error("LINE profile request has no timeout signal"));
+          return;
+        }
+        profileSignal.addEventListener("abort", () => reject(profileSignal?.reason), { once: true });
+      });
+    }));
+
+    try {
+      insertAdminUser(db);
+      insertPendingReservation(db);
+      const response = await adminRequest(db, `/api/admin/reservations/${RESERVATION_ID}/approve`, access.token,
+        { idempotencyKey: "admin-approve-line-timeout" });
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({ ok: false, reason: "line_check_unavailable" });
+      expect(profileSignal?.aborted).toBe(true);
+      expect(db.sqlite.prepare("SELECT status FROM reservations WHERE id = ?").get(RESERVATION_ID))
+        .toMatchObject({ status: "pending_approval" });
+    } finally {
+      db.sqlite.close();
+    }
+  }, 10_000);
+
+  it.each(["missing token", "network error"])("returns a retryable LINE check error for %s", async (failure) => {
+    const db = createMigratedSqliteD1();
+    const access = createAccessJwtFixture();
+    const normalFetch = createFetchMock(access.jwk);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (failure === "network error" && requestUrl(input) === `https://api.line.me/v2/bot/profile/${LINE_USER_ID}`) {
+        throw new TypeError("LINE profile connection failed");
+      }
+      return normalFetch(input);
+    }));
+    try {
+      insertAdminUser(db);
+      insertPendingReservation(db);
+      const response = await adminRequest(db, `/api/admin/reservations/${RESERVATION_ID}/approve`, access.token,
+        { idempotencyKey: "admin-approve-line-configuration-or-network-failure" },
+        failure === "missing token" ? { LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: undefined } : {});
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({ ok: false, reason: "line_check_unavailable" });
+      expect(db.sqlite.prepare("SELECT status FROM reservations WHERE id = ?").get(RESERVATION_ID))
+        .toMatchObject({ status: "pending_approval" });
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
+  it("keeps approval blocked as unreachable when the LINE user id is missing", async () => {
+    const db = createMigratedSqliteD1();
+    const access = createAccessJwtFixture();
+    vi.stubGlobal("fetch", createFetchMock(access.jwk));
+    try {
+      insertAdminUser(db);
+      insertPendingReservation(db);
+      db.sqlite.prepare("UPDATE line_identities SET line_user_id = '' WHERE id = ?").run(LINE_IDENTITY_ID);
+      const response = await adminRequest(db, `/api/admin/reservations/${RESERVATION_ID}/approve`, access.token,
+        { idempotencyKey: "admin-approve-missing-line-user" });
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({ ok: false, reason: "line_not_reachable" });
     } finally {
       db.sqlite.close();
     }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getAvailableSlots } from "../src/admin/operations";
 import { jstDayRangeFromKey } from "../src/admin/shared";
@@ -109,7 +109,13 @@ describe("getAvailableSlots", () => {
   let db: SqliteD1Database;
 
   beforeEach(() => {
+    // Keep the fixture booking day in the future so availability tests do not age out.
+    vi.useFakeTimers({ now: new Date("2026-05-09T00:00:00.000Z"), toFake: ["Date"] });
     db = createMigratedSqliteD1();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("returns invalid_date for a malformed date", async () => {
@@ -283,6 +289,59 @@ describe("getAvailableSlots", () => {
     expect(firstSlot?.available).toBe(false);
     expect(result.slots.filter((s) => !s.available)).toHaveLength(1);
   });
+
+  it("marks store-closure overlaps unavailable for every resource, including the cleanup buffer", async () => {
+    db.sqlite.exec(`
+      INSERT INTO store_resources (id, store_id, name, resource_type)
+      VALUES ('resource_kyoto_2', 'kyoto', 'Example Calendar A2', 'staff_calendar');
+      INSERT INTO store_closures (id, store_id, starts_at, ends_at, reason, source)
+      VALUES
+        ('closure_kyoto', 'kyoto', '2026-06-01T01:17:00.000Z', '2026-06-01T01:45:00.000Z', '店内作業', 'admin'),
+        ('closure_other_store', 'osaka', '2026-05-31T15:00:00.000Z', '2026-06-01T15:00:00.000Z', '臨時休業', 'admin');
+    `);
+
+    const result = await getAvailableSlots({
+      db: db as unknown as D1Database,
+      storeId: STORE_ID,
+      date: OPEN_MONDAY,
+      durationMinutes: 15,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    for (const resourceId of [RESOURCE_ID, "resource_kyoto_2"]) {
+      expect(result.slots.filter((slot) => slot.resourceId === resourceId).slice(0, 4)
+        .map((slot) => [slot.startAt, slot.available])).toEqual([
+        ["2026-06-01T01:00:00.000Z", false],
+        ["2026-06-01T01:15:00.000Z", false],
+        ["2026-06-01T01:30:00.000Z", false],
+        ["2026-06-01T01:45:00.000Z", true],
+      ]);
+    }
+  });
+
+  it.each([undefined, "reservation-being-moved"])(
+    "marks starts at or before now unavailable (excludeReservationId=%s)",
+    async (excludeReservationId) => {
+      vi.setSystemTime(new Date("2026-06-01T01:15:00.000Z"));
+
+      const result = await getAvailableSlots({
+        db: db as unknown as D1Database,
+        storeId: STORE_ID,
+        date: OPEN_MONDAY,
+        resourceId: RESOURCE_ID,
+        excludeReservationId,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.slots.slice(0, 3).map((slot) => [slot.startAt, slot.available])).toEqual([
+        ["2026-06-01T01:00:00.000Z", false],
+        ["2026-06-01T01:15:00.000Z", false],
+        ["2026-06-01T01:30:00.000Z", true],
+      ]);
+    },
+  );
 
   it("honors a longer durationMinutes when laying out slots", async () => {
     const result = await getAvailableSlots({

@@ -1131,6 +1131,109 @@ describe("admin operations API", () => {
     }
   });
 
+  it("lists active external blocks overlapping the requested JST day despite more than 200 later rows", async () => {
+    const db = createMigratedSqliteD1();
+    const access = createAccessJwtFixture();
+    vi.stubGlobal("fetch", createFetchMock(access.jwk));
+
+    try {
+      insertAdminUser(db);
+      const insert = db.sqlite.prepare(`
+        INSERT INTO external_blocks (id, store_id, resource_id, source, start_at, end_at, status)
+        VALUES (?, 'kyoto', 'resource_kyoto_calendar', 'admin_block', ?, ?, ?)
+      `);
+      insert.run("cross-midnight", "2099-05-31T14:45:00.000Z", "2099-05-31T15:15:00.000Z", "active");
+      insert.run("viewed-day", "2099-06-01T01:00:00.000Z", "2099-06-01T02:00:00.000Z", "active");
+      insert.run("ends-at-day-start", "2099-05-31T14:00:00.000Z", "2099-05-31T15:00:00.000Z", "active");
+      insert.run("starts-at-day-end", "2099-06-01T15:00:00.000Z", "2099-06-01T16:00:00.000Z", "active");
+      insert.run("cancelled-on-day", "2099-06-01T03:00:00.000Z", "2099-06-01T04:00:00.000Z", "cancelled");
+      for (let index = 0; index < 201; index++) {
+        insert.run(`later-${index}`, "2099-12-01T01:00:00.000Z", "2099-12-01T02:00:00.000Z", "active");
+      }
+
+      const response = await adminRequest(db, access.token,
+        "/api/admin/external-blocks?from=2099-06-01&to=2099-06-01&status=active");
+      expect(response.status).toBe(200);
+      const body = await response.json() as { externalBlocks: { id: string }[] };
+      expect(body.externalBlocks.map((block) => block.id).sort()).toEqual(["cross-midnight", "viewed-day"]);
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
+  it.each([{ count: 200, truncated: false }, { count: 201, truncated: true }])(
+    "reports external-block truncation for $count matching rows",
+    async ({ count, truncated }) => {
+      const db = createMigratedSqliteD1();
+      const access = createAccessJwtFixture();
+      vi.stubGlobal("fetch", createFetchMock(access.jwk));
+      try {
+        insertAdminUser(db);
+        const insert = db.sqlite.prepare(`
+          INSERT INTO external_blocks (id, store_id, resource_id, source, start_at, end_at, status)
+          VALUES (?, 'kyoto', 'resource_kyoto_calendar', 'admin_block', '2099-06-01T01:00:00.000Z', '2099-06-01T02:00:00.000Z', 'active')
+        `);
+        for (let index = 0; index < count; index++) insert.run(`block-${index}`);
+
+        const response = await adminRequest(db, access.token,
+          "/api/admin/external-blocks?from=2099-06-01&to=2099-06-01&status=active");
+        const body = await response.json() as { externalBlocks: { id: string }[]; truncated: boolean };
+        expect(body.externalBlocks).toHaveLength(200);
+        expect(body.truncated).toBe(truncated);
+      } finally {
+        db.sqlite.close();
+      }
+    },
+  );
+
+  it.each([
+    { query: "from=2099-06-01", reason: "invalid_date" },
+    { query: "to=2099-06-01", reason: "invalid_date" },
+    { query: "from=2099-02-30&to=2099-03-01", reason: "invalid_date" },
+    { query: "from=2099-06-02&to=2099-06-01", reason: "invalid_range" },
+    { query: "status=active%27%20OR%201%3D1--", reason: "invalid_request" },
+  ])("rejects invalid external-block filters: $query", async ({ query, reason }) => {
+    const db = createMigratedSqliteD1();
+    const access = createAccessJwtFixture();
+    vi.stubGlobal("fetch", createFetchMock(access.jwk));
+    try {
+      insertAdminUser(db);
+      const response = await adminRequest(db, access.token, `/api/admin/external-blocks?${query}`);
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ ok: false, reason });
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
+  it.each(["kyoto", null])("keeps ranged external-block reads in the staff store scope (%s)", async (storeId) => {
+    const db = createMigratedSqliteD1();
+    const access = createAccessJwtFixture();
+    vi.stubGlobal("fetch", createFetchMock(access.jwk));
+    try {
+      insertAdminUser(db, "staff");
+      if (storeId) {
+        db.sqlite.prepare(`INSERT INTO staff_members (id, store_id, display_name, role)
+          VALUES ('staff_external_blocks', ?, 'Example Staff', 'staff')`).run(storeId);
+        db.sqlite.prepare("UPDATE admin_users SET staff_member_id = 'staff_external_blocks' WHERE id = 'admin_operations_owner_1'").run();
+      }
+      db.sqlite.exec(`
+        INSERT INTO external_blocks (id, store_id, resource_id, source, start_at, end_at, status)
+        VALUES
+          ('own-store-block', 'kyoto', 'resource_kyoto_calendar', 'admin_block', '2099-06-01T01:00:00.000Z', '2099-06-01T02:00:00.000Z', 'active'),
+          ('other-store-block', 'osaka', 'resource_osaka_calendar', 'admin_block', '2099-06-01T01:00:00.000Z', '2099-06-01T02:00:00.000Z', 'active');
+      `);
+      const response = await adminRequest(db, access.token,
+        "/api/admin/external-blocks?from=2099-06-01&to=2099-06-01&status=active");
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: true, truncated: false, externalBlocks: storeId ? [{ id: "own-store-block" }] : [],
+      });
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
   it("forbids staff from creating external blocks via HTTP", async () => {
     const db = createMigratedSqliteD1();
     const access = createAccessJwtFixture();
