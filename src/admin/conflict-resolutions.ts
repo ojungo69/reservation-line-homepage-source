@@ -238,8 +238,12 @@ const revertConflictTo = async (
       .run();
   } catch (error) {
     // A failed reopen leaves the conflict claimed, so report it without masking
-    // the original operation's failure.
-    safeCaptureException(error, { tags: { component: "conflict-resolutions", op: "revert_failed" } });
+    // the original operation's failure. Even a transient D1 export lock must be
+    // reported here: the stuck claim needs an operator, it does not heal itself.
+    safeCaptureException(error, {
+      tags: { component: "conflict-resolutions", op: "revert_failed" },
+      captureTransientD1: true
+    });
   }
 };
 

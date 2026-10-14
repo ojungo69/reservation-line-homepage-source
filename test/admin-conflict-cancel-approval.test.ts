@@ -203,6 +203,31 @@ describe("approveReservationDeleteAsCancel", () => {
     );
   });
 
+  it("reports a failed conflict reopen even when D1 is in its export lock", async () => {
+    seedReservation(d1);
+    seedConflict(d1);
+    d1.sqlite.exec(`
+      CREATE TRIGGER fail_cancel BEFORE UPDATE OF status ON reservations
+      BEGIN SELECT RAISE(ABORT, 'cancel batch failed'); END;
+      CREATE TRIGGER fail_reopen BEFORE UPDATE OF resolution_status ON google_calendar_conflicts
+      WHEN NEW.resolution_status = 'open'
+      BEGIN SELECT RAISE(ABORT, 'Currently processing a long-running export'); END;
+    `);
+
+    const result = await approveReservationDeleteAsCancel({
+      db: d1 as unknown as D1Database,
+      admin: fixtureAdmin("owner"),
+      conflictId: CONFLICT_ID,
+      request: { idempotencyKey: "key_reopen_export_lock", reason: null }
+    });
+
+    expect(result).toEqual({ ok: false, reason: "write_failed" });
+    expect(captureExceptionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("long-running export") }),
+      { tags: { component: "conflict-resolutions", op: "revert_failed" } }
+    );
+  });
+
   it("1: forbidden when admin.role='staff'", async () => {
     seedReservation(d1);
     seedConflict(d1);
