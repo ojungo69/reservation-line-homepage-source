@@ -292,6 +292,7 @@ export const recordStaffCustomerListView = async (
   // row, so it cannot claim the day's record and the real view is still recorded. Skipping it
   // instead would let anyone sending the header avoid the record.
   const otherSite = fetchSite === "cross-site" || fetchSite === "same-site" ? fetchSite : null;
+  const idSuffix = otherSite ? `:${otherSite}` : "";
   try {
     await db
       .prepare(
@@ -299,7 +300,7 @@ export const recordStaffCustomerListView = async (
          VALUES (?, 'staff', ?, 'customer.list_view', 'admin_user', ?, ?)`
       )
       .bind(
-        `customer_list_view:${admin.id}:${jstDay}${otherSite ? `:${otherSite}` : ""}`,
+        `customer_list_view:${admin.id}:${jstDay}${idSuffix}`,
         admin.id,
         admin.id,
         JSON.stringify({ adminStoreId: admin.store_id, ...(otherSite ? { fetchSite: otherSite } : {}) })

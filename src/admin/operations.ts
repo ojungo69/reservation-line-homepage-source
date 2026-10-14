@@ -1565,6 +1565,29 @@ export async function getAdminCustomerDetail(input: {
   };
 }
 
+// Period and status filters for the external block list, validated before the store shortcut.
+const buildExternalBlockFilters = (input: { from?: string; to?: string; status?: string }):
+  | { ok: true; conditions: string[]; params: string[] }
+  | { ok: false; reason: "invalid_date" | "invalid_range" | "invalid_request" } => {
+  const conditions: string[] = [];
+  const params: string[] = [];
+  if (input.from !== undefined || input.to !== undefined) {
+    const fromRange = input.from ? jstDayRangeFromKey(input.from) : null;
+    const toRange = input.to ? jstDayRangeFromKey(input.to) : null;
+    if (!fromRange || !toRange) return { ok: false, reason: "invalid_date" };
+    if (fromRange.startAt > toRange.startAt) return { ok: false, reason: "invalid_range" };
+    // Overlap includes blocks that began before the viewed day; filter before applying the cap.
+    conditions.push("external_blocks.start_at < ?", "external_blocks.end_at > ?");
+    params.push(toRange.endAt, fromRange.startAt);
+  }
+  if (input.status !== undefined) {
+    if (input.status !== "active" && input.status !== "cancelled") return { ok: false, reason: "invalid_request" };
+    conditions.push("external_blocks.status = ?");
+    params.push(input.status);
+  }
+  return { ok: true, conditions, params };
+};
+
 export async function listAdminExternalBlocks(input: {
   db: D1Database;
   admin: AdminUser;
@@ -1572,34 +1595,16 @@ export async function listAdminExternalBlocks(input: {
   to?: string;
   status?: string;
 }) {
-  const storeFilter = input.admin.role === "staff" ? input.admin.store_id : null;
-  const conditions: string[] = [];
-  const params: string[] = [];
-  if (storeFilter) {
-    conditions.push("external_blocks.store_id = ?");
-    params.push(storeFilter);
-  }
-  if (input.from !== undefined || input.to !== undefined) {
-    const fromRange = input.from ? jstDayRangeFromKey(input.from) : null;
-    const toRange = input.to ? jstDayRangeFromKey(input.to) : null;
-    if (!fromRange || !toRange) return { ok: false as const, reason: "invalid_date" };
-    if (fromRange.startAt > toRange.startAt) return { ok: false as const, reason: "invalid_range" };
-    // Overlap includes blocks that began before the viewed day; filter before applying the cap.
-    conditions.push("external_blocks.start_at < ?", "external_blocks.end_at > ?");
-    params.push(toRange.endAt, fromRange.startAt);
-  }
-  if (input.status !== undefined) {
-    if (input.status !== "active" && input.status !== "cancelled") {
-      return { ok: false as const, reason: "invalid_request" };
-    }
-    conditions.push("external_blocks.status = ?");
-    params.push(input.status);
-  }
+  const filters = buildExternalBlockFilters(input);
+  if (!filters.ok) return { ok: false as const, reason: filters.reason };
   // Validate filters first so every role gets the same 400 for a bad query; a staff member
   // without a store then sees nothing (fail closed) instead of an unscoped list.
   if (input.admin.role === "staff" && !input.admin.store_id) {
     return { ok: true as const, externalBlocks: [] as AdminExternalBlockListItem[], truncated: false };
   }
+  const storeFilter = input.admin.role === "staff" ? input.admin.store_id : null;
+  const conditions = storeFilter ? ["external_blocks.store_id = ?", ...filters.conditions] : filters.conditions;
+  const params = storeFilter ? [storeFilter, ...filters.params] : filters.params;
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const stmt = input.db.prepare(
