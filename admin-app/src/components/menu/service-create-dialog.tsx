@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,22 +70,12 @@ export function ServiceCreateDialog({ open, onOpenChange, stores, defaultStoreId
   const [comboPriceInput, setComboPriceInput] = useState("");
   const [comboPrefix, setComboPrefix] = useState("");
   const [mensMenu, setMensMenu] = useState(false);
-  const [storeId, setStoreId] = useState(defaultStoreId ?? stores[0]?.id ?? "");
-  const wasOpenRef = useRef(false);
+  const [storeId, setStoreId] = useState("");
+  const effectiveStoreId = storeId || defaultStoreId || stores[0]?.id || "";
   const idempotencyKeyRef = useRef<string>("");
   if (!idempotencyKeyRef.current) {
     idempotencyKeyRef.current = crypto.randomUUID();
   }
-
-  // 開く時点の店舗を使い、遅れて店舗一覧が届いた場合だけ未選択を補う。
-  // 開いた後の店舗選択や送信中のドラフトは再取得で上書きしない。
-  useEffect(() => {
-    const isOpening = open && !wasOpenRef.current;
-    wasOpenRef.current = open;
-    if (open && !createMutation.isPending && (isOpening || !storeId)) {
-      setStoreId(defaultStoreId ?? stores[0]?.id ?? "");
-    }
-  }, [open, defaultStoreId, stores, storeId, createMutation.isPending]);
 
   const reset = () => {
     setName("");
@@ -98,30 +88,30 @@ export function ServiceCreateDialog({ open, onOpenChange, stores, defaultStoreId
     setComboPriceInput("");
     setComboPrefix("");
     setMensMenu(false);
-    setStoreId(defaultStoreId ?? stores[0]?.id ?? "");
+    setStoreId("");
     idempotencyKeyRef.current = crypto.randomUUID();
   };
 
   const pricing = buildPricingPayload({ priceAmountInput, comboPriceInput, comboPrefix });
   // 組み合わせ割引欄は、数値料金が入力済みで、かつ選べるカテゴリ (同店舗メニュー名の ｜ 前)
   // が存在するときだけ出す。カテゴリは自店舗の既存メニューからのみ選択できる。
-  const comboCategoryOptions = prefixCandidates(services, storeId);
+  const comboCategoryOptions = prefixCandidates(services, effectiveStoreId);
   const showComboFields =
     typeof parseAmountInput(priceAmountInput) === "number" && comboCategoryOptions.length > 0;
   // メニュー自体のカテゴリ候補は combo 用と別に導出する (combo 側は40文字超を
   // サーバが拒否するため除外するが、カテゴリ自体に単体の長さ制限は無い)。
-  const menuCategoryOptions = categoryCandidates(services, storeId);
+  const menuCategoryOptions = categoryCandidates(services, effectiveStoreId);
 
   // 保存不可の理由。disabled 判定・submit guard・表示をすべてこの1つから導出し、
   // 条件の乖離 (旧: disabled は NaN と 1440 超を見ていなかった) を防ぐ。
   // duration が不正になり得るのはカスタム数値入力のときだけ (プリセットは常に有効値)。
-  const serviceInvalid = computeServiceInvalid(name, category, newCategory, storeId, durationMinutes, pricing);
+  const serviceInvalid = computeServiceInvalid(name, category, newCategory, effectiveStoreId, durationMinutes, pricing);
 
   const handleSubmit = () => {
     if (serviceInvalid !== null || !pricing.ok) return;
     createMutation.mutate(
       {
-        storeId,
+        storeId: effectiveStoreId,
         name: composeServiceName(effectiveCategory(category, newCategory), name),
         durationMinutes,
         bufferBeforeMinutes: 0,
@@ -162,8 +152,15 @@ export function ServiceCreateDialog({ open, onOpenChange, stores, defaultStoreId
             options={menuCategoryOptions}
             value={category}
             newCategory={newCategory}
-            onValueChange={setCategory}
-            onNewCategoryChange={setNewCategory}
+            onValueChange={(v) => {
+              // 店舗固有の入力は、既定店舗の更新で別店舗へ移さない。
+              setStoreId(effectiveStoreId);
+              setCategory(v);
+            }}
+            onNewCategoryChange={(v) => {
+              setStoreId(effectiveStoreId);
+              setNewCategory(v);
+            }}
             newCategoryInvalidProps={invalidFieldProps(serviceInvalid, "category", "service-create-hint")}
           />
           <div className="space-y-2">
@@ -180,7 +177,7 @@ export function ServiceCreateDialog({ open, onOpenChange, stores, defaultStoreId
           <div className="space-y-2">
             <Label htmlFor="create-service-store">店舗</Label>
             <Select
-              value={storeId}
+              value={effectiveStoreId}
               onValueChange={(v) => {
                 setStoreId(v);
                 // カテゴリは店舗固有 — 店舗を切り替えたら前店舗のカテゴリが
@@ -250,7 +247,10 @@ export function ServiceCreateDialog({ open, onOpenChange, stores, defaultStoreId
               <Label htmlFor="create-service-combo-prefix">対象カテゴリ</Label>
               <Select
                 value={comboPrefix === "" ? "__none__" : comboPrefix}
-                onValueChange={(v) => setComboPrefix(v === "__none__" ? "" : v)}
+                onValueChange={(v) => {
+                  setStoreId(effectiveStoreId);
+                  setComboPrefix(v === "__none__" ? "" : v);
+                }}
               >
                 <SelectTrigger
                   id="create-service-combo-prefix"
@@ -276,7 +276,10 @@ export function ServiceCreateDialog({ open, onOpenChange, stores, defaultStoreId
                 max={1000000}
                 step={1}
                 value={comboPriceInput}
-                onChange={(e) => setComboPriceInput(e.target.value)}
+                onChange={(e) => {
+                  setStoreId(effectiveStoreId);
+                  setComboPriceInput(e.target.value);
+                }}
                 placeholder="例: 1000"
                 {...invalidFieldProps(serviceInvalid, "comboPrice", "service-create-hint")}
               />

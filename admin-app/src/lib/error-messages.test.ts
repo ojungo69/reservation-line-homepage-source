@@ -122,10 +122,26 @@ describe("error message lookup", () => {
     expect(logout).toHaveBeenCalledOnce();
   });
 
-  it("明示された403の権限不足には再ログインを提案しない", () => {
-    const error = new ApiError(403, { error: "forbidden" });
-    expect(actionErrorMessage(error)).toBe("権限がありません");
+  it.each([
+    { reason: "admin_auth_failed" },
+    { error: "admin_auth_failed" },
+  ])("Access JWT認証失敗の403では再ログインを案内する（%s）", (body) => {
+    const error = new ApiError(403, body);
+    const message = "ログインの有効期限が切れた可能性があります。再ログインしてください";
+    expect(actionErrorMessage(error)).toBe(message);
     showErrorToast(error);
-    expect(toast.error).toHaveBeenCalledWith("権限がありません");
+    expect(toast.error).toHaveBeenCalledWith(message, {
+      action: { label: "再ログイン", onClick: expect.any(Function) },
+    });
+  });
+
+  it.each([
+    { body: { error: "forbidden" }, message: "権限がありません" },
+    { body: { reason: "admin_not_registered" }, message: "操作に失敗しました" },
+  ])("明示された403の権限不足には再ログインを提案しない（$body）", ({ body, message }) => {
+    const error = new ApiError(403, body);
+    expect(actionErrorMessage(error)).toBe(message);
+    showErrorToast(error);
+    expect(toast.error).toHaveBeenCalledWith(message);
   });
 });

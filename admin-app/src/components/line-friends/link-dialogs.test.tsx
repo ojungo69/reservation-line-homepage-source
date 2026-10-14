@@ -1,6 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LineFriendListItem } from "@/types/api";
 
 const link = vi.fn();
@@ -31,15 +30,20 @@ const friend: LineFriendListItem = {
   linkedCustomerId: null,
 };
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("既存のお客様へのLINE紐付け", () => {
-  it("検索欄の名前からお客様を検索し、既存の紐付け操作を行える", async () => {
-    const user = userEvent.setup();
+  it("検索欄の名前からお客様を検索し、既存の紐付け操作を行える", () => {
+    vi.useFakeTimers();
     render(<LinkExistingDialog friend={friend} storeId="store-1" onClose={vi.fn()} />);
 
     const search = screen.getByRole("textbox", { name: "既存のお客様を名前または電話番号で検索" });
-    await user.type(search, "山田");
-    expect((search as HTMLInputElement).value).toBe("山田");
-    await user.click(await screen.findByRole("button", { name: /^山田 花子/ }));
+    fireEvent.change(search, { target: { value: "山田" } });
+    expect(search).toHaveProperty("value", "山田");
+    act(() => vi.advanceTimersByTime(300));
+    fireEvent.click(screen.getByRole("button", { name: /^山田 花子/ }));
 
     expect(link).toHaveBeenCalledWith({
       lineUserId: "U1",

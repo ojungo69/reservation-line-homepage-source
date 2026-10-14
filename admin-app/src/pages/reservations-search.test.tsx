@@ -115,7 +115,7 @@ describe("ReservationsPage search feedback", () => {
 
   it.each([
     { from: "2026-11-15", to: "2026-11-14", message: "開始日と終了日の指定が正しくありません" },
-    { from: "2026-01-01", to: "2026-04-03", message: "期間が大きすぎます" },
+    { from: "2026-01-01", to: "2026-04-03", message: "期間は最大92日までです。開始日と終了日を見直してください。" },
   ])("無効な期間（$from～$to）の原因を日付入力に関連付け、検索を止める", async ({ from, to, message }) => {
     const get = vi.spyOn(api, "get").mockResolvedValue(response);
     const client = renderSearch();

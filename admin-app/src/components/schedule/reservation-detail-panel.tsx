@@ -565,7 +565,7 @@ export function ReservationDetailPanel({
                     key={cfg.action}
                     variant={cfg.variant}
                     size="sm"
-                    disabled={isActioning || (cfg.action === "approve" && !!approvalReason)}
+                    disabled={isActioning}
                     onClick={() => { setApprovalFailure(""); setConfirm(cfg); }}
                   >
                     {cfg.label}

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PendingConfirmDialog } from "@/components/ui/pending-confirm-dialog";
 import {
   Select,
   SelectContent,
@@ -11,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useBusinessHours, useBusinessHoursUpdate } from "@/hooks/use-business-hours";
+import { useStores } from "@/hooks/use-stores";
 import { WEEKDAYS } from "@/lib/timeline";
 import type { BusinessHourRow } from "@/types/api";
 
@@ -19,7 +21,6 @@ type StoreOption = { id: string; name: string };
 type Props = {
   stores: StoreOption[];
   selectedStoreId: string | null;
-  onEditingChange?: (storeId: string | null, editing: boolean, pending: boolean) => void;
 };
 
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
@@ -41,25 +42,27 @@ const timeOptionsWith = (current: string): readonly string[] =>
     ? TIME_OPTIONS
     : [...TIME_OPTIONS, current].sort((a, b) => toMinutes(a) - toMinutes(b));
 
-export function BusinessHoursTab({ stores, selectedStoreId, onEditingChange }: Readonly<Props>) {
-  const storeId = selectedStoreId;
+export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
+  const { selectStore } = useStores();
+  const [editStoreId, setEditStoreId] = useState<string | null>(null);
+  const storeId = editStoreId ?? selectedStoreId;
   const { data, isPending } = useBusinessHours(storeId);
   const updateMutation = useBusinessHoursUpdate();
 
   const [editHours, setEditHours] = useState<BusinessHourRow[] | null>(null);
-  const [editing, setEditing] = useState(false);
-
-  // ページとヘッダーの共有店舗選択は同じ確認を通す。保存中の破棄も親で止める。
-  useEffect(() => {
-    onEditingChange?.(storeId, editing, updateMutation.isPending);
-  }, [storeId, editing, updateMutation.isPending, onEditingChange]);
+  const editing = editStoreId !== null;
 
   const hours = editHours ?? (data?.ok ? data.businessHours : null);
 
   const startEdit = () => {
-    if (!data?.ok) return;
+    if (!storeId || !data?.ok) return;
+    setEditStoreId(storeId);
     setEditHours(data.businessHours.map((h) => ({ ...h })));
-    setEditing(true);
+  };
+
+  const discardEdit = () => {
+    setEditStoreId(null);
+    setEditHours(null);
   };
 
   const updateRow = (weekday: number, field: keyof BusinessHourRow, value: string | boolean) => {
@@ -74,10 +77,7 @@ export function BusinessHoursTab({ stores, selectedStoreId, onEditingChange }: R
     updateMutation.mutate(
       { storeId, hours: editHours },
       {
-        onSuccess: () => {
-          setEditing(false);
-          setEditHours(null);
-        },
+        onSuccess: discardEdit,
       },
     );
   };
@@ -113,7 +113,7 @@ export function BusinessHoursTab({ stores, selectedStoreId, onEditingChange }: R
             <Button onClick={handleSave} disabled={updateMutation.isPending}>
               {updateMutation.isPending ? "保存中..." : "保存"}
             </Button>
-            <Button variant="outline" onClick={() => { setEditing(false); setEditHours(null); }} disabled={updateMutation.isPending}>
+            <Button variant="outline" onClick={discardEdit} disabled={updateMutation.isPending}>
               キャンセル
             </Button>
           </div>
@@ -131,7 +131,6 @@ export function BusinessHoursTab({ stores, selectedStoreId, onEditingChange }: R
                   variant="outline"
                   size="sm"
                   aria-label={`${WEEKDAYS[h.weekday]}曜 ${h.closed ? "休業" : "営業"}`}
-                  aria-pressed={h.closed}
                   onClick={() => updateRow(h.weekday, "closed", !h.closed)}
                 >
                   {h.closed ? "休業" : "営業"}
@@ -176,6 +175,21 @@ export function BusinessHoursTab({ stores, selectedStoreId, onEditingChange }: R
           </Card>
         ))}
       </div>
+
+      {editStoreId && editStoreId !== selectedStoreId && (
+        <PendingConfirmDialog
+          open
+          pending={updateMutation.isPending}
+          title="営業時間の変更を破棄しますか？"
+          description="編集中の営業時間は保存されません。店舗を切り替えてもよろしいですか？"
+          confirmLabel="破棄して切り替える"
+          cancelLabel="編集を続ける"
+          onOpenChange={(open) => {
+            if (!open) selectStore(editStoreId);
+          }}
+          onConfirm={discardEdit}
+        />
+      )}
     </div>
   );
 }

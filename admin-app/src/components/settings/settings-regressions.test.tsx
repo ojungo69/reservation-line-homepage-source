@@ -141,7 +141,7 @@ describe("F29 営業時間の下書き保護", () => {
     await user.click(screen.getByRole("tab", { name: "休業日" }));
     expect(screen.queryByRole("button", { name: "月曜 休業" })).toBeNull();
     await user.click(screen.getByRole("tab", { name: "営業時間" }));
-    expect(screen.getByRole("button", { name: "月曜 休業" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "月曜 休業" }).textContent).toBe("休業");
     await user.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(api.put).toHaveBeenCalledWith(
       "/api/admin/settings/business-hours/store-1",
@@ -157,8 +157,8 @@ describe("F29 営業時間の下書き保護", () => {
     await user.click(screen.getByRole("button", { name: "月曜 営業" }));
     await user.click(screen.getByRole("button", { name: "ヘッダーで店舗を切り替える" }));
     expect(screen.getByRole("alertdialog").textContent).toContain("営業時間の変更を破棄しますか？");
-    await user.click(screen.getByRole("button", { name: "キャンセル" }));
-    expect(screen.getByRole("button", { name: "月曜 休業" }).getAttribute("aria-pressed")).toBe("true");
+    await user.click(screen.getByRole("button", { name: "編集を続ける" }));
+    expect(screen.getByRole("button", { name: "月曜 休業" }).textContent).toBe("休業");
     expect(api.put).not.toHaveBeenCalled();
   });
 
@@ -174,7 +174,7 @@ describe("F29 営業時間の下書き保護", () => {
     await user.click(screen.getByRole("button", { name: "破棄して切り替える" }));
     expect(await screen.findByRole("button", { name: "編集" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "編集" }));
-    expect(screen.getByRole("button", { name: "月曜 営業" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "月曜 営業" }).textContent).toBe("営業");
     await user.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(api.put).toHaveBeenCalledWith(
       "/api/admin/settings/business-hours/store-2",
@@ -195,7 +195,7 @@ describe("F29 営業時間の下書き保護", () => {
     await user.click(screen.getByRole("button", { name: "保存" }));
     await user.click(screen.getByRole("button", { name: "ヘッダーで店舗を切り替える" }));
     expect(screen.getByRole("button", { name: "処理中..." }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByRole("button", { name: "キャンセル" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "編集を続ける" }).hasAttribute("disabled")).toBe(true);
     await act(async () => finishSave());
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(api.put).toHaveBeenCalledWith(
@@ -214,7 +214,7 @@ describe("F29 営業時間の下書き保護", () => {
     expect(await screen.findByRole("alert")).toBeTruthy();
     settingsFail = false;
     await user.click(screen.getByRole("button", { name: "再読み込み" }));
-    expect((await screen.findByRole("button", { name: "月曜 休業" })).getAttribute("aria-pressed")).toBe("true");
+    expect((await screen.findByRole("button", { name: "月曜 休業" })).textContent).toBe("休業");
   });
 });
 
@@ -280,12 +280,13 @@ describe("F12 営業時間のキーボード操作", () => {
     renderUi(<BusinessHoursTab stores={[store]} selectedStoreId={store.id} />);
     await user.click(await screen.findByRole("button", { name: "編集" }));
     const toggle = screen.getByRole("button", { name: "月曜 営業" });
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.textContent).toBe("営業");
+    expect(toggle.getAttribute("aria-pressed")).toBeNull();
     toggle.focus();
     await user.keyboard(" ");
-    expect(screen.getByRole("button", { name: "月曜 休業" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "月曜 休業" }).textContent).toBe("休業");
     await user.keyboard("{Enter}");
-    expect(screen.getByRole("button", { name: "月曜 営業" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "月曜 営業" }).textContent).toBe("営業");
   });
 
   it("時刻の選択には曜日と開始・終了の名前が付く", async () => {

@@ -58,7 +58,7 @@ function approvalErrorMessage(error: unknown): string {
 // 対象をスナップショット固定し、30秒ポーリングで pending が入れ替わっても対象と
 // 結果表示がぶれないようにする (bulkState が非 null の間はカード自体も消えない)。
 type BulkState =
-  | { phase: "confirming"; items: PendingReservation[]; excluded: PendingReservation[] }
+  | { phase: "confirming"; items: PendingReservation[] }
   | { phase: "running"; items: PendingReservation[]; done: number }
   | { phase: "result"; items: PendingReservation[]; result: BulkApproveResult }
   | null;
@@ -140,14 +140,16 @@ export function PendingApprovalsCard({
     // 戻して判定する。予約状態・予約自身のLINE状態は承認APIが最終確認する。
     return approvalUnavailableReason(current ?? snapshot, checkedAt);
   };
-  // 確認した対象を増やさず、更新で承認不可になったものだけ対象外へ移す。
-  const confirmingItems = bulkState?.phase === "confirming"
-    ? bulkState.items.filter((r) => !currentApprovalReason(r, data, now)) : [];
-  const confirmingExcluded = bulkState?.phase === "confirming"
-    ? [
-      ...bulkState.excluded.map((r) => ({ reservation: r, reason: approvalUnavailableReason(r, now) })),
-      ...bulkState.items.filter((r) => !!currentApprovalReason(r, data, now)).map((r) => ({ reservation: r, reason: currentApprovalReason(r, data, now) })),
-    ] : [];
+  // 確認した一覧の予約だけを、最新の期限で対象／対象外へ振り分ける。
+  const confirmingItems: PendingReservation[] = [];
+  const confirmingExcluded: Array<{ reservation: PendingReservation; reason: string }> = [];
+  if (bulkState?.phase === "confirming") {
+    for (const reservation of bulkState.items) {
+      const reason = currentApprovalReason(reservation, data, now);
+      if (reason) confirmingExcluded.push({ reservation, reason });
+      else confirmingItems.push(reservation);
+    }
+  }
   const approveReason = approveTarget ? currentApprovalReason(approveTarget, data, now) : "";
 
   const run = (target: PendingReservation, act: "approve" | "reject", reason?: string) => {
@@ -266,12 +268,7 @@ export function PendingApprovalsCard({
               size="sm"
               variant="outline"
               onClick={() => {
-                const now = Date.now();
-                setBulkState({
-                  phase: "confirming",
-                  items: pending.filter((r) => !approvalUnavailableReason(r, now)),
-                  excluded: pending.filter((r) => !!approvalUnavailableReason(r, now)),
-                });
+                setBulkState({ phase: "confirming", items: pending });
               }}
               disabled={readUnavailable || bulkState !== null || operatingIds.size > 0 || eligible.length === 0}
             >
@@ -297,6 +294,7 @@ export function PendingApprovalsCard({
           {pending.map((r) => {
             const busy = readUnavailable || operatingIds.has(r.id) || bulkBusy;
             const approvalReason = approvalUnavailableReason(r, now);
+            const reasonId = approvalReason ? `approve-disabled-${r.id}` : undefined;
             return (
               <li key={r.id}>
                 <Card className="flex flex-wrap items-center gap-x-3 gap-y-1.5 p-2">
@@ -316,7 +314,6 @@ export function PendingApprovalsCard({
                     <div className="text-xs text-muted-foreground">
                       受付: {formatDateTime(r.createdAt ?? null)} · 承認期限: {r.pendingExpiresAt === null ? "期限なし" : formatDateTime(r.pendingExpiresAt ?? null)}
                     </div>
-                    {approvalReason && <p className="text-xs text-muted-foreground">{approvalReason}</p>}
                   </button>
                   {/* 全予約承認制: staff も自店舗の承認/却下を担う (backend が store scope を強制) */}
                   <div className="flex shrink-0 items-center gap-1.5">
@@ -324,6 +321,7 @@ export function PendingApprovalsCard({
                       size="sm"
                       onClick={() => setApproveTarget(r)}
                       disabled={busy || !!approvalReason}
+                      aria-describedby={reasonId}
                     >
                       {operatingIds.has(r.id) ? "処理中…" : "承認"}
                     </Button>
@@ -336,6 +334,7 @@ export function PendingApprovalsCard({
                       却下
                     </Button>
                   </div>
+                  {approvalReason && <p id={reasonId} className="w-full text-xs text-muted-foreground">{approvalReason}</p>}
                 </Card>
               </li>
             );

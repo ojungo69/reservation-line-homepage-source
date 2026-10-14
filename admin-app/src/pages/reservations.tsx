@@ -171,7 +171,7 @@ export default function ReservationsPage() {
     if (from > to) return errorMessage("invalid_range");
     // 検索APIと同じく両端を含む日数で判定する。日付文字列のUTC差分ならブラウザの夏時間にも左右されない。
     const days = (Date.parse(to) - Date.parse(from)) / 86_400_000 + 1;
-    if (days > MAX_SEARCH_DAYS) return errorMessage("range_too_large");
+    if (days > MAX_SEARCH_DAYS) return `期間は最大${MAX_SEARCH_DAYS}日までです。開始日と終了日を見直してください。`;
     return null;
   }, [from, to]);
 

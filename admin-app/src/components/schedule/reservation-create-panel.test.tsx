@@ -99,6 +99,27 @@ beforeEach(() => {
 });
 
 describe("ReservationCreatePanel", () => {
+  it("日付をまたいでスケジュールの初期日が変わっても未入力の予約は確認なしで閉じる", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const props = {
+      open: true,
+      onClose,
+      defaultStoreId: "store-1",
+      defaultResourceId: "resource-1",
+      defaultDate: new Date("2026-07-24T00:00:00+09:00"),
+      defaultMinutes: 600,
+    };
+    const { rerender } = render(<ReservationCreatePanel {...props} />);
+    rerender(<ReservationCreatePanel {...props} defaultDate={new Date("2026-07-25T00:00:00+09:00")} />);
+
+    expect(screen.getByLabelText("日付")).toHaveProperty("value", "2026-07-24");
+    await user.click(screen.getByRole("button", { name: "キャンセル" }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
   it("顧客検索中に Esc で閉じようとして編集に戻っても検索語を保持する", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

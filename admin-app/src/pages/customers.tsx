@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { CustomerDetailPanel } from "@/components/customers/customer-detail-panel";
 import { AddCustomerDialog } from "@/components/customers/add-customer-dialog";
+import { CustomerSearchHints } from "@/components/customers/customer-search-hints";
 import {
   useCustomerList,
   useCustomerSearch,
@@ -43,6 +44,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useStores } from "@/hooks/use-stores";
 import { formatDateDisplay } from "@/lib/timeline";
+import { needsFullPhoneHint } from "@/lib/customer-search-hints";
 import type {
   CustomerListItem,
   CustomerSearchItem,
@@ -241,7 +243,7 @@ export default function CustomersPage() {
       {!isPending && !isError && isSearchMode && (
         <SearchResultTable
           rows={searchRows}
-          showFullPhoneHint={!isPrivileged && /^\d{3,10}$/.test(debouncedQuery)}
+          showFullPhoneHint={needsFullPhoneHint(debouncedQuery, !isPrivileged)}
           truncated={searchData?.truncated}
           onSelect={setSelectedCustomerId}
         />
@@ -471,7 +473,7 @@ export function SearchResultTable({
             <TableRow>
               <TableCell colSpan={4} className="text-center text-muted-foreground">
                 該当する顧客が見つかりません
-                {showFullPhoneHint && <p>電話番号は全桁で入力してください</p>}
+                <CustomerSearchHints showFullPhoneHint={showFullPhoneHint} />
               </TableCell>
             </TableRow>
           )}
@@ -496,11 +498,7 @@ export function SearchResultTable({
           ))}
         </TableBody>
       </Table>
-      {truncated && (
-        <p className="p-3 text-sm text-muted-foreground">
-          20件を超えています。名前をもう少し入力してください
-        </p>
-      )}
+      <CustomerSearchHints truncated={truncated} className="p-3 text-sm text-muted-foreground" />
     </div>
   );
 }

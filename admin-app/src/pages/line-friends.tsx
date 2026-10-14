@@ -162,7 +162,7 @@ export default function LineFriendsPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={effectiveStoreId === "" || f.profileStatus !== "fetched"}
+                    disabled={!!disabledReason}
                     aria-describedby={reasonId}
                     onClick={() => setExistingFor(f)}
                   >
@@ -171,7 +171,7 @@ export default function LineFriendsPage() {
                   </Button>
                   <Button
                     size="sm"
-                    disabled={effectiveStoreId === "" || f.profileStatus !== "fetched"}
+                    disabled={!!disabledReason}
                     aria-describedby={reasonId}
                     onClick={() => setNewFor(f)}
                   >

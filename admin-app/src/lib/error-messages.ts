@@ -150,8 +150,8 @@ const UNKNOWN_OUTCOME_MESSAGE = "処理結果を確認できません。重複�
 const SESSION_EXPIRED_MESSAGE = "ログインの有効期限が切れた可能性があります。再ログインしてください";
 
 function isAccessSessionError(err: ApiError, code: string): boolean {
-  // 理由付きの403は操作権限のエラーなので、Accessの期限切れと混同しない。
-  return err.status === 401 || (err.status === 403 && !code);
+  // WorkerのJWT認証失敗と理由のない403は再ログイン対象。操作権限の403とは区別する。
+  return err.status === 401 || (err.status === 403 && (!code || code === "admin_auth_failed"));
 }
 
 export function errorMessage(code: string): string {

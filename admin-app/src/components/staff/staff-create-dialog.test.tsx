@@ -86,6 +86,27 @@ describe("StaffCreateDialog 店舗の初期選択", () => {
     expect(screen.getByLabelText("店舗").textContent).toContain("テスト中央店");
   });
 
+  it("手動で選択する前の既定店舗変更を反映し、入力中の表示名を保持する", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <StaffCreateDialog open onOpenChange={onOpenChange} stores={stores} defaultStoreId="store-1" />,
+    );
+    await user.type(screen.getByLabelText("表示名"), "テスト担当");
+
+    rerender(
+      <StaffCreateDialog open onOpenChange={onOpenChange} stores={stores} defaultStoreId="store-2" />,
+    );
+
+    expect(screen.getByLabelText("店舗").textContent).toContain("テスト北店");
+    expect(screen.getByLabelText("表示名")).toHaveProperty("value", "テスト担当");
+    await user.click(screen.getByRole("button", { name: "追加" }));
+    expect(createStaff).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: "store-2", displayName: "テスト担当" }),
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
   it("手動の店舗選択とドラフトを再取得・送信待ち・再試行でも保持する", async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
@@ -123,5 +144,16 @@ describe("StaffCreateDialog 店舗の初期選択", () => {
       submitted,
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
+
+    await user.keyboard("{Escape}");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    rerender(
+      <StaffCreateDialog open={false} onOpenChange={onOpenChange} stores={stores} defaultStoreId="store-1" />,
+    );
+    rerender(
+      <StaffCreateDialog open onOpenChange={onOpenChange} stores={stores} defaultStoreId="store-2" />,
+    );
+    expect(screen.getByLabelText("店舗").textContent).toContain("テスト北店");
+    expect(screen.getByLabelText("表示名")).toHaveProperty("value", "");
   });
 });

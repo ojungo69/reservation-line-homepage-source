@@ -1,6 +1,5 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { StoreSelect } from "@/components/ui/store-select";
-import { PendingConfirmDialog } from "@/components/ui/pending-confirm-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import { useStores } from "@/hooks/use-stores";
@@ -18,12 +17,6 @@ export default function SettingsPage() {
   const { isError, refetch } = useSettings();
   const effectiveStoreId = selectedStoreId ?? (stores.length === 1 ? stores[0].id : null);
   const [activeTab, setActiveTab] = useState("hours");
-  const [hoursEdit, setHoursEdit] = useState<{ storeId: string; pending: boolean } | null>(null);
-  const hoursStoreId = hoursEdit?.storeId ?? effectiveStoreId;
-  const switchingStore = hoursEdit !== null && hoursEdit.storeId !== effectiveStoreId;
-  const handleHoursEditingChange = useCallback((storeId: string | null, editing: boolean, pending: boolean) => {
-    setHoursEdit(editing && storeId ? { storeId, pending } : null);
-  }, []);
 
   return (
     <div className="space-y-4 p-4 sm:p-6">
@@ -54,10 +47,8 @@ export default function SettingsPage() {
         {/* タブ移動は下書きを保持し、共有の店舗選択が変わっても破棄確認までは元の店舗で編集する。 */}
         <TabsContent value="hours" className="mt-4" forceMount hidden={activeTab !== "hours"}>
           <BusinessHoursTab
-            key={hoursStoreId ? `store:${hoursStoreId}` : "scope:none"}
             stores={stores}
-            selectedStoreId={hoursStoreId}
-            onEditingChange={handleHoursEditingChange}
+            selectedStoreId={effectiveStoreId}
           />
         </TabsContent>
 
@@ -81,18 +72,6 @@ export default function SettingsPage() {
           </>
         )}
       </Tabs>
-
-      <PendingConfirmDialog
-        open={switchingStore}
-        pending={hoursEdit?.pending ?? false}
-        title="営業時間の変更を破棄しますか？"
-        description="編集中の営業時間は保存されません。店舗を切り替えてもよろしいですか？"
-        confirmLabel="破棄して切り替える"
-        onOpenChange={(open) => {
-          if (!open && hoursEdit) selectStore(hoursEdit.storeId);
-        }}
-        onConfirm={() => setHoursEdit(null)}
-      />
     </div>
   );
 }

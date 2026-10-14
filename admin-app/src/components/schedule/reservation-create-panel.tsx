@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Field } from "@/components/ui/field";
+import { CustomerSearchHints } from "@/components/customers/customer-search-hints";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import { useSettings } from "@/hooks/use-settings";
 import { useCustomerSearch } from "@/hooks/use-customers";
 import { useAuth } from "@/hooks/use-auth";
 import { formatJstDate, formatTime } from "@/lib/timeline";
+import { needsFullPhoneHint } from "@/lib/customer-search-hints";
 import { buildCustomerPart, type CreateMode } from "@/lib/reservation-create-mode";
 import {
   createReservationPayloadSignature,
@@ -171,7 +173,7 @@ function renderCustomerResults({
     return (
       <div className="px-3 py-2 text-xs text-muted-foreground">
         <p>該当する顧客がいません。</p>
-        {showFullPhoneHint && <p>電話番号は全桁で入力してください</p>}
+        <CustomerSearchHints showFullPhoneHint={showFullPhoneHint} />
       </div>
     );
   }
@@ -193,11 +195,7 @@ function renderCustomerResults({
         </li>
       ))}
     </ul>
-    {truncated && (
-      <p className="px-3 py-2 text-xs text-muted-foreground">
-        20件を超えています。名前をもう少し入力してください
-      </p>
-    )}
+    <CustomerSearchHints truncated={truncated} className="px-3 py-2 text-xs text-muted-foreground" />
     </>
   );
 }
@@ -393,7 +391,7 @@ function CustomerFields({
                       loading: searchLoading,
                       error: searchError,
                       results: customerResults,
-                      showFullPhoneHint: isStaff && /^\d{3,10}$/.test(customerSearch.trim()),
+                      showFullPhoneHint: needsFullPhoneHint(customerSearch, isStaff),
                       truncated: searchTruncated,
                       onSelect: onCustomerSelect,
                     })}
@@ -546,7 +544,8 @@ export function ReservationCreatePanel({
   const [storeId, setStoreId] = useState(defaultStoreId ?? "");
   const [serviceIds, setServiceIds] = useState<string[]>(defaultServiceIds ?? []);
   const [resourceId, setResourceId] = useState(defaultResourceId ?? "");
-  const [date, setDate] = useState(() => formatJstDate(defaultDate));
+  const [initialDate] = useState(() => formatJstDate(defaultDate));
+  const [date, setDate] = useState(initialDate);
   const initialTime = defaultMinutes == null
     ? "10:00"
     : `${String(Math.floor(defaultMinutes / 60)).padStart(2, "0")}:${String(defaultMinutes % 60).padStart(2, "0")}`;
@@ -787,7 +786,7 @@ export function ReservationCreatePanel({
   const isDirty = serviceIds.length > 0 || selectedCustomer !== null ||
     [customerSearch, customerName, customerKana, customerPhone].some((value) => value.trim().length > 0) ||
     storeId !== (defaultStoreId ?? "") || resourceId !== (defaultResourceId ?? "") ||
-    date !== formatJstDate(defaultDate) || time !== initialTime || origin !== "minimo";
+    date !== initialDate || time !== initialTime || origin !== "minimo";
   const requestClose = () => {
     if (isPending) return;
     if (isDirty) setDiscardOpen(true);
