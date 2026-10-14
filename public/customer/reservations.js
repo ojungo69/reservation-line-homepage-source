@@ -134,7 +134,12 @@ const renderReservations = (reservations) => {
     const empty = document.createElement("p");
     empty.className = "muted";
     empty.textContent = "現在ご利用可能な予約はありません。";
-    list.append(empty);
+    // The API omits expired and unapproved applications, so an empty list needs context.
+    const notice = document.createElement("p");
+    notice.className = "muted";
+    notice.textContent =
+      "お申し込みから24時間以内に店舗で確認できない場合、お申し込みは自動的に取り消されます。承認されなかったお申し込みや期限切れのお申し込みは、「予約の確認」の一覧には表示されません。ご不明な点は、公式LINEのトークからお問い合わせください。";
+    list.append(empty, notice);
     return;
   }
   const guidance = document.createElement("p");
@@ -171,7 +176,8 @@ const renderReservation = (reservation) => {
 
   const startEl = document.createElement("p");
   startEl.className = "meta";
-  startEl.textContent = `開始: ${formatJst(reservation.startAt)} 〜 ${formatJst(reservation.endAt)}`;
+  // endAt includes cleanup time and is not the customer's appointment finish time.
+  startEl.textContent = `開始: ${formatJst(reservation.startAt)}`;
   panel.append(startEl);
 
   const statusEl = document.createElement("p");

@@ -99,7 +99,7 @@ const state = {
   availabilityFetchStartedAt: 0,
   // True while the CURRENT availability request is unresolved. Auto refreshes
   // must never start behind it — `availability === null` alone can't tell
-  // "loading" from "failed" (loadAvailability nulls it at fetch start).
+  // "loading" from "failed" (manual loads null it at fetch start).
   availabilityFetchInFlight: false,
   // True when the current request finished without rendering (HTTP/body error
   // or network throw). Lets the on-return refresh bypass the freshness gate
@@ -226,6 +226,16 @@ servicesLimitStatus.setAttribute("role", "status");
 servicesLimitStatus.setAttribute("aria-live", "polite");
 // Outside the popover so the limit remains visible when the picker is closed.
 elements.servicesTags.after(servicesLimitStatus);
+
+const PENDING_APPROVAL_NOTICE = "お申し込みから24時間以内に店舗で確認できない場合、お申し込みは自動的に取り消されます。承認されなかったお申し込みや期限切れのお申し込みは、「予約の確認」の一覧には表示されません。ご不明な点は、公式LINEのトークからお問い合わせください。";
+// HTML is an instance overlay. Add the disclosure once to the existing notices
+// so returning to confirmation does not duplicate it or replace instance copy.
+for (const notice of [
+  elements.confirmPanel?.querySelector(".confirm-notice"),
+  elements.successPanel?.querySelector(".success-message")
+]) {
+  notice?.append(` ${PENDING_APPROVAL_NOTICE}`);
+}
 
 const updateStepIndicator = (stepNumber) => {
   const items = document.querySelectorAll(".step-item[data-step]");
@@ -989,6 +999,22 @@ const populateDateOptions = (store) => {
   elements.date.disabled = false;
 };
 
+const refreshDateOptionsIfNeeded = () => {
+  // Do not change the booking behind the identity, confirmation or success panel.
+  if (elements.form.hidden || elements.bookingGroup.hidden) return;
+  const store = getSelectedStore();
+  if (!store || elements.date.options[0]?.value === formatDateInput(new Date(), store.timezone)) return;
+  const previousDate = elements.date.value;
+  populateDateOptions(store);
+  // A long-lived tab may cross store-local midnight. Preserve valid choices,
+  // but invalidate old slots and requests before fetching a replacement date.
+  if (elements.date.value !== previousDate) {
+    requestAvailabilityUpdate();
+  } else {
+    updateDateSearchControls();
+  }
+};
+
 // Show the selected store's owner-configured notice. textContent (never innerHTML)
 // so free-form operator copy can never inject markup. Empty/absent → hidden.
 const renderStoreNotice = () => {
@@ -1358,6 +1384,9 @@ const clearSlots = (message) => {
 };
 
 const selectSlotButton = (button, slot) => {
+  // Choosing a time ends auto-refreshing. Cancel an outstanding response too,
+  // so it cannot remove the choice after the customer advances to confirmation.
+  if (state.availabilityFetchInFlight) cancelAvailabilityRequest();
   for (const item of elements.slots.querySelectorAll(".slot-button")) {
     item.setAttribute("aria-checked", "false");
     item.classList.remove("slot-selected");
@@ -1750,13 +1779,14 @@ const findNextAvailableDate = async () => {
   }
 };
 
-const loadAvailability = async () => {
+const loadAvailability = async ({ background = false } = {}) => {
   cancelAvailabilityRequest();
   state.nextDateSearchCursor = "";
   if (elements.nextDateStatus) elements.nextDateStatus.textContent = "";
   updateDateSearchControls();
   const requestId = state.availabilityRequestId;
-  state.availability = null;
+  const previousAvailability = state.availability;
+  if (!background) state.availability = null;
   const serviceIds = selectedServiceIds();
 
   // The notice belongs to a store + menu selection, not to a date. Drop it the
@@ -1780,10 +1810,12 @@ const loadAvailability = async () => {
 
   state.availabilityFetchStartedAt = Date.now();
   state.availabilityFetchInFlight = true;
-  clearSlots("空き時間を確認中です…");
-  // Announce "busy" to assistive tech while the slot list is loading (the visible
-  // text is already swapped, but #slots is a live region so AT hears the state).
-  elements.slots.setAttribute("aria-busy", "true");
+  // Automatic refreshes must not remove a focused button or re-announce an
+  // unchanged live region. Explicit loads still show loading and error states.
+  if (!background) {
+    clearSlots("空き時間を確認中です…");
+    elements.slots.setAttribute("aria-busy", "true");
+  }
   const params = availabilityParams(elements.date.value);
   const controller = new AbortController();
   state.availabilityController = controller;
@@ -1795,16 +1827,20 @@ const loadAvailability = async () => {
       return;
     }
     state.availabilityFetchInFlight = false;
-    elements.slots.setAttribute("aria-busy", "false");
+    if (!background) elements.slots.setAttribute("aria-busy", "false");
     if (!response.ok || !body.ok || body.availabilityStatus === "unavailable") {
       state.availabilityLastFetchFailed = true;
+      if (background) return;
       setSlotNotice("");
+      // A response can cross midnight after its date was valid at fetch start.
+      const dateExpired = response.status === 400 && body?.reason === "invalid_request" &&
+        elements.date.value < formatDateInput(new Date(), getSelectedStore().timezone);
       // The duration cap has a dedicated reason so the customer learns the fix
       // (fewer menus) instead of reading a generic availability failure.
       clearSlots(
         body?.reason === "duration_limit_exceeded"
           ? "選択されたメニューの合計施術時間が上限（235分）を超えています。メニューの数を減らして再度お試しください。"
-          : "空き時間を取得できませんでした"
+          : dateExpired ? "日付を選び直してください" : "空き時間を取得できませんでした"
       );
       return;
     }
@@ -1814,14 +1850,20 @@ const loadAvailability = async () => {
     // Set before renderSlots so the "選択できる空き時間がありません" case (a men's
     // menu on a closed weekday) is shown together with the reason.
     setSlotNotice(body.notice);
-    renderSlots();
+    const previousSlots = previousAvailability?.slots ?? [];
+    const slotsUnchanged = background && previousAvailability && previousAvailability.timezone === body.timezone &&
+      previousSlots.length === (body.slots?.length ?? 0) &&
+      previousSlots.every((slot, index) => slot.startAt === body.slots[index].startAt);
+    if (!slotsUnchanged) renderSlots();
   } catch {
     if (requestId === state.availabilityRequestId) {
       state.availabilityFetchInFlight = false;
       state.availabilityLastFetchFailed = true;
-      elements.slots.setAttribute("aria-busy", "false");
-      setSlotNotice("");
-      clearSlots("空き時間を取得できませんでした");
+      if (!background) {
+        elements.slots.setAttribute("aria-busy", "false");
+        setSlotNotice("");
+        clearSlots("空き時間を取得できませんでした");
+      }
     }
   }
 };
@@ -1858,6 +1900,7 @@ const startAvailabilityPolling = () => {
     // Hidden tabs get throttled timers anyway and nobody sees the result —
     // skip the fetch; the on-return refresh below covers the staleness.
     if (document.hidden) return;
+    refreshDateOptionsIfNeeded();
     if (!canAutoRefreshAvailability()) return;
     if (state.availabilityFetchInFlight) return;
     // A pending requestAvailabilityUpdate debounce means a user-initiated
@@ -1865,7 +1908,7 @@ const startAvailabilityPolling = () => {
     // (its callback has no coalesce guard and would discard this request).
     if (state.availabilityRequestTimer !== null) return;
     if (Date.now() - state.availabilityFetchStartedAt < AVAILABILITY_REFRESH_COALESCE_MS) return;
-    void loadAvailability();
+    void loadAvailability({ background: true });
   }, AVAILABILITY_POLL_INTERVAL_MS);
 };
 
@@ -1876,7 +1919,9 @@ const startAvailabilityPolling = () => {
 // last fetch (availability === null, error message showing) always warrants
 // the refetch — don't leave the customer staring at a stale error.
 const refreshAvailabilityOnReturn = () => {
-  if (document.hidden || !canAutoRefreshAvailability()) return;
+  if (document.hidden) return;
+  refreshDateOptionsIfNeeded();
+  if (!canAutoRefreshAvailability()) return;
   if (state.availabilityFetchInFlight) return;
   // A pending input-change debounce (e.g. a date-picker change committed on
   // tab-away) fires its own ungated loadAvailability within 120ms of timers
@@ -1888,7 +1933,7 @@ const refreshAvailabilityOnReturn = () => {
   // Re-anchor the poll cadence to this refresh so the next tick lands a full
   // interval later instead of double-fetching right behind it.
   startAvailabilityPolling();
-  void loadAvailability();
+  void loadAvailability({ background: true });
 };
 document.addEventListener("visibilitychange", refreshAvailabilityOnReturn);
 globalThis.addEventListener("focus", refreshAvailabilityOnReturn);
