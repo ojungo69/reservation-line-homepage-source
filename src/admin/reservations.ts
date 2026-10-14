@@ -69,13 +69,14 @@ type AdminReservationFailure = {
     | "idempotency_conflict"
     | "idempotency_in_progress"
     | "line_not_reachable"
+    // The LINE check itself could not run (timeout, upstream or configuration error);
+    // approval stays blocked, but the customer is not classified as unreachable.
+    | "line_check_unavailable"
     | "store_closed"
     | "write_failed";
 };
 
 export type AdminReservationActionResult = AdminReservationSuccess | AdminReservationFailure;
-
-type LineCheckUnavailableResult = { ok: false; reason: "line_check_unavailable" };
 
 export type PendingReservationListItem = {
   id: string;
@@ -824,7 +825,7 @@ const verifyApprovalLineReachability = async (input: {
   action: AdminReservationAction;
   reservation: ReservationActionRow;
   fetcher?: typeof fetch;
-}): Promise<AdminReservationFailure | LineCheckUnavailableResult | undefined> => {
+}): Promise<AdminReservationFailure | undefined> => {
   if (input.action !== "approve") {
     return undefined;
   }
@@ -1434,7 +1435,7 @@ export async function runAdminReservationAction(input: {
   request: AdminActionRequest;
   fetcher?: typeof fetch;
   now?: () => number;
-}): Promise<AdminReservationActionResult | LineCheckUnavailableResult> {
+}): Promise<AdminReservationActionResult> {
   const now = input.now ?? Date.now;
   const nowMs = now();
   // Single clock for the whole action: the idempotency TTL read, the

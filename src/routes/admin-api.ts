@@ -734,10 +734,6 @@ const runReservationActionRoute = async (
     request: expectedVersion !== undefined ? { ...request, expectedVersion } : request
   });
 
-  if (!result.ok && result.reason === "line_check_unavailable") {
-    return c.json(result, 503, ADMIN_PRIVATE_HEADERS);
-  }
-
   if (result.ok) {
     if (result.status === "confirmed" && !result.replayed && isWorkflowEnabled(c.env)) {
       triggerReservationWorkflow(c, result.reservationId, result.version);

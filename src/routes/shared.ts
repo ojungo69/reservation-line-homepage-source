@@ -444,6 +444,8 @@ const ADMIN_ACTION_FAILURE_STATUS = {
   idempotency_conflict: 409,
   idempotency_in_progress: 409,
   line_not_reachable: 409,
+  // Retryable: the LINE check could not run, so approval is held back for now.
+  line_check_unavailable: 503,
   store_closed: 400,
   write_failed: 500,
   invalid_request: 400,
