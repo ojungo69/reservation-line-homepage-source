@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Field } from "@/components/ui/field";
+import { CustomerSearchHints } from "@/components/customers/customer-search-hints";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,9 @@ import {
 import { useCreateReservation, useAvailableSlots } from "@/hooks/use-reservations";
 import { useSettings } from "@/hooks/use-settings";
 import { useCustomerSearch } from "@/hooks/use-customers";
+import { useAuth } from "@/hooks/use-auth";
 import { formatJstDate, formatTime } from "@/lib/timeline";
+import { needsFullPhoneHint } from "@/lib/customer-search-hints";
 import { buildCustomerPart, type CreateMode } from "@/lib/reservation-create-mode";
 import {
   createReservationPayloadSignature,
@@ -145,11 +148,15 @@ function renderCustomerResults({
   loading,
   error,
   results,
+  showFullPhoneHint,
+  truncated,
   onSelect,
 }: {
   loading: boolean;
   error: boolean;
   results: CustomerSearchItem[];
+  showFullPhoneHint: boolean;
+  truncated: boolean;
   onSelect: (c: CustomerSearchItem) => void;
 }) {
   if (loading) {
@@ -164,12 +171,14 @@ function renderCustomerResults({
   }
   if (results.length === 0) {
     return (
-      <p className="px-3 py-2 text-xs text-muted-foreground">
-        該当する顧客がいません。
-      </p>
+      <div className="px-3 py-2 text-xs text-muted-foreground">
+        <p>該当する顧客がいません。</p>
+        <CustomerSearchHints showFullPhoneHint={showFullPhoneHint} />
+      </div>
     );
   }
   return (
+    <>
     <ul aria-label="顧客候補">
       {results.map((c) => (
         <li key={c.id}>
@@ -186,6 +195,8 @@ function renderCustomerResults({
         </li>
       ))}
     </ul>
+    <CustomerSearchHints truncated={truncated} className="px-3 py-2 text-xs text-muted-foreground" />
+    </>
   );
 }
 
@@ -267,11 +278,13 @@ function ServiceSelectionFieldset({
 
 function CustomerFields({
   mode,
+  isStaff,
   selectedCustomer,
   customerSearch,
   searchOpen,
   searchLoading,
   searchError,
+  searchTruncated,
   customerResults,
   customerName,
   customerKana,
@@ -286,11 +299,13 @@ function CustomerFields({
   onCustomerPhoneChange,
 }: Readonly<{
   mode: CreateMode;
+  isStaff: boolean;
   selectedCustomer: SelectedCustomer | null;
   customerSearch: string;
   searchOpen: boolean;
   searchLoading: boolean;
   searchError: boolean;
+  searchTruncated: boolean;
   customerResults: CustomerSearchItem[];
   customerName: string;
   customerKana: string;
@@ -360,10 +375,7 @@ function CustomerFields({
                   aria-controls={searchOpen ? "rcp-customer-results" : undefined}
                   value={customerSearch}
                   onChange={(event) => onCustomerSearchChange(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") onCustomerSearchChange("");
-                  }}
-                  placeholder="名前・カナ・電話で検索"
+                  placeholder={isStaff ? "名前・カナ・電話番号（全桁）で検索" : "名前・カナ・電話で検索"}
                   autoComplete="off"
                 />
                 <p id="rcp-customer-search-help" className="sr-only">
@@ -379,6 +391,8 @@ function CustomerFields({
                       loading: searchLoading,
                       error: searchError,
                       results: customerResults,
+                      showFullPhoneHint: needsFullPhoneHint(customerSearch, isStaff),
+                      truncated: searchTruncated,
                       onSelect: onCustomerSelect,
                     })}
                   </div>
@@ -517,6 +531,7 @@ export function ReservationCreatePanel({
   defaultServiceIds,
   defaultCustomer,
 }: Readonly<ReservationCreatePanelProps>) {
+  const { isPrivileged } = useAuth();
   const { data: settingsData } = useSettings();
   const { mutate: create, isPending } = useCreateReservation();
 
@@ -529,13 +544,12 @@ export function ReservationCreatePanel({
   const [storeId, setStoreId] = useState(defaultStoreId ?? "");
   const [serviceIds, setServiceIds] = useState<string[]>(defaultServiceIds ?? []);
   const [resourceId, setResourceId] = useState(defaultResourceId ?? "");
-  const [date, setDate] = useState(() => formatJstDate(defaultDate));
-  const [time, setTime] = useState(() => {
-    if (defaultMinutes == null) return "10:00";
-    const h = String(Math.floor(defaultMinutes / 60)).padStart(2, "0");
-    const m = String(defaultMinutes % 60).padStart(2, "0");
-    return `${h}:${m}`;
-  });
+  const [initialDate] = useState(() => formatJstDate(defaultDate));
+  const [date, setDate] = useState(initialDate);
+  const initialTime = defaultMinutes == null
+    ? "10:00"
+    : `${String(Math.floor(defaultMinutes / 60)).padStart(2, "0")}:${String(defaultMinutes % 60).padStart(2, "0")}`;
+  const [time, setTime] = useState(initialTime);
   // 空き枠クリック由来の時刻か（メニュー変更時にリセットするかの判定に使う）。
   const [timeFromSlot, setTimeFromSlot] = useState(false);
   // rebook 初期値のうち現在選択できないメニューを外したときの警告。
@@ -567,6 +581,7 @@ export function ReservationCreatePanel({
   const [customerKana, setCustomerKana] = useState(defaultCustomer?.displayNameKana ?? "");
   const [customerPhone, setCustomerPhone] = useState(defaultCustomer?.phone ?? "");
   const [error, setError] = useState<string | null>(null);
+  const [discardOpen, setDiscardOpen] = useState(false);
   // 確認ダイアログ。検証済み payload を保持し、null でない間ダイアログを開く。
   const [pendingPayload, setPendingPayload] = useState<CreateReservationPayload | null>(null);
 
@@ -766,8 +781,20 @@ export function ReservationCreatePanel({
     });
   };
 
+  // Closing unmounts this form. Protect entered and rebooked details, while the
+  // schedule's default store, resource and time alone remain a pristine form.
+  const isDirty = serviceIds.length > 0 || selectedCustomer !== null ||
+    [customerSearch, customerName, customerKana, customerPhone].some((value) => value.trim().length > 0) ||
+    storeId !== (defaultStoreId ?? "") || resourceId !== (defaultResourceId ?? "") ||
+    date !== initialDate || time !== initialTime || origin !== "minimo";
+  const requestClose = () => {
+    if (isPending) return;
+    if (isDirty) setDiscardOpen(true);
+    else onClose();
+  };
+
   return (
-    <Sheet open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Sheet open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" className="w-full sm:max-w-md" aria-describedby={undefined}>
         <SheetTitle className="sr-only">予約作成</SheetTitle>
         <div className="space-y-4 pt-4">
@@ -854,6 +881,7 @@ export function ReservationCreatePanel({
 
           <CustomerFields
             mode={mode}
+            isStaff={!isPrivileged}
             selectedCustomer={selectedCustomer}
             customerSearch={customerSearch}
             searchOpen={customerSearch.trim().length >= 2}
@@ -861,6 +889,7 @@ export function ReservationCreatePanel({
               customerSearchQuery.isFetching || debouncedSearch !== customerSearch.trim()
             }
             searchError={customerSearchQuery.isError}
+            searchTruncated={customerSearchQuery.data?.truncated ?? false}
             customerResults={customerResults}
             customerName={customerName}
             customerKana={customerKana}
@@ -887,7 +916,7 @@ export function ReservationCreatePanel({
           )}
 
           <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={onClose} disabled={isPending}>
+            <Button variant="outline" className="flex-1" onClick={requestClose} disabled={isPending}>
               キャンセル
             </Button>
             <Button className="flex-1" onClick={handleSubmit} disabled={isPending}>
@@ -909,6 +938,17 @@ export function ReservationCreatePanel({
             time={time}
             onClose={() => setPendingPayload(null)}
             onConfirm={handleConfirm}
+          />
+          <PendingConfirmDialog
+            open={discardOpen}
+            pending={isPending}
+            title="予約の入力を取り消しますか？"
+            description="入力した内容は失われます。取り消してもよろしいですか？"
+            confirmLabel="取り消す"
+            cancelLabel="編集に戻る"
+            destructive
+            onOpenChange={setDiscardOpen}
+            onConfirm={() => { setDiscardOpen(false); onClose(); }}
           />
         </div>
       </SheetContent>

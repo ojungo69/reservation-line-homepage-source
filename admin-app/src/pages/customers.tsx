@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { CustomerDetailPanel } from "@/components/customers/customer-detail-panel";
 import { AddCustomerDialog } from "@/components/customers/add-customer-dialog";
+import { CustomerSearchHints } from "@/components/customers/customer-search-hints";
 import {
   useCustomerList,
   useCustomerSearch,
@@ -43,6 +44,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useStores } from "@/hooks/use-stores";
 import { formatDateDisplay } from "@/lib/timeline";
+import { needsFullPhoneHint } from "@/lib/customer-search-hints";
 import type {
   CustomerListItem,
   CustomerSearchItem,
@@ -141,6 +143,7 @@ export default function CustomersPage() {
 
   const isPending = isSearchMode ? searchResult.isPending : listQuery.isPending;
   const isError = isSearchMode ? searchResult.isError : listQuery.isError;
+  const refetch = isSearchMode ? searchResult.refetch : listQuery.refetch;
 
   const listRows: CustomerListItem[] = useMemo(
     () => listData?.customers ?? [],
@@ -151,6 +154,15 @@ export default function CustomersPage() {
     () => (searchData?.ok ? searchData.customers : []),
     [searchData],
   );
+
+  let searchPlaceholder: string;
+  if (showArchived) {
+    searchPlaceholder = "アーカイブ一覧では検索できません";
+  } else if (isPrivileged) {
+    searchPlaceholder = "名前・カナ・電話番号で検索...";
+  } else {
+    searchPlaceholder = "名前・カナ・電話番号（全桁）で検索...";
+  }
 
   return (
     <div className="space-y-4 p-4 sm:p-6">
@@ -180,9 +192,10 @@ export default function CustomersPage() {
         )}
         <Input
           type="text"
+          aria-label="顧客を検索"
           value={searchQuery}
           onChange={(e) => { setSearchQuery(e.target.value); setOffset(0); }}
-          placeholder={showArchived ? "アーカイブ一覧では検索できません" : "名前・カナ・電話番号で検索..."}
+          placeholder={searchPlaceholder}
           className="max-w-xs"
           // 検索 API はアーカイブ済みを返さないため、アーカイブ表示中は検索を無効化
           // (検索を始めると通常顧客が出る混乱を防ぐ)。(gemini)
@@ -220,7 +233,12 @@ export default function CustomersPage() {
       )}
 
       {isError && (
-        <p className="text-sm text-destructive">顧客データの取得に失敗しました。</p>
+        <div className="space-y-2" role="alert">
+          <p className="text-sm text-destructive">顧客データの取得に失敗しました。</p>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            再読み込み
+          </Button>
+        </div>
       )}
 
       {isPending && (
@@ -231,14 +249,16 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {!isPending && isSearchMode && (
+      {!isPending && !isError && isSearchMode && (
         <SearchResultTable
           rows={searchRows}
+          showFullPhoneHint={needsFullPhoneHint(debouncedQuery, !isPrivileged)}
+          truncated={searchData?.truncated}
           onSelect={setSelectedCustomerId}
         />
       )}
 
-      {!isPending && !isSearchMode && (
+      {!isPending && !isError && !isSearchMode && (
         <>
           <CustomerListTable
             rows={listRows}
@@ -437,9 +457,13 @@ export function CustomerListTable({
 
 export function SearchResultTable({
   rows,
+  showFullPhoneHint = false,
+  truncated = false,
   onSelect,
 }: Readonly<{
   rows: CustomerSearchItem[];
+  showFullPhoneHint?: boolean;
+  truncated?: boolean;
   onSelect: (id: string) => void;
 }>) {
   return (
@@ -458,6 +482,7 @@ export function SearchResultTable({
             <TableRow>
               <TableCell colSpan={4} className="text-center text-muted-foreground">
                 該当する顧客が見つかりません
+                <CustomerSearchHints showFullPhoneHint={showFullPhoneHint} />
               </TableCell>
             </TableRow>
           )}
@@ -482,6 +507,7 @@ export function SearchResultTable({
           ))}
         </TableBody>
       </Table>
+      <CustomerSearchHints truncated={truncated} className="p-3 text-sm text-muted-foreground" />
     </div>
   );
 }

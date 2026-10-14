@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, ApiOutcomeUnknownError } from "./api-client";
+import * as authLogout from "./auth-logout";
 import {
   actionErrorMessage,
   errorMessage,
@@ -12,6 +13,9 @@ vi.mock("sonner", () => ({ toast }));
 describe("error message lookup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("maps known codes and preserves unknown direct lookups", () => {
@@ -97,5 +101,53 @@ describe("error message lookup", () => {
   it("uses the default fallback for a non-API error", () => {
     showErrorToast(new Error("network"));
     expect(toast.error).toHaveBeenCalledWith("操作に失敗しました");
+  });
+
+  it.each([
+    new ApiError(401, null),
+    new ApiError(401, { reason: "forbidden" }),
+    new ApiError(403, null),
+    new ApiError(403, {}),
+  ])("Access認証エラーでは操作結果にも再ログインを案内する（%s）", (error) => {
+    expect(actionErrorMessage(error)).toBe(
+      "ログインの有効期限が切れた可能性があります。再ログインしてください",
+    );
+  });
+
+  it.each([401, 403])("理由のない %s の通知からAccessの再ログインに進める", (status) => {
+    const logout = vi.spyOn(authLogout, "logout").mockImplementation(() => {});
+
+    showErrorToast(new ApiError(status, null), "予約作成に失敗しました");
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "ログインの有効期限が切れた可能性があります。再ログインしてください",
+      { action: { label: "再ログイン", onClick: expect.any(Function) } },
+    );
+    const options = toast.error.mock.calls[0]?.[1];
+    options.action.onClick();
+    expect(logout).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { reason: "admin_auth_failed" },
+    { error: "admin_auth_failed" },
+  ])("Access JWT認証失敗の403では再ログインを案内する（%s）", (body) => {
+    const error = new ApiError(403, body);
+    const message = "ログインの有効期限が切れた可能性があります。再ログインしてください";
+    expect(actionErrorMessage(error)).toBe(message);
+    showErrorToast(error);
+    expect(toast.error).toHaveBeenCalledWith(message, {
+      action: { label: "再ログイン", onClick: expect.any(Function) },
+    });
+  });
+
+  it.each([
+    { body: { error: "forbidden" }, message: "権限がありません" },
+    { body: { reason: "admin_not_registered" }, message: "操作に失敗しました" },
+  ])("明示された403の権限不足には再ログインを提案しない（$body）", ({ body, message }) => {
+    const error = new ApiError(403, body);
+    expect(actionErrorMessage(error)).toBe(message);
+    showErrorToast(error);
+    expect(toast.error).toHaveBeenCalledWith(message);
   });
 });

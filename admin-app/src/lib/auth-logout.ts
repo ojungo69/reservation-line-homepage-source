@@ -4,3 +4,7 @@
 // ログアウト item. Kept as a named constant so the path is covered by a unit
 // test and cannot silently drift (a wrong path would silently no-op logout).
 export const ACCESS_LOGOUT_PATH = "/cdn-cgi/access/logout";
+
+export function logout(): void {
+  window.location.href = ACCESS_LOGOUT_PATH;
+}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,6 +14,8 @@ import {
 import { useServiceList } from "@/hooks/use-services";
 import { useStores } from "@/hooks/use-stores";
 import { useAuth } from "@/hooks/use-auth";
+import { useSettings } from "@/hooks/use-settings";
+import { SettingsLoadError } from "@/components/settings/settings-tab-status";
 import { ServiceDetailPanel } from "@/components/menu/service-detail-panel";
 import { ServiceCreateDialog } from "@/components/menu/service-create-dialog";
 
@@ -21,6 +23,7 @@ export default function MenuPage() {
   const { isPrivileged, user } = useAuth();
   const { stores, selectedStoreId, selectStore } = useStores();
   const { serviceList, storeNames, isPending } = useServiceList(selectedStoreId);
+  const { data: settingsData, isError, refetch } = useSettings();
   // 組み合わせ割引のカテゴリ候補用に全店舗のメニュー名が要る (同じ queryKey なので追加フェッチなし)。
   const { serviceList: allServices } = useServiceList(null);
 
@@ -38,6 +41,84 @@ export default function MenuPage() {
     isPrivileged ||
     (isStoreScopedStaff && selectedService !== null && selectedService.storeId === user.storeId);
 
+  let menuContent: ReactNode;
+  if (isError && !settingsData) {
+    menuContent = <SettingsLoadError onRetry={() => { void refetch(); }} />;
+  } else if (isPending) {
+    menuContent = (
+      <div className="space-y-2">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-12 w-full" />
+        ))}
+      </div>
+    );
+  } else {
+    menuContent = (
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>メニュー名</TableHead>
+              <TableHead>所要時間</TableHead>
+              <TableHead>料金</TableHead>
+              <TableHead>店舗</TableHead>
+              <TableHead>状態</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {serviceList.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                  メニューがありません
+                </TableCell>
+              </TableRow>
+            ) : (
+              serviceList.map((s) => (
+                <TableRow
+                  key={s.id}
+                  tabIndex={0}
+                  aria-label={`${s.name}の詳細を開く`}
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => setSelectedServiceId(s.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedServiceId(s.id);
+                    }
+                  }}
+                >
+                  <TableCell className="font-medium">{s.name}</TableCell>
+                  <TableCell>{s.durationMinutes}分</TableCell>
+                  <TableCell>
+                    {s.priceLabel ?? <span className="text-muted-foreground">未設定</span>}
+                    {s.priceAmount != null && (
+                      <div className="text-xs text-muted-foreground">
+                        {s.priceAmount.toLocaleString("ja-JP")}円
+                        {s.comboPriceAmount != null && s.comboWithPrefix != null &&
+                          `（${s.comboWithPrefix}と同時 ${s.comboPriceAmount.toLocaleString("ja-JP")}円）`}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {storeNames.get(s.storeId) ?? s.storeId}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Badge variant={s.active ? "default" : "secondary"}>
+                        {s.active ? "有効" : "無効"}
+                      </Badge>
+                      {s.mensMenu && <Badge variant="outline">メンズ</Badge>}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -50,76 +131,9 @@ export default function MenuPage() {
         </div>
       </div>
 
-      {isPending ? (
-        <div className="space-y-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full" />
-          ))}
-        </div>
-      ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>メニュー名</TableHead>
-                <TableHead>所要時間</TableHead>
-                <TableHead>料金</TableHead>
-                <TableHead>店舗</TableHead>
-                <TableHead>状態</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {serviceList.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    メニューがありません
-                  </TableCell>
-                </TableRow>
-              ) : (
-                serviceList.map((s) => (
-                  <TableRow
-                    key={s.id}
-                    tabIndex={0}
-                    aria-label={`${s.name}の詳細を開く`}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => setSelectedServiceId(s.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setSelectedServiceId(s.id);
-                      }
-                    }}
-                  >
-                    <TableCell className="font-medium">{s.name}</TableCell>
-                    <TableCell>{s.durationMinutes}分</TableCell>
-                    <TableCell>
-                      {s.priceLabel ?? <span className="text-muted-foreground">未設定</span>}
-                      {s.priceAmount != null && (
-                        <div className="text-xs text-muted-foreground">
-                          {s.priceAmount.toLocaleString("ja-JP")}円
-                          {s.comboPriceAmount != null && s.comboWithPrefix != null &&
-                            `（${s.comboWithPrefix}と同時 ${s.comboPriceAmount.toLocaleString("ja-JP")}円）`}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {storeNames.get(s.storeId) ?? s.storeId}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-1">
-                        <Badge variant={s.active ? "default" : "secondary"}>
-                          {s.active ? "有効" : "無効"}
-                        </Badge>
-                        {s.mensMenu && <Badge variant="outline">メンズ</Badge>}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      {/* 再取得の失敗では一覧を残したまま知らせる。置き換えると、開いた編集ダイアログの裏で再読み込みに届かない。 */}
+      {isError && settingsData && <SettingsLoadError onRetry={() => { void refetch(); }} />}
+      {menuContent}
 
       <ServiceDetailPanel
         service={selectedService}

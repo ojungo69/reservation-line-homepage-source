@@ -77,7 +77,7 @@ describe("ConflictList", () => {
 
     await user.click(screen.getByRole("button", { name: "手動解決" }));
     expect(screen.getByRole("heading", { name: "手動解決" })).toBeTruthy();
-    const input = screen.getByPlaceholderText("メモを入力（任意）");
+    const input = screen.getByRole("textbox", { name: "メモ（任意）" });
     await user.type(input, "確認済み");
     await user.click(screen.getByRole("button", { name: "実行" }));
 
@@ -98,7 +98,7 @@ describe("ConflictList", () => {
     await user.click(screen.getByRole("button", { name: "キャンセル承認" }));
     const execute = screen.getByRole("button", { name: "実行" }) as HTMLButtonElement;
     expect(execute.disabled).toBe(true);
-    const reason = screen.getByPlaceholderText("理由を入力");
+    const reason = screen.getByRole("textbox", { name: "理由" });
     await user.type(reason, "お客様確認済み");
     expect(execute.disabled).toBe(false);
     await user.click(execute);

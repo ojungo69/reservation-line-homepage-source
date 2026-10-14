@@ -14,8 +14,13 @@ function applyTheme(resolved: "light" | "dark") {
 
 export function useTheme() {
   const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+    } catch {
+      // 保存先を読めなくても、システム設定に合わせて画面を表示します。
+      return "system";
+    }
   });
 
   const resolved = theme === "system" ? getSystemTheme() : theme;
@@ -34,7 +39,11 @@ export function useTheme() {
 
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);
-    localStorage.setItem(STORAGE_KEY, next);
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // 永続化できなくても、その場で選んだテーマは適用します。
+    }
   }, []);
 
   return { theme, resolved, setTheme };

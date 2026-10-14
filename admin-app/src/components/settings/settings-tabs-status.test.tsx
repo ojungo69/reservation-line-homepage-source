@@ -7,6 +7,10 @@ const mutation = { mutate: vi.fn(), isPending: false };
 let closures: Closure[] = [];
 let resources: Resource[] = [];
 
+vi.mock("@/hooks/use-settings", () => ({
+  useSettings: () => ({ isError: false, refetch: vi.fn() }),
+}));
+
 vi.mock("@/hooks/use-closures", () => ({
   useClosureList: () => ({ closureList: closures, isPending: false }),
   useClosureCreate: () => mutation,

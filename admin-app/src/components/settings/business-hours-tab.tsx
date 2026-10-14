@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PendingConfirmDialog } from "@/components/ui/pending-confirm-dialog";
 import {
   Select,
   SelectContent,
@@ -11,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useBusinessHours, useBusinessHoursUpdate } from "@/hooks/use-business-hours";
+import { useStores } from "@/hooks/use-stores";
 import { WEEKDAYS } from "@/lib/timeline";
 import type { BusinessHourRow } from "@/types/api";
 
@@ -41,23 +43,26 @@ const timeOptionsWith = (current: string): readonly string[] =>
     : [...TIME_OPTIONS, current].sort((a, b) => toMinutes(a) - toMinutes(b));
 
 export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
-  const storeId = selectedStoreId;
+  const { selectStore } = useStores();
+  const [editStoreId, setEditStoreId] = useState<string | null>(null);
+  const storeId = editStoreId ?? selectedStoreId;
   const { data, isPending } = useBusinessHours(storeId);
   const updateMutation = useBusinessHoursUpdate();
 
   const [editHours, setEditHours] = useState<BusinessHourRow[] | null>(null);
-  const [editing, setEditing] = useState(false);
-
-  // Edit drafts reset when the store changes via the key prop in settings.tsx
-  // (<BusinessHoursTab key={effectiveStoreId} />), which remounts this tab —
-  // no reset effect needed.
+  const editing = editStoreId !== null;
 
   const hours = editHours ?? (data?.ok ? data.businessHours : null);
 
   const startEdit = () => {
-    if (!data?.ok) return;
+    if (!storeId || !data?.ok) return;
+    setEditStoreId(storeId);
     setEditHours(data.businessHours.map((h) => ({ ...h })));
-    setEditing(true);
+  };
+
+  const discardEdit = () => {
+    setEditStoreId(null);
+    setEditHours(null);
   };
 
   const updateRow = (weekday: number, field: keyof BusinessHourRow, value: string | boolean) => {
@@ -72,10 +77,7 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
     updateMutation.mutate(
       { storeId, hours: editHours },
       {
-        onSuccess: () => {
-          setEditing(false);
-          setEditHours(null);
-        },
+        onSuccess: discardEdit,
       },
     );
   };
@@ -111,7 +113,7 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
             <Button onClick={handleSave} disabled={updateMutation.isPending}>
               {updateMutation.isPending ? "保存中..." : "保存"}
             </Button>
-            <Button variant="outline" onClick={() => { setEditing(false); setEditHours(null); }} disabled={updateMutation.isPending}>
+            <Button variant="outline" onClick={discardEdit} disabled={updateMutation.isPending}>
               キャンセル
             </Button>
           </div>
@@ -124,13 +126,15 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
             <div className="flex items-center gap-3">
               <span className="w-8 text-center font-medium">{WEEKDAYS[h.weekday]}</span>
               {editing ? (
-                <Badge
-                  variant={h.closed ? "secondary" : "default"}
-                  className="cursor-pointer px-4 py-2 hover:opacity-90"
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label={`${WEEKDAYS[h.weekday]}曜 ${h.closed ? "休業" : "営業"}`}
                   onClick={() => updateRow(h.weekday, "closed", !h.closed)}
                 >
                   {h.closed ? "休業" : "営業"}
-                </Badge>
+                </Button>
               ) : (
                 <Badge variant={h.closed ? "secondary" : "default"}>
                   {h.closed ? "休業" : "営業"}
@@ -142,7 +146,7 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
                 {editing ? (
                   <>
                     <Select value={h.opensAt} onValueChange={(v) => updateRow(h.weekday, "opensAt", v)}>
-                      <SelectTrigger className="w-[100px]">
+                      <SelectTrigger className="w-[100px]" aria-label={`${WEEKDAYS[h.weekday]}曜 開始`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -153,7 +157,7 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
                     </Select>
                     <span className="text-muted-foreground">〜</span>
                     <Select value={h.closesAt} onValueChange={(v) => updateRow(h.weekday, "closesAt", v)}>
-                      <SelectTrigger className="w-[100px]">
+                      <SelectTrigger className="w-[100px]" aria-label={`${WEEKDAYS[h.weekday]}曜 終了`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -171,6 +175,21 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
           </Card>
         ))}
       </div>
+
+      {editStoreId && editStoreId !== selectedStoreId && (
+        <PendingConfirmDialog
+          open
+          pending={updateMutation.isPending}
+          title="営業時間の変更を破棄しますか？"
+          description="編集中の営業時間は保存されません。店舗を切り替えてもよろしいですか？"
+          confirmLabel="破棄して切り替える"
+          cancelLabel="編集を続ける"
+          onOpenChange={(open) => {
+            if (!open) selectStore(editStoreId);
+          }}
+          onConfirm={discardEdit}
+        />
+      )}
     </div>
   );
 }

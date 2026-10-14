@@ -57,6 +57,7 @@ import {
   toJstDate,
 } from "@/lib/timeline";
 import { errorMessage } from "@/lib/error-messages";
+import { ApiError } from "@/lib/api-client";
 import { displayServiceName } from "@/lib/service-pricing";
 import { useMediaQuery, NARROW_QUERY } from "@/hooks/use-media-query";
 import {
@@ -77,6 +78,7 @@ const ALL_STATUSES = [
 ] as const;
 
 const ALL_SENTINEL = "__all__";
+const MAX_SEARCH_DAYS = 92;
 
 function getToday(): string {
   return formatJstDate(new Date());
@@ -100,6 +102,14 @@ function compareStrings(a: string, b: string): number {
   if (a < b) return -1;
   if (a > b) return 1;
   return 0;
+}
+
+function reservationQueryErrorMessage(error: unknown): string {
+  const queryReason = error instanceof ApiError ? (error.body as { reason?: string } | null)?.reason : undefined;
+  const translatedQueryReason = queryReason ? errorMessage(queryReason) : null;
+  return translatedQueryReason && translatedQueryReason !== queryReason
+    ? translatedQueryReason
+    : "予約データの取得に失敗しました。";
 }
 
 // 空状態。フィルタが既定値から変更されているときだけ絞り込みのヒントを添える
@@ -164,8 +174,17 @@ export default function ReservationsPage() {
   // matchMedia で片方だけ描画する。
   const isNarrow = useMediaQuery(NARROW_QUERY);
 
+  const dateValidationMessage = useMemo(() => {
+    if (!from || !to) return "日付を入力してください";
+    if (from > to) return errorMessage("invalid_range");
+    // 検索APIと同じく両端を含む日数で判定する。日付文字列のUTC差分ならブラウザの夏時間にも左右されない。
+    const days = (Date.parse(to) - Date.parse(from)) / 86_400_000 + 1;
+    if (days > MAX_SEARCH_DAYS) return `期間は最大${MAX_SEARCH_DAYS}日までです。開始日と終了日を見直してください。`;
+    return null;
+  }, [from, to]);
+
   const filter: ReservationSearchFilter | null = useMemo(() => {
-    if (!from || !to) return null;
+    if (dateValidationMessage) return null;
     return {
       from,
       to,
@@ -174,9 +193,14 @@ export default function ReservationsPage() {
       statuses: statusFilter === ALL_SENTINEL ? undefined : [statusFilter],
       keyword: debouncedKeyword || undefined,
     };
-  }, [from, to, storeId, serviceId, statusFilter, debouncedKeyword]);
+  }, [from, to, dateValidationMessage, storeId, serviceId, statusFilter, debouncedKeyword]);
 
-  const { data, isPending, isError } = useReservationSearch(filter);
+  const { data: searchData, isPending, isError, error, isPlaceholderData, isFetching } = useReservationSearch(filter);
+  // placeholder は前の条件の結果なので、件数や承認操作も含めて新しい結果として表示しない。
+  // 無効な条件では query が止まっても placeholder が残るため、filter も確認する。
+  const data = filter && !isPlaceholderData && !isError ? searchData : undefined;
+  const isSearching = !!filter && (isPending || isPlaceholderData || isFetching);
+  const queryErrorMessage = reservationQueryErrorMessage(error);
 
   const reservations = useMemo(() => {
     if (!data?.ok) return [];
@@ -268,13 +292,15 @@ export default function ReservationsPage() {
       <h1 className="text-2xl font-bold">予約管理</h1>
       {/* スマホは縦積み・入力は幅いっぱい (日付の開始/終了ペアだけ横並び維持) */}
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-        <div className="flex gap-3">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
           <div className="min-w-0 flex-1 space-y-1 sm:flex-none">
             <Label htmlFor="from">開始日</Label>
             <Input
               id="from"
               type="date"
               value={from}
+              aria-invalid={!!dateValidationMessage}
+              aria-describedby={dateValidationMessage ? "reservation-date-error" : undefined}
               onChange={(e) => setFrom(e.target.value)}
               className="w-full sm:w-36"
             />
@@ -285,10 +311,17 @@ export default function ReservationsPage() {
               id="to"
               type="date"
               value={to}
+              aria-invalid={!!dateValidationMessage}
+              aria-describedby={dateValidationMessage ? "reservation-date-error" : undefined}
               onChange={(e) => setTo(e.target.value)}
               className="w-full sm:w-36"
             />
           </div>
+          {dateValidationMessage && (
+            <p id="reservation-date-error" role="alert" className="col-span-2 text-sm text-destructive">
+              {dateValidationMessage}
+            </p>
+          )}
         </div>
 
         {!isStoreFixed && settings && settings.stores.length > 1 && (
@@ -380,7 +413,11 @@ export default function ReservationsPage() {
         </p>
       )}
 
-      {isPending &&
+      {isSearching && (
+        <output className="block text-sm text-muted-foreground">検索中です…</output>
+      )}
+
+      {filter && isPending &&
         (isNarrow ? (
           <div className="space-y-2">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -399,9 +436,9 @@ export default function ReservationsPage() {
           </div>
         ))}
 
-      {isError && (
+      {filter && isError && (
         <p role="alert" className="text-sm text-destructive">
-          予約データの取得に失敗しました。
+          {queryErrorMessage}
         </p>
       )}
 

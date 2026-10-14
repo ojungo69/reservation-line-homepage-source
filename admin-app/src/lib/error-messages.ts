@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import { ApiError, ApiOutcomeUnknownError } from "./api-client";
+import { logout } from "./auth-logout";
 
 /**
  * Admin API が返し得る error code の union。
@@ -148,6 +149,12 @@ const ERROR_MESSAGES = {
  */
 const ERROR_MESSAGE_LOOKUP: Record<string, string | undefined> = ERROR_MESSAGES;
 const UNKNOWN_OUTCOME_MESSAGE = "処理結果を確認できません。重複操作を避けるため、最新の状態を確認してから操作してください";
+const SESSION_EXPIRED_MESSAGE = "ログインの有効期限が切れた可能性があります。再ログインしてください";
+
+function isAccessSessionError(err: ApiError, code: string): boolean {
+  // WorkerのJWT認証失敗と理由のない403は再ログイン対象。操作権限の403とは区別する。
+  return err.status === 401 || (err.status === 403 && (!code || code === "admin_auth_failed"));
+}
 
 export function errorMessage(code: string): string {
   return ERROR_MESSAGE_LOOKUP[code] ?? code;
@@ -162,6 +169,7 @@ export function actionErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     const body = err.body as { reason?: string; error?: string } | null;
     const code = body?.reason ?? body?.error ?? "";
+    if (isAccessSessionError(err, code)) return SESSION_EXPIRED_MESSAGE;
     return ERROR_MESSAGE_LOOKUP[code] ?? "操作に失敗しました";
   }
   return "通信に失敗しました";
@@ -173,7 +181,13 @@ export function showErrorToast(err: unknown, fallback = "操作に失敗しま�
   } else if (err instanceof ApiError) {
     const body = err.body as { reason?: string; error?: string } | null;
     const code = body?.reason ?? body?.error ?? "";
-    toast.error(ERROR_MESSAGE_LOOKUP[code] ?? fallback);
+    if (isAccessSessionError(err, code)) {
+      toast.error(SESSION_EXPIRED_MESSAGE, {
+        action: { label: "再ログイン", onClick: logout },
+      });
+    } else {
+      toast.error(ERROR_MESSAGE_LOOKUP[code] ?? fallback);
+    }
   } else {
     toast.error(fallback);
   }

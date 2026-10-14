@@ -1627,7 +1627,7 @@ export async function listAdminExternalBlocks(input: {
       JOIN stores ON stores.id = external_blocks.store_id
       JOIN store_resources ON store_resources.id = external_blocks.resource_id
       ${whereClause}
-      ORDER BY external_blocks.start_at DESC
+      ORDER BY external_blocks.start_at DESC, external_blocks.id DESC
       LIMIT 201
     `
   );

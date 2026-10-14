@@ -1180,6 +1180,9 @@ describe("admin operations API", () => {
         const body = await response.json() as { externalBlocks: { id: string }[]; truncated: boolean };
         expect(body.externalBlocks).toHaveLength(200);
         expect(body.truncated).toBe(truncated);
+        // Every row shares start_at, so only the id tie-breaker decides which 200 rows come back and in what order.
+        const idsDescending = Array.from({ length: count }, (_, index) => `block-${index}`).sort().reverse();
+        expect(body.externalBlocks.map((block) => block.id)).toEqual(idsDescending.slice(0, 200));
       } finally {
         db.sqlite.close();
       }
@@ -1663,8 +1666,8 @@ describe("admin operations API", () => {
 
   it("does NOT redirect non-admin host (workers.dev keeps serving /api/health)", async () => {
     const response = await workerFetch(
-      "https://reservation-line-homepage-production.jurarawww.workers.dev/api/health",
-      { host: "reservation-line-homepage-production.jurarawww.workers.dev" },
+      "https://reservation-line-homepage-production.example.workers.dev/api/health",
+      { host: "reservation-line-homepage-production.example.workers.dev" },
       createMigratedSqliteD1()
     );
     expect(response.status).toBe(200);
@@ -1793,7 +1796,7 @@ describe("admin SPA serving at canonical /admin", () => {
     // encoded aliases) and runs before the host split; production also has the
     // reverse guard for the literal form. The single-page-application ASSETS
     // fallback must NOT serve the customer shell at the retired alias.
-    const host = "reservation-line-homepage-production.jurarawww.workers.dev";
+    const host = "reservation-line-homepage-production.example.workers.dev";
     const call = (path: string, env: Record<string, unknown>) =>
       worker.fetch(
         new Request(`https://${host}${path}`, { headers: { host } }),
@@ -1961,6 +1964,7 @@ describe("GET /api/admin/customers (search)", () => {
       expect(response.headers.get("pragma")).toBe("no-cache");
       await expect(response.json()).resolves.toEqual({
         ok: true,
+        truncated: false,
         customers: [
           {
             id: "cust_api_yamada",
@@ -2076,6 +2080,7 @@ describe("GET /api/admin/customers (search)", () => {
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({
         ok: true,
+        truncated: false,
         customers: []
       });
     } finally {

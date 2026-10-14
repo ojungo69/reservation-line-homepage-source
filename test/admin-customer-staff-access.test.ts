@@ -182,6 +182,23 @@ describe("staff customer access within their store", () => {
     });
   });
 
+  it.each([20, 21])("reports truncation from only the staff's own-store search matches: %s", async (count) => {
+    const insert = db.sqlite.prepare(`
+      INSERT INTO customers (id, display_name, block_status, created_store_id)
+      VALUES (?, 'Example Search Match', 'active', 'kyoto')
+    `);
+    // The fixture already has one visible match plus other-store and archived matches.
+    for (let i = 1; i < count; i += 1) insert.run(`customer_search_${i}`);
+
+    const response = await request("/api/admin/customers?q=Example&store=osaka");
+    const body = await response.json() as { customers: Array<{ id: string }>; truncated: boolean };
+
+    expect(response.status).toBe(200);
+    expect(body.customers).toHaveLength(20);
+    expect(body.truncated).toBe(count === 21);
+    expect(body.customers.some((customer) => customer.id === CUSTOMER_B || customer.id.includes("archived"))).toBe(false);
+  });
+
   it("creates a customer in the staff member's store without approval, ignoring a supplied store", async () => {
     const response = await request("/api/admin/customers", "POST", createCustomerBody);
     const body = await response.json() as { ok: boolean; customerId?: string };

@@ -101,7 +101,11 @@ const reconcileSubscription = (vapidPublicKey: string): Promise<string | null> =
       auth: json.keys.auth,
     });
     return json.endpoint;
-  })();
+  })().catch((error: unknown) => {
+    // 一時的な通信失敗を保持すると、再マウントしても同期を再試行できません。
+    reconciliation = null;
+    throw error;
+  });
   return reconciliation;
 };
 

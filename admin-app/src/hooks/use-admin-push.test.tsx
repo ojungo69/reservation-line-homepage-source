@@ -4,7 +4,11 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient as createClient } from "@/test-utils/query-client";
 import { mocks } from "@/test-utils/hook-mocks";
-import { resetAdminPushReconciliationForTest, useAdminPush } from "./use-admin-push";
+import {
+  resetAdminPushReconciliationForTest,
+  useAdminPush,
+  useAdminPushReconcile,
+} from "./use-admin-push";
 import { AuthContext, type AuthContextValue } from "@/providers/auth-context";
 
 // 65 bytes of the right shape (0x04 + 64), built rather than pasted: the hook
@@ -153,6 +157,39 @@ describe("useAdminPush", () => {
       }),
     );
     expect(result.current.isSubscribed).toBe(true);
+  });
+
+  it("retries a failed reconciliation on a later mount and reuses the confirmed subscription", async () => {
+    const { subscription, registration } = installPushApis({ permission: "granted" });
+    registration.pushManager.getSubscription.mockResolvedValue(subscription);
+    mocks.api.post
+      .mockRejectedValueOnce(new Error("一時的な通信エラー"))
+      .mockResolvedValue({ ok: true });
+    const renderPushHooks = () =>
+      renderHook(
+        () => {
+          useAdminPushReconcile();
+          return useAdminPush();
+        },
+        { wrapper: createWrapper(VAPID) },
+      );
+
+    const first = renderPushHooks();
+    await waitFor(() => expect(first.result.current.isChecking).toBe(false));
+    expect(first.result.current.isSubscribed).toBe(false);
+    expect(mocks.api.post).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    const retry = renderPushHooks();
+    await waitFor(() => expect(retry.result.current.isChecking).toBe(false));
+    expect(mocks.api.post).toHaveBeenCalledTimes(2);
+    expect(retry.result.current.isSubscribed).toBe(true);
+    retry.unmount();
+
+    const confirmed = renderPushHooks();
+    await waitFor(() => expect(confirmed.result.current.isChecking).toBe(false));
+    expect(confirmed.result.current.isSubscribed).toBe(true);
+    expect(mocks.api.post).toHaveBeenCalledTimes(2);
   });
 
   // Rotating the VAPID pair invalidates every subscription, but the browser goes

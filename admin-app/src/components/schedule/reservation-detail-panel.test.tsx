@@ -94,6 +94,95 @@ beforeEach(() => {
 });
 
 describe("ReservationDetailPanel", () => {
+  it("承認確認中に予約状態が変わった場合は理由を示して送信を止める", async () => {
+    const user = userEvent.setup();
+    reservation = { ...reservation, status: "pending_approval", lineFriendStatus: "friend" };
+    const { rerender } = render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "承認" }));
+    reservation = { ...reservation, status: "confirmed" };
+    rerender(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    const dialog = within(screen.getByRole("alertdialog"));
+    expect(dialog.getByRole("button", { name: "予約を承認する" })).toHaveProperty("disabled", true);
+    expect(dialog.getByText("承認待ちではないため、承認できません。")).toBeTruthy();
+    await user.click(dialog.getByRole("button", { name: "予約を承認する" }));
+    expect(runAction).not.toHaveBeenCalled();
+  });
+
+  it("承認のinvalid_transitionでは確認ダイアログに確認点を残す", async () => {
+    const user = userEvent.setup();
+    reservation = { ...reservation, status: "pending_approval", lineFriendStatus: "friend" };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "承認" }));
+    await user.click(screen.getByRole("button", { name: "予約を承認する" }));
+    await act(async () => { runAction.mock.calls[0]?.[1]?.onError?.(new ApiError(409, { reason: "invalid_transition" })); });
+    expect(within(screen.getByRole("alertdialog")).getByRole("alert").textContent)
+      .toBe("承認できません。LINEの友だち状態・承認期限・予約状態を再確認してください。");
+  });
+
+  it("完了のinvalid_transitionでは承認用の確認点を表示しない", async () => {
+    const user = userEvent.setup();
+    reservation = { ...reservation, status: "confirmed" };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "完了" }));
+    await user.click(screen.getByRole("button", { name: "完了にする" }));
+    expect(runAction).toHaveBeenCalledWith(expect.objectContaining({ action: "complete" }), expect.anything());
+    await act(async () => { runAction.mock.calls[0][1].onError(new ApiError(409, { reason: "invalid_transition" })); });
+    expect(within(screen.getByRole("alertdialog")).queryByRole("alert")).toBeNull();
+  });
+
+  it("承認でもinvalid_transition以外の失敗では承認用の確認点を表示しない", async () => {
+    const user = userEvent.setup();
+    reservation = { ...reservation, status: "pending_approval", lineFriendStatus: "friend" };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "承認" }));
+    await user.click(screen.getByRole("button", { name: "予約を承認する" }));
+    expect(runAction).toHaveBeenCalledWith(expect.objectContaining({ action: "approve" }), expect.anything());
+    await act(async () => { runAction.mock.calls[0][1].onError(new ApiError(409, { reason: "stale_snapshot" })); });
+    expect(within(screen.getByRole("alertdialog")).queryByRole("alert")).toBeNull();
+  });
+
+  it.each([
+    { status: "pending_approval", action: "approve", label: "承認", confirm: "予約を承認する", destructive: false },
+    { status: "pending_approval", action: "reject", label: "却下", confirm: "予約を却下する", destructive: true },
+    { status: "confirmed", action: "complete", label: "完了", confirm: "完了にする", destructive: false },
+    { status: "confirmed", action: "no-show", label: "来店なし", confirm: "来店なしにする", destructive: true },
+    { status: "confirmed", action: "cancel", label: "キャンセル", confirm: "予約をキャンセルする", destructive: true },
+    { status: "completed", action: "correct-no-show", label: "来店なしに訂正", confirm: "来店なしに訂正する", destructive: true },
+    { status: "no_show", action: "restore-completed", label: "完了に戻す", confirm: "完了に戻す", destructive: false },
+  ])("$labelの確認ボタンは操作名を示し、危険操作のスタイルと戻るボタンを持つ", async ({ status, action, label, confirm, destructive }) => {
+    const user = userEvent.setup();
+    reservation = { ...reservation, status, lineFriendStatus: "friend" };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    await user.click(screen.getByRole("button", { name: label }));
+    const dialog = within(screen.getByRole("alertdialog"));
+    const confirmButton = dialog.getByRole("button", { name: confirm });
+    expect(confirmButton.className.includes("bg-destructive")).toBe(destructive);
+    expect(dialog.getByRole("button", { name: "戻る" })).toBeTruthy();
+    expect(dialog.queryByRole("button", { name: "実行" })).toBeNull();
+    await user.click(confirmButton);
+    expect(runAction).toHaveBeenCalledWith(expect.objectContaining({ action }), expect.anything());
+  });
+
+  it.each(["blocked", "not_friend", "unknown", null])("表示用LINE状態%sの詳細でも予約自身の承認を禁止しない", async (status) => {
+    const user = userEvent.setup();
+    reservation = { ...reservation, status: "pending_approval", lineFriendStatus: status };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.getByRole("button", { name: "承認" })).toHaveProperty("disabled", false);
+    await user.click(screen.getByRole("button", { name: "承認" }));
+    await user.click(screen.getByRole("button", { name: "予約を承認する" }));
+    expect(runAction).toHaveBeenCalledWith(expect.objectContaining({ action: "approve" }), expect.anything());
+  });
+
+  it("承認可能な予約も任意の却下理由を送信できる", async () => {
+    const user = userEvent.setup();
+    reservation = { ...reservation, status: "pending_approval", lineFriendStatus: "friend" };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "却下" }));
+    await user.type(screen.getByLabelText("却下理由（任意・お客様に通知されます）"), "別日時をご案内します");
+    await user.click(screen.getByRole("button", { name: "予約を却下する" }));
+    expect(runAction).toHaveBeenCalledWith(expect.objectContaining({ action: "reject", reason: "別日時をご案内します" }), expect.anything());
+  });
+
   it("キャンセル料の未納・入金済み状態を更新する", async () => {
     const user = userEvent.setup();
     const { rerender } = render(
@@ -307,7 +396,7 @@ describe("ReservationDetailPanel の施術メモの取り違え防止", () => {
     reservation = { ...reservation, status: "confirmed" };
     render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
     await user.click(screen.getByRole("button", { name: "完了" }));
-    await user.click(screen.getByRole("button", { name: "実行" }));
+    await user.click(screen.getByRole("button", { name: "完了にする" }));
     reservation = { ...reservation, status: "completed" };
     await act(async () => { runAction.mock.calls.at(-1)?.[1]?.onSuccess?.(); });
     await user.type(screen.getByRole("textbox", { name: "施術メモ" }), "完了後の下書き");
@@ -450,7 +539,7 @@ describe("ReservationDetailPanel の終端状態の訂正", () => {
     render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
 
     await user.click(screen.getByRole("button", { name: "来店なしに訂正" }));
-    await user.click(screen.getByRole("button", { name: "実行" }));
+    await user.click(screen.getByRole("button", { name: "来店なしに訂正する" }));
 
     expect(runAction).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -469,7 +558,7 @@ describe("ReservationDetailPanel の終端状態の訂正", () => {
     render(<ReservationDetailPanel reservationId="reservation-1" onClose={onClose} />);
 
     await user.click(screen.getByRole("button", { name: "来店なしに訂正" }));
-    await user.click(screen.getByRole("button", { name: "実行" }));
+    await user.click(screen.getByRole("button", { name: "来店なしに訂正する" }));
 
     // mutate の第2引数に渡した onSuccess を実行して、閉じないことを確かめる。
     const [, options] = runAction.mock.calls[0] as [unknown, { onSuccess: () => void }];

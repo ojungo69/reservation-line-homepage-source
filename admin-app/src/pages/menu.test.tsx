@@ -15,6 +15,10 @@ vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => auth,
 }));
 
+vi.mock("@/hooks/use-settings", () => ({
+  useSettings: () => ({ isError: false, refetch: vi.fn() }),
+}));
+
 vi.mock("@/hooks/use-stores", () => ({
   useStores: () => ({
     stores: [{ id: "store-1", name: "和歌山店" }],

@@ -35,10 +35,10 @@ export type NavItem = {
 export const NAV_ITEMS: readonly NavItem[] = [
   { path: "/", label: "スケジュール", icon: Calendar, keywords: "schedule timeline", section: "daily", end: true },
   { path: "/reservations", label: "予約管理", icon: ClipboardList, keywords: "reservation booking", section: "daily" },
-  // Staff may now manage their OWN store's customers (search/detail/memo/カルテ);
-  // the backend store-scopes every customer read/write for staff, and owner-only
-  // actions (block/archive/merge, archived view) stay gated inside the page by
-  // isPrivileged. So this nav item is visible to all roles (not privileged-only).
+  // Staff may manage their OWN store's customers, including block/unblock,
+  // archive/restore and the archived view; the backend store-scopes their reads/writes.
+  // Merge, LINE linking and permanent deletion remain gated by isPrivileged in
+  // the page/detail panel. This nav item is visible to all roles.
   { path: "/customers", label: "顧客", icon: Users, keywords: "customer client", section: "daily" },
   {
     path: "/cancellation-fees",

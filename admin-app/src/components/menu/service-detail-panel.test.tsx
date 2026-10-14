@@ -33,6 +33,39 @@ beforeEach(() => {
 });
 
 describe("ServiceDetailPanel", () => {
+  it.each([
+    { mode: "プリセット", duration: 90 },
+    { mode: "カスタム", duration: 75 },
+  ])("$mode を所要時間ラベルで操作し、選んだ時間で保存する", async ({ mode, duration }) => {
+    const user = userEvent.setup();
+    const testService = { ...service, name: "テスト分類｜テストコース", durationMinutes: 60 };
+    render(
+      <ServiceDetailPanel
+        service={testService}
+        stores={[{ id: "store-1", name: "テスト中央店" }]}
+        services={[testService]}
+        canEdit
+        onClose={() => {}}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "編集" }));
+    if (mode === "カスタム") {
+      await user.click(screen.getByRole("button", { name: "カスタム" }));
+      const input = screen.getByRole("spinbutton", { name: "所要時間" });
+      await user.clear(input);
+      await user.type(input, "75");
+    } else {
+      screen.getByRole("combobox", { name: "所要時間" }).focus();
+      await user.keyboard("90");
+    }
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(updateService).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "service-1", durationMinutes: duration }),
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
   it("詳細を編集し、有効状態を切り替えられる", async () => {
     const user = userEvent.setup();
     render(

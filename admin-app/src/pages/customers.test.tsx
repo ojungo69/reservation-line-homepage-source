@@ -19,6 +19,8 @@ vi.mock("react-router", () => ({
 }));
 
 const authState = vi.hoisted(() => ({ isPrivileged: true, storeId: null as string | null }));
+const searchState = vi.hoisted(() => ({ empty: false, error: false, noData: false, truncated: false, refetch: vi.fn() }));
+const listState = vi.hoisted(() => ({ error: false, noData: false, refetch: vi.fn() }));
 // 既定は空 (=セクションは描画されない)。role で出し分けていることを確かめるテストだけが
 // 非空にする。空のままだと `groups.length === 0 → null` で owner でも消えるので、
 // 「staff には出ない」という assert が role と無関係に通ってしまう。
@@ -39,7 +41,7 @@ vi.mock("@/hooks/use-stores", () => ({
 vi.mock("@/hooks/use-customers", () => ({
   useCustomerList: (offset: number, archivedOnly: boolean, _storeId: string | null) => {
     return {
-    data: {
+    data: listState.noData ? undefined : {
       customers: archivedOnly
         ? [{
             id: "archived-customer",
@@ -75,13 +77,15 @@ vi.mock("@/hooks/use-customers", () => ({
       total: 201,
     },
     isPending: false,
-    isError: false,
+    isError: listState.error,
+    refetch: listState.refetch,
     };
   },
   useCustomerSearch: (query: string) => ({
-    data: {
+    data: searchState.noData ? undefined : {
       ok: true,
-      customers: query.length >= 2
+      truncated: searchState.truncated,
+      customers: query.length >= 2 && !searchState.empty
         ? [{
             id: "search-customer",
             displayName: "検索 花子",
@@ -93,7 +97,8 @@ vi.mock("@/hooks/use-customers", () => ({
         : [],
     },
     isPending: false,
-    isError: false,
+    isError: searchState.error,
+    refetch: searchState.refetch,
   }),
   useMergeCandidates: () => ({ data: { groups: mergeState.groups }, isPending: false, isError: false }),
   useCustomerMerge: () => ({ mutate: vi.fn(), isPending: false }),
@@ -113,6 +118,14 @@ afterEach(() => {
   customerState.setParams.mockClear();
   authState.isPrivileged = true;
   authState.storeId = null;
+  searchState.empty = false;
+  searchState.error = false;
+  searchState.noData = false;
+  searchState.truncated = false;
+  searchState.refetch.mockClear();
+  listState.error = false;
+  listState.noData = false;
+  listState.refetch.mockClear();
   mergeState.groups = [];
   vi.useRealTimers();
 });
@@ -216,6 +229,85 @@ describe("customer tables", () => {
 });
 
 describe("CustomersPage", () => {
+  it.each([true, false])("検索結果の切り詰め %s を名前の絞り込み案内に反映する", (truncated) => {
+    vi.useFakeTimers();
+    searchState.truncated = truncated;
+    render(<CustomersPage />);
+    fireEvent.change(screen.getByRole("textbox", { name: "顧客を検索" }), { target: { value: "検索" } });
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(screen.getByText("検索 花子")).toBeTruthy();
+    expect(screen.queryByText("候補が多いため一部のみ表示しています。名前をもう少し入力してください") !== null).toBe(truncated);
+  });
+
+  it.each([
+    { mode: "一覧", noData: true },
+    { mode: "一覧", noData: false },
+    { mode: "検索", noData: true },
+    { mode: "検索", noData: false },
+  ])("$mode の取得失敗時はデータ有無 $noData によらず結果を隠し、その取得を再試行する", ({ mode, noData }) => {
+    vi.useFakeTimers();
+    const queryState = mode === "検索" ? searchState : listState;
+    queryState.error = true;
+    queryState.noData = noData;
+    render(<CustomersPage />);
+    if (mode === "検索") {
+      fireEvent.change(screen.getByRole("textbox", { name: "顧客を検索" }), { target: { value: "検索" } });
+      act(() => vi.advanceTimersByTime(300));
+    }
+
+    expect(screen.getByText("顧客データの取得に失敗しました。")).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByText("顧客がまだ登録されていません")).toBeNull();
+    expect(screen.queryByText("該当する顧客が見つかりません")).toBeNull();
+    expect(screen.getByRole("alert")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
+    expect(queryState.refetch).toHaveBeenCalledOnce();
+    expect((mode === "検索" ? listState : searchState).refetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["123", "1234", "1234567890"])("スタッフの短い電話検索 %s は全桁入力を案内する", (query) => {
+    vi.useFakeTimers();
+    authState.isPrivileged = false;
+    authState.storeId = "kyoto";
+    searchState.empty = true;
+    render(<CustomersPage />);
+
+    const search = screen.getByRole("textbox", { name: "顧客を検索" });
+    fireEvent.change(search, { target: { value: query } });
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(screen.getByText("該当する顧客が見つかりません")).toBeTruthy();
+    expect(screen.getByText("電話番号は全桁で入力してください")).not.toBeNull();
+    expect(search.getAttribute("placeholder")).toBe("名前・カナ・電話番号（全桁）で検索...");
+  });
+
+  it.each([
+    { isPrivileged: true, query: "1234" },
+    { isPrivileged: false, query: "山田" },
+    { isPrivileged: false, query: "09012345678" },
+  ])("$isPrivileged / $query の空検索結果には全桁入力の案内を出さない", ({ isPrivileged, query }) => {
+    vi.useFakeTimers();
+    authState.isPrivileged = isPrivileged;
+    searchState.empty = true;
+    render(<CustomersPage />);
+    fireEvent.change(screen.getByRole("textbox", { name: "顧客を検索" }), { target: { value: query } });
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(screen.getByText("該当する顧客が見つかりません")).toBeTruthy();
+    expect(screen.queryByText("電話番号は全桁で入力してください")).toBeNull();
+  });
+
+  it("検索入力はアーカイブ表示中も顧客検索の名前で識別できる", () => {
+    render(<CustomersPage />);
+
+    const search = screen.getByRole("textbox", { name: "顧客を検索" });
+    fireEvent.click(screen.getByRole("button", { name: "アーカイブ済みを表示" }));
+
+    expect(screen.getByRole("textbox", { name: "顧客を検索" })).toBe(search);
+    expect(search).toHaveProperty("disabled", true);
+  });
+
   // 顧客の手動追加とアーカイブ済み一覧はスタッフにも開いている (2026-08-26)。
   // 統合候補セクションだけは owner+ のまま。
   it("スタッフにも顧客追加とアーカイブ表示切替を出す", () => {

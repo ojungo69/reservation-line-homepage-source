@@ -223,10 +223,11 @@ function ServiceEditForm({
         </div>
       )}
       <div className="space-y-2">
-        <Label>所要時間</Label>
+        <Label htmlFor="service-duration">所要時間</Label>
         {customDuration ? (
           <div className="flex items-center gap-2">
             <Input
+              id="service-duration"
               type="number"
               min={5}
               max={1440}
@@ -254,7 +255,7 @@ function ServiceEditForm({
               value={String(durationMinutes)}
               onValueChange={(value) => onDurationChange(Number(value))}
             >
-              <SelectTrigger className="w-[120px]">
+              <SelectTrigger id="service-duration" className="w-[120px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

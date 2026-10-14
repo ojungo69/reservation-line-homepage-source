@@ -58,6 +58,27 @@ describe("useTheme", () => {
     );
   });
 
+  it("defaults blocked storage to system and follows system changes", () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("storage blocked", "SecurityError");
+    });
+    try {
+      prefersDark = true;
+      const { result } = renderHook(() => useTheme());
+
+      expect(result.current).toMatchObject({ theme: "system", resolved: "dark" });
+      expect(document.documentElement.classList.contains("dark")).toBe(true);
+
+      prefersDark = false;
+      act(() => {
+        changeHandler?.();
+      });
+      expect(document.documentElement.classList.contains("dark")).toBe(false);
+    } finally {
+      getItem.mockRestore();
+    }
+  });
+
   it("restores a stored explicit theme without subscribing to system changes", () => {
     localStorage.setItem("admin-theme", "dark");
     const { result } = renderHook(() => useTheme());
@@ -70,6 +91,26 @@ describe("useTheme", () => {
       true,
     );
     expect(mediaQuery.addEventListener).not.toHaveBeenCalled();
+  });
+
+  it("applies the selected theme when persistence fails", () => {
+    const { result } = renderHook(() => useTheme());
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("storage full", "QuotaExceededError");
+    });
+    try {
+      expect(() =>
+        act(() => {
+          result.current.setTheme("dark");
+        }),
+      ).not.toThrow();
+
+      expect(result.current).toMatchObject({ theme: "dark", resolved: "dark" });
+      expect(document.documentElement.classList.contains("dark")).toBe(true);
+      expect(localStorage.getItem("admin-theme")).toBeNull();
+    } finally {
+      setItem.mockRestore();
+    }
   });
 
   it("persists explicit changes, applies them, and cleans up the system listener", () => {

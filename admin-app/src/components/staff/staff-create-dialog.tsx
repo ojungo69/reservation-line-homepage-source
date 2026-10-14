@@ -50,7 +50,8 @@ export function StaffCreateDialog({ open, onOpenChange, stores, defaultStoreId }
   const createMutation = useStaffCreate();
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState("staff");
-  const [storeId, setStoreId] = useState(defaultStoreId ?? stores[0]?.id ?? "");
+  const [storeId, setStoreId] = useState("");
+  const effectiveStoreId = storeId || defaultStoreId || stores[0]?.id || "";
   const idempotencyKeyRef = useRef<string>("");
   if (!idempotencyKeyRef.current) {
     idempotencyKeyRef.current = crypto.randomUUID();
@@ -63,17 +64,17 @@ export function StaffCreateDialog({ open, onOpenChange, stores, defaultStoreId }
   const reset = () => {
     setDisplayName("");
     setRole("staff");
-    setStoreId(defaultStoreId ?? stores[0]?.id ?? "");
+    setStoreId("");
     idempotencyKeyRef.current = crypto.randomUUID();
   };
 
-  const staffInvalid = getStaffInvalidReason(displayName, storeId);
+  const staffInvalid = getStaffInvalidReason(displayName, effectiveStoreId);
 
   const handleSubmit = () => {
     if (staffInvalid !== null) return;
     createMutation.mutate(
       {
-        storeId,
+        storeId: effectiveStoreId,
         displayName: displayName.trim(),
         role: role as "owner" | "staff" | "system_admin",
         active: true,
@@ -117,7 +118,7 @@ export function StaffCreateDialog({ open, onOpenChange, stores, defaultStoreId }
           </div>
           <div className="space-y-2">
             <Label htmlFor="create-staff-store">店舗</Label>
-            <Select value={storeId} onValueChange={setStoreId}>
+            <Select value={effectiveStoreId} onValueChange={setStoreId}>
               <SelectTrigger
                 id="create-staff-store"
                 {...invalidFieldProps(staffInvalid, "storeId", "staff-create-hint")}

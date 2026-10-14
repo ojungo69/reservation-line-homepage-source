@@ -73,7 +73,7 @@ export default function ActivityPage() {
     keyword: debouncedKeyword || undefined,
   }), [from, to, actorType, debouncedKeyword]);
 
-  const { data, isPending, isError } = useAuditLogs(filter);
+  const { data, isPending, isError, refetch } = useAuditLogs(filter);
 
   const staffMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -85,7 +85,7 @@ export default function ActivityPage() {
     return map;
   }, [settings]);
 
-  const logs = data?.ok ? data.auditLogs : [];
+  const logs = !isError && data?.ok ? data.auditLogs : [];
 
   const groupedByDate = useMemo(() => {
     const groups = new Map<string, typeof logs>();
@@ -124,9 +124,9 @@ export default function ActivityPage() {
           />
         </div>
         <div className="space-y-1">
-          <Label>操作者</Label>
+          <Label htmlFor="audit-actor">操作者</Label>
           <Select value={actorType} onValueChange={setActorType}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger id="audit-actor" className="w-40">
               <SelectValue placeholder="全て" />
             </SelectTrigger>
             <SelectContent>
@@ -161,12 +161,15 @@ export default function ActivityPage() {
       )}
 
       {isError && (
-        <p role="alert" className="text-sm text-destructive">
-          操作記録の取得に失敗しました。
-        </p>
+        <div role="alert" className="space-y-2 text-sm text-destructive">
+          <p>操作記録の取得に失敗しました。</p>
+          <Button variant="outline" size="sm" onClick={() => { void refetch(); }}>
+            再読み込み
+          </Button>
+        </div>
       )}
 
-      {!isPending && logs.length === 0 && (
+      {!isPending && !isError && logs.length === 0 && (
         <p className="text-sm text-muted-foreground">該当する操作記録はありません</p>
       )}
 

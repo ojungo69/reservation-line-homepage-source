@@ -125,7 +125,7 @@ export function LinkExistingDialog({ friend, storeId, onClose }: Readonly<Props>
             管理画面に登録済みのお客様を検索して、このLINE友だちと紐付けます。
           </DialogDescription>
         </DialogHeader>
-        <Input placeholder="お名前 または 電話番号で検索" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+        <Input aria-label="既存のお客様を名前または電話番号で検索" placeholder="お名前 または 電話番号で検索" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
         <div className="mt-2 max-h-72 space-y-1 overflow-y-auto">
           {loadingResults && <p className="text-sm text-muted-foreground">検索中...</p>}
           {!loadingResults && debouncedQ.length > 0 && results.length === 0 && (
