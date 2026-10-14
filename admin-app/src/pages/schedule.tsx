@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useMediaQuery, NARROW_QUERY } from "@/hooks/use-media-query";
 import { useTimelineDensity } from "@/hooks/use-timeline-density";
-import type { Reservation, Store } from "@/types/api";
+import type { ExternalBlock, Reservation, Store } from "@/types/api";
 
 export default function SchedulePage() {
   const { selectedStoreId } = useStores();
@@ -71,7 +71,9 @@ export default function SchedulePage() {
   const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [blockCreateOpen, setBlockCreateOpen] = useState(false);
-  const [cancelBlockId, setCancelBlockId] = useState<string | null>(null);
+  // The dialog keeps the block it opened for: the day can roll over (F32) or a refetch can drop
+  // the block while the confirmation is open, and it must still name what it cancels.
+  const [cancelBlock, setCancelBlock] = useState<ExternalBlock | null>(null);
   const [createDefaults, setCreateDefaults] = useState<{
     resourceId: string | null;
     minutes: number | null;
@@ -221,26 +223,21 @@ export default function SchedulePage() {
   // 解除は owner/system_admin 限定（バックエンドが staff を拒否するため、
   // 作成アクションと同じく privileged にのみ通知を配線する）。
   const handleBlockClick = useCallback((blockId: string) => {
-    setCancelBlockId(blockId);
-  }, []);
+    setCancelBlock(filteredBlocks.find((b) => b.id === blockId) ?? null);
+  }, [filteredBlocks]);
   const handleCreateBlockClick = useCallback(() => setBlockCreateOpen(true), []);
   const privilegedCreateBlockClick = isPrivileged ? handleCreateBlockClick : undefined;
   const privilegedBlockClick = isPrivileged ? handleBlockClick : undefined;
 
-  // ダイアログ表示用に、選択中ブロックの実体を読み込み済み配列から引く。
-  const cancelBlock = useMemo(
-    () => filteredBlocks.find((b) => b.id === cancelBlockId) ?? null,
-    [filteredBlocks, cancelBlockId],
-  );
   const cancelBlockDescription = cancelBlock
     ? `${cancelBlock.titleSnapshot ?? "ブロック"}（${formatTime(cancelBlock.startAt)}–${formatTime(cancelBlock.endAt)}）を取消します。この操作は元に戻せません。`
     : "";
 
   const confirmCancelBlock = () => {
-    if (!cancelBlockId) return;
+    if (!cancelBlock) return;
     cancelBlockMutation.mutate(
-      { externalBlockId: cancelBlockId },
-      { onSuccess: () => setCancelBlockId(null) },
+      { externalBlockId: cancelBlock.id },
+      { onSuccess: () => setCancelBlock(null) },
     );
   };
 
@@ -249,10 +246,10 @@ export default function SchedulePage() {
   // 取消済みかもしれないブロックのダイアログが再表示される。週表示へ移る
   // 際にリセットして取り残しを防ぐ。
   useEffect(() => {
-    if (effectiveViewMode === "week" && cancelBlockId !== null) {
-      setCancelBlockId(null);
+    if (effectiveViewMode === "week" && cancelBlock !== null) {
+      setCancelBlock(null);
     }
-  }, [effectiveViewMode, cancelBlockId]);
+  }, [effectiveViewMode, cancelBlock]);
 
   // 週表示/日表示の両方の末尾に出るオーバーレイ。同じ render scope なので prop 配線は不要。
   const overlays = (
@@ -362,14 +359,14 @@ export default function SchedulePage() {
       )}
       {overlays}
       <PendingConfirmDialog
-        open={cancelBlockId !== null}
+        open={cancelBlock !== null}
         pending={cancelBlockMutation.isPending}
         title="ブロックを取消しますか?"
         description={cancelBlockDescription}
         confirmLabel="ブロックを取消す"
         pendingLabel="取消中..."
         destructive
-        onOpenChange={() => setCancelBlockId(null)}
+        onOpenChange={() => setCancelBlock(null)}
         onConfirm={confirmCancelBlock}
       />
     </div>

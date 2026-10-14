@@ -218,6 +218,29 @@ describe("F29 営業時間の下書き保護", () => {
   });
 });
 
+describe("休業日の下書きと店舗", () => {
+  it("再取得の失敗中に店舗を切り替えると、休業日の下書きを別の店舗へ持ち込まない", async () => {
+    settings.settings.stores = [store, secondStore];
+    const user = userEvent.setup();
+    const { client } = renderUi(<><HeaderStoreSwitch /><SettingsPage /></>);
+    await user.click(await screen.findByRole("tab", { name: "休業日" }));
+    await user.click(screen.getByRole("button", { name: "+ 追加" }));
+    expect(screen.getByRole("dialog", { name: "休業日を追加" })).toBeTruthy();
+
+    settingsFail = true;
+    await act(() => client.refetchQueries({ queryKey: ["settings"] }));
+    expect((await screen.findAllByRole("alert")).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "ヘッダーで店舗を切り替える" }));
+    settingsFail = false;
+    await act(() => client.refetchQueries({ queryKey: ["settings"] }));
+
+    // The tab is rebuilt for the new store, so the old store's draft dialog does not return.
+    await waitFor(() => expect(screen.queryAllByRole("alert")).toHaveLength(0));
+    expect(screen.queryByRole("dialog", { name: "休業日を追加" })).toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
 describe("F6 設定の取得失敗", () => {
   it.each([
     ["メニュー", <MenuPage />, "メニューがありません"],

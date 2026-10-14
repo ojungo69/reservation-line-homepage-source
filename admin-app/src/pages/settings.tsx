@@ -53,13 +53,14 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="closures" className="mt-4">
-          <ClosuresTab selectedStoreId={effectiveStoreId} />
+          {/* 休業日・リソースの下書きは店舗ごと。店舗が変われば作り直し、別店舗へ保存させない。 */}
+          <ClosuresTab key={effectiveStoreId ?? "none"} selectedStoreId={effectiveStoreId} />
         </TabsContent>
 
         {isPrivileged && (
           <>
             <TabsContent value="resources" className="mt-4">
-              <ResourcesTab selectedStoreId={effectiveStoreId} />
+              <ResourcesTab key={effectiveStoreId ?? "none"} selectedStoreId={effectiveStoreId} />
             </TabsContent>
 
             <TabsContent value="reminder" className="mt-4">

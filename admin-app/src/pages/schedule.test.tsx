@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { Reservation } from "@/types/api";
 import { useSettings } from "@/hooks/use-settings";
 import { useReservations } from "@/hooks/use-reservations";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -444,6 +444,24 @@ describe("SchedulePage", () => {
     await user.click(screen.getByRole("button", { name: "既存ブロック" }));
     expect(screen.getByText(/研修/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "取消を確定" }));
+    expect(cancelBlock).toHaveBeenCalledWith(
+      { externalBlockId: "block-1" },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it("ブロック取消の確認中にJSTの午前0時を越えても、開いたブロックを示したまま取り消す", () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-07-24T14:59:50Z"));
+    render(<SchedulePage />);
+    fireEvent.click(screen.getByRole("button", { name: "既存ブロック" }));
+    expect(screen.getByText(/研修/)).toBeTruthy();
+
+    // The schedule follows the new day, whose block list no longer contains block-1.
+    act(() => { vi.advanceTimersByTime(30_000); });
+
+    expect(screen.getByText(/研修/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "取消を確定" }));
     expect(cancelBlock).toHaveBeenCalledWith(
       { externalBlockId: "block-1" },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
