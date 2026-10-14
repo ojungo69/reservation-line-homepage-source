@@ -133,6 +133,29 @@ describe("automatic availability refresh", () => {
     expect(element("slots").textContent).toBe("11:00");
   });
 
+  it.each(["retained", "removed", "empty"] as const)("preserves focus when a changed background list has the focused time %s", async (outcome) => {
+    const slot = await showAvailableSlots();
+    slot.focus();
+    responder = async (url) => {
+      const date = url.searchParams.get("date")!;
+      const body = ready(date, true);
+      const otherTime = { startAt: `${date}T02:00:00.000Z`, endAt: `${date}T03:00:00.000Z` };
+      body.slots = outcome === "retained" ? [otherTime, ...body.slots] : outcome === "removed" ? [otherTime] : [];
+      return json(body);
+    };
+    await triggerAutoRefresh("poll");
+    expect(dom.window.document.querySelector(".slot-button")).not.toBe(slot);
+    const target = outcome === "retained"
+      ? dom.window.document.querySelectorAll<HTMLButtonElement>(".slot-button")[1]
+      : element("slots");
+    expect(dom.window.document.activeElement).toBe(target);
+    if (outcome === "retained") {
+      expect(target.textContent).toBe("10:00");
+      expect(target.getAttribute("aria-checked")).toBe("false");
+    }
+    expect(button("step1-next").disabled).toBe(true);
+  });
+
   it.each([false, true])("preserves a newly selected time by cancelling the outstanding background refresh (changed: %s)", async (changed) => {
     const slot = await showAvailableSlots();
     let release!: (value: ReturnType<typeof json>) => void;
@@ -179,7 +202,20 @@ describe("availability date rollover", () => {
     expect(dateAt(0)).toBe("2026-10-02");
     expect(dateAt(15)).toBe("2026-10-17");
     expect(element<HTMLSelectElement>("date").value).toBe("2026-10-02");
+    expect(element("status").textContent).toBe("日付が変わったため、日付と時間を選び直してください。");
     expect(requests.map((request) => request.date)).toEqual(["2026-10-02"]);
+    expect(button("step1-next").disabled).toBe(true);
+  });
+
+  it("announces when a selected time is discarded with yesterday's date", async () => {
+    const slot = await showAvailableSlots();
+    slot.click();
+    expect(button("step1-next").disabled).toBe(false);
+    vi.setSystemTime(new Date("2026-10-01T15:00:00Z"));
+    await triggerAutoRefresh("return");
+    await vi.advanceTimersByTimeAsync(121);
+    expect(element("status").textContent).toBe("日付が変わったため、日付と時間を選び直してください。");
+    expect(dom.window.document.querySelector(".slot-selected")).toBeNull();
     expect(button("step1-next").disabled).toBe(true);
   });
 
@@ -188,6 +224,7 @@ describe("availability date rollover", () => {
     await vi.advanceTimersByTimeAsync(121);
     const slot = await showAvailableSlots();
     slot.click();
+    const previousStatus = element("status").textContent;
     vi.setSystemTime(new Date("2026-10-01T15:00:00Z"));
     await triggerAutoRefresh("return");
     expect(dateAt(0)).toBe("2026-10-02");
@@ -197,6 +234,7 @@ describe("availability date rollover", () => {
     expect(dom.window.document.querySelector(".slot-button")).toBe(slot);
     expect(slot.getAttribute("aria-checked")).toBe("true");
     expect(button("step1-next").disabled).toBe(false);
+    expect(element("status").textContent).toBe(previousStatus);
   });
 
   it("invalidates an expired date's in-flight response before loading the new day", async () => {

@@ -13,12 +13,18 @@ const validRequest = () => ({
 });
 
 describe("U7: public menu selection boundary", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
 
-  it("rejects a submitted thirteenth menu before identity verification instead of dropping it", async () => {
-    const body = validRequest();
-    body.serviceIds = Array.from({ length: 13 }, (_, index) => `service-example-${index + 1}`);
-    body.serviceId = body.serviceIds[0];
+  it.each([
+    { label: "usable IDs only", invalidItems: [] },
+    { label: "mixed invalid items", invalidItems: [null, " ", "x".repeat(129)] }
+  ])("rejects a submitted thirteenth menu with $label before identity verification", async ({ invalidItems }) => {
+    const ids = Array.from({ length: 13 }, (_, index) => `service-example-${index + 1}`);
+    const body = { ...validRequest(), serviceId: ids[0], serviceIds: [...invalidItems, ...ids, ids[0]] };
     const response = await publicRoutes.request("/reservations", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
     }, {});
@@ -32,7 +38,92 @@ describe("U7: public menu selection boundary", () => {
     expect(getStringArray({ serviceIds: [" s1 ", "s1", "s2"] }, "serviceIds", 12, 128)).toEqual(["s1", "s2"]);
   });
 
-  it("rejects availability for 13 short menus and still accepts the complete 12-menu selection", async () => {
+  // An explicit but unusable menu list is rejected instead of silently booking the singular
+  // serviceId: that would change the menus the customer chose. Only an absent list (or an
+  // empty query value) keeps the legacy single-menu fallback.
+  it.each([",", "  ,  ", "x".repeat(129)])("rejects unusable availability serviceIds %j", async serviceIds => {
+    const query = new URLSearchParams({
+      storeId: "kyoto", serviceId: "service_kyoto_default_60", serviceIds,
+      resourceId: "resource_kyoto_calendar", date: "2026-05-10"
+    });
+    const response = await publicRoutes.request(`/availability?${query}`, {}, {});
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ ok: false, reason: "invalid_request" });
+  });
+
+  it("keeps the legacy serviceId for an empty availability serviceIds value", async () => {
+    const d1 = createMigratedSqliteD1();
+    try {
+      vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-05-09T23:00:00.000Z"));
+      const query = new URLSearchParams({
+        storeId: "kyoto", serviceId: "service_kyoto_default_60", serviceIds: "",
+        resourceId: "resource_kyoto_calendar", date: "2026-05-10"
+      });
+      const env = { DB: d1 as unknown as D1Database, GOOGLE_LIVE_AVAILABILITY_ENABLED: "false" };
+      const response = await publicRoutes.request(`/availability?${query}`, {}, env);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        ok: true, serviceId: "service_kyoto_default_60", serviceIds: ["service_kyoto_default_60"], durationMinutes: 65
+      });
+    } finally {
+      d1.sqlite.close();
+    }
+  });
+
+  it.each([
+    { label: "an empty array", serviceIds: [] },
+    { label: "null", serviceIds: null },
+    { label: "only unusable strings", serviceIds: ["", "  ", "x".repeat(129)] },
+    { label: "a non-string item", serviceIds: [null] },
+    { label: "a usable ID next to a non-string item", serviceIds: ["example-unused-service", null] }
+  ])("rejects submitted serviceIds with $label instead of booking the legacy serviceId", async ({ serviceIds }) => {
+    const body = { ...validRequest(), serviceId: "service_kyoto_default_60", serviceIds };
+    const response = await publicRoutes.request("/reservations", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+    }, {});
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ ok: false, reason: "invalid_request" });
+  });
+
+  it("books the legacy serviceId when serviceIds is absent", async () => {
+    vi.useFakeTimers({ now: new Date("2026-05-09T00:00:00.000Z"), toFake: ["Date"] });
+    const d1 = createMigratedSqliteD1();
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(Response.json({ success: true }))
+      .mockResolvedValueOnce(Response.json({
+        sub: "example-line-user", aud: "example-line-channel", exp: 1_800_000_000, iat: 1_700_000_000
+      }))
+      .mockResolvedValueOnce(Response.json({ userId: "example-line-user" }))
+      .mockResolvedValueOnce(Response.json({ friendFlag: true }))
+    );
+    // JSON.stringify drops the undefined serviceIds, so the request has no list at all.
+    const withoutList = {
+      ...validRequest(), storeId: "kyoto", serviceId: "service_kyoto_default_60", serviceIds: undefined,
+      resourceId: "resource_kyoto_calendar",
+      consents: {
+        noticeVersion: "notice-terms-2026-06", cancellationPolicyVersion: "cancel-2026-08-31", privacyPolicyVersion: "privacy-2026-06"
+      }
+    };
+    const env = {
+      DB: d1 as unknown as D1Database, LINE_CHANNEL_ID: "example-line-channel", TURNSTILE_SECRET_KEY: "example-secret"
+    };
+    try {
+      const response = await publicRoutes.request("/reservations", {
+        method: "POST", headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.10" }, body: JSON.stringify(withoutList)
+      }, env);
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({
+        ok: true, storeId: "kyoto", status: "pending_approval", startAt: "2026-06-01T01:00:00.000Z", endAt: "2026-06-01T02:05:00.000Z"
+      });
+    } finally {
+      d1.sqlite.close();
+    }
+  });
+
+  it.each([
+    { label: "usable IDs only", invalidItems: [] },
+    { label: "mixed invalid items", invalidItems: [" ", "x".repeat(129)] }
+  ])("rejects availability for 13 short menus with $label and accepts all 12", async ({ invalidItems }) => {
     const d1 = createMigratedSqliteD1();
     try {
       vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-05-09T23:00:00.000Z"));
@@ -40,7 +131,7 @@ describe("U7: public menu selection boundary", () => {
       for (const id of ids) {
         d1.sqlite.prepare("INSERT INTO services (id, store_id, name, duration_minutes, active) VALUES (?, 'kyoto', '架空メニュー', 5, 1)").run(id);
       }
-      const query = new URLSearchParams({ storeId: "kyoto", serviceId: ids[0], resourceId: "resource_kyoto_calendar", date: "2026-05-10", serviceIds: ids.join(",") });
+      const query = new URLSearchParams({ storeId: "kyoto", serviceId: ids[0], resourceId: "resource_kyoto_calendar", date: "2026-05-10", serviceIds: [...invalidItems, ...ids].join(",") });
       const env = { DB: d1 as unknown as D1Database, GOOGLE_LIVE_AVAILABILITY_ENABLED: "false" };
       const rejected = await publicRoutes.request(`/availability?${query}`, {}, env);
       expect(rejected.status).toBe(400);

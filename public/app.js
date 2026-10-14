@@ -207,7 +207,6 @@ const turnstileStatus = document.createElement("p");
 turnstileStatus.id = "turnstile-status";
 turnstileStatus.className = "inline-state";
 turnstileStatus.setAttribute("role", "status");
-turnstileStatus.setAttribute("aria-live", "polite");
 turnstileStatus.dataset.tone = "warning";
 const turnstileRetry = document.createElement("button");
 turnstileRetry.id = "turnstile-retry";
@@ -223,7 +222,6 @@ const servicesLimitStatus = document.createElement("p");
 servicesLimitStatus.id = "services-limit-status";
 servicesLimitStatus.className = "inline-state";
 servicesLimitStatus.setAttribute("role", "status");
-servicesLimitStatus.setAttribute("aria-live", "polite");
 // Outside the popover so the limit remains visible when the picker is closed.
 elements.servicesTags.after(servicesLimitStatus);
 
@@ -310,6 +308,12 @@ const showIdentityStep = () => {
   focusRegion(elements.contactFields?.closest("fieldset") ?? elements.step2Content);
 };
 
+const closeConfirmPanel = () => {
+  elements.confirmPanel.hidden = true;
+  elements.form.hidden = false;
+  showIdentityStep();
+};
+
 const updateStep2Summary = () => {
   const card = document.getElementById("step2-summary");
   if (!card) return;
@@ -353,8 +357,9 @@ const setStatus = (message, tone) => {
   // the moment its content changes, so promoting danger-tone messages to assertive must
   // happen first — otherwise the current message is announced at the previous politeness
   // and only the NEXT message gets the assertive treatment.
+  elements.status.setAttribute("aria-live", tone === "danger" ? "assertive" : "polite");
+  confirmStatus.setAttribute("role", tone === "danger" ? "alert" : "status");
   for (const status of [elements.status, confirmStatus]) {
-    status.setAttribute("aria-live", tone === "danger" ? "assertive" : "polite");
     if (tone) {
       status.dataset.tone = tone;
     } else {
@@ -810,10 +815,9 @@ const renderServices = (services) => {
   tools.append(buildServicesSearch());
   const status = document.createElement("p");
   status.className = "services-search-status inline-state";
-  // role=status + aria-live: present in the a11y tree from creation — never
+  // role=status: present in the a11y tree from creation — never
   // hidden, so every textContent update is announced.
   status.setAttribute("role", "status");
-  status.setAttribute("aria-live", "polite");
   elements.services.prepend(tools, status);
   updateServicesSummary();
 };
@@ -1010,6 +1014,7 @@ const refreshDateOptionsIfNeeded = () => {
   // but invalidate old slots and requests before fetching a replacement date.
   if (elements.date.value !== previousDate) {
     requestAvailabilityUpdate();
+    setStatus("日付が変わったため、日付と時間を選び直してください。", "warning");
   } else {
     updateDateSearchControls();
   }
@@ -1440,6 +1445,7 @@ const renderSlots = () => {
     const button = document.createElement("button");
     button.className = "slot-button";
     button.type = "button";
+    button.dataset.startAt = slot.startAt;
     button.setAttribute("role", "radio");
     button.setAttribute("aria-checked", "false");
     button.tabIndex = index === 0 ? 0 : -1;
@@ -1854,7 +1860,22 @@ const loadAvailability = async ({ background = false } = {}) => {
     const slotsUnchanged = background && previousAvailability && previousAvailability.timezone === body.timezone &&
       previousSlots.length === (body.slots?.length ?? 0) &&
       previousSlots.every((slot, index) => slot.startAt === body.slots[index].startAt);
-    if (!slotsUnchanged) renderSlots();
+    if (!slotsUnchanged) {
+      const focusedStartAt = background && elements.slots.contains(document.activeElement)
+        ? document.activeElement?.dataset.startAt : undefined;
+      renderSlots();
+      if (focusedStartAt) {
+        const replacement = Array.from(elements.slots.querySelectorAll(".slot-button"))
+          .find(button => button.dataset.startAt === focusedStartAt);
+        if (replacement) {
+          elements.slots.querySelector(".slot-button[tabindex='0']")?.setAttribute("tabindex", "-1");
+          replacement.tabIndex = 0;
+          replacement.focus({ preventScroll: true });
+        } else {
+          focusRegion(elements.slots);
+        }
+      }
+    }
   } catch {
     if (requestId === state.availabilityRequestId) {
       state.availabilityFetchInFlight = false;
@@ -2015,6 +2036,16 @@ const waitForScriptGlobal = async (scriptId, src, globalName) => {
   return waitForGlobal(globalName);
 };
 
+const SECURITY_CHECK_REQUIRED_MESSAGE = "セキュリティ確認を完了してから、もう一度お試しください";
+const handleTurnstileTokenLoss = () => {
+  state.turnstileToken = "";
+  if (!elements.confirmPanel.hidden && !state.reservationSubmitting) {
+    closeConfirmPanel();
+    setStatus(SECURITY_CHECK_REQUIRED_MESSAGE, "warning");
+  }
+  updateSubmitState();
+};
+
 const renderTurnstile = async () => {
   const siteKey = state.options?.turnstile?.siteKey;
   if (!siteKey) {
@@ -2034,13 +2065,9 @@ const renderTurnstile = async () => {
       state.turnstileToken = token;
       updateSubmitState();
     },
-    "expired-callback": () => {
-      state.turnstileToken = "";
-      updateSubmitState();
-    },
+    "expired-callback": handleTurnstileTokenLoss,
     "error-callback": () => {
-      state.turnstileToken = "";
-      updateSubmitState();
+      handleTurnstileTokenLoss();
       return true;
     }
   });
@@ -2641,10 +2668,9 @@ const actuallySubmitReservation = async () => {
   // A token can expire while the confirmation panel is open. Never send an empty
   // token; the widget is on step 2, where the customer can complete it again.
   if (!state.turnstileToken) {
-    elements.confirmPanel.hidden = true;
-    elements.form.hidden = false;
-    returnToIdentityStep(undefined, {});
-    setStatus("セキュリティ確認を完了してから、もう一度お試しください", "warning");
+    closeConfirmPanel();
+    updateSubmitState();
+    setStatus(SECURITY_CHECK_REQUIRED_MESSAGE, "warning");
     return;
   }
   state.reservationSubmitting = true;
@@ -2667,9 +2693,7 @@ const actuallySubmitReservation = async () => {
     resetTurnstile();
     elements.confirmBack.disabled = false;
     elements.confirmSubmit.textContent = originalConfirmLabel;
-    elements.confirmPanel.hidden = true;
-    elements.form.hidden = false;
-    returnToIdentityStep(undefined, {});
+    closeConfirmPanel();
     setStatus("通信エラーが発生しました。もう一度お試しください。", "danger");
     return;
   }
@@ -2721,36 +2745,63 @@ const startTurnstileRender = async () => {
   if (state.turnstileLoading || state.turnstileWidgetId !== null || state.turnstileUnavailable) {
     return;
   }
+  const retryHadFocus = document.activeElement === turnstileRetry;
   state.turnstileLoading = true;
-  const previousFailure = turnstileStatus.textContent;
-  turnstileStatus.textContent = "";
-  turnstileRetry.hidden = true;
+  turnstileRetry.disabled = true;
+  turnstileRetry.setAttribute("aria-busy", "true");
+  turnstileStatus.textContent = "読み込んでいます…";
   try {
     const rendered = await renderTurnstile();
     if (!rendered) {
-      throw new Error("turnstile_not_rendered");
+      state.turnstileUnavailable = true;
+      turnstileStatus.textContent = "セキュリティ確認の準備ができていないため、現在お申し込みいただけません。お手数ですが店舗へお問い合わせください。";
+      if (retryHadFocus && (document.activeElement === turnstileRetry || document.activeElement === document.body)) {
+        focusRegion(turnstileStatus);
+      }
+      turnstileRetry.hidden = true;
+      return;
     }
-    // Clear only the error this retry owns; a concurrent LINE/cap failure must
-    // remain visible even when the security widget has recovered.
-    if (previousFailure && elements.status.textContent === previousFailure) setStatus("");
+    turnstileStatus.textContent = "";
+    if (retryHadFocus && (document.activeElement === turnstileRetry || document.activeElement === document.body)) {
+      updateSubmitState();
+      if (!elements.submit.disabled) {
+        elements.submit.focus({ preventScroll: true });
+      } else {
+        const widget = document.getElementById("turnstile-widget");
+        focusRegion(widget.querySelector("iframe") ?? widget);
+      }
+    }
+    turnstileRetry.hidden = true;
   } catch {
     state.turnstileUnavailable = true;
     const message = "セキュリティ確認を読み込めませんでした。再試行してください。解決しない場合は、ページを再読み込みしてください。";
+    turnstileStatus.textContent = "";
     turnstileStatus.textContent = message;
     turnstileRetry.hidden = false;
-    setStatus(message, "warning");
   } finally {
     state.turnstileLoading = false;
+    turnstileRetry.disabled = false;
+    turnstileRetry.setAttribute("aria-busy", "false");
+    if (!turnstileRetry.hidden && retryHadFocus && document.activeElement === document.body) {
+      turnstileRetry.focus({ preventScroll: true });
+    }
     updateSubmitState();
   }
 };
 
 const loadInitialOptions = async () => {
+  const retrying = !initRetry.hidden;
+  const retryHadFocus = document.activeElement === initRetry;
   initRetry.disabled = true;
-  initRetry.hidden = true;
+  initRetry.setAttribute("aria-busy", "true");
+  if (retrying) setStatus("読み込んでいます…");
   try {
     await loadOptions();
     setStatus("");
+    if (retryHadFocus && (document.activeElement === initRetry || document.activeElement === document.body)) {
+      elements.store.focus({ preventScroll: true });
+    }
+    initRetry.hidden = true;
     void loadAvailability();
     // Auto-verify LINE identity at load when the LIFF session is already present
     // (opened inside the LINE app, or a cached external-browser session) so existing
@@ -2759,11 +2810,16 @@ const loadInitialOptions = async () => {
     // the manual button intact.
     void verifyLineGate({ interactive: false }).catch(() => {});
   } catch {
+    setStatus("");
     setStatus("予約画面を初期化できませんでした。再試行してください。解決しない場合は、ページを再読み込みしてください。", "danger");
     initRetry.hidden = false;
     elements.submit.disabled = true;
   } finally {
     initRetry.disabled = false;
+    initRetry.setAttribute("aria-busy", "false");
+    if (!initRetry.hidden && retryHadFocus && document.activeElement === document.body) {
+      initRetry.focus({ preventScroll: true });
+    }
   }
 };
 
@@ -2904,11 +2960,7 @@ elements.form.addEventListener("submit", (event) => {
   showConfirmPanel();
 });
 
-elements.confirmBack.addEventListener("click", () => {
-  elements.confirmPanel.hidden = true;
-  elements.form.hidden = false;
-  showIdentityStep();
-});
+elements.confirmBack.addEventListener("click", closeConfirmPanel);
 
 elements.confirmSubmit.addEventListener("click", async () => {
   try {
@@ -2919,9 +2971,7 @@ elements.confirmSubmit.addEventListener("click", async () => {
     resetTurnstile();
     setStatus("予約を送信できませんでした", "danger");
     elements.confirmSubmit.textContent = "予約を申し込む";
-    elements.confirmPanel.hidden = true;
-    elements.form.hidden = false;
-    showBookingStep({ focus: true });
+    closeConfirmPanel();
   }
 });
 

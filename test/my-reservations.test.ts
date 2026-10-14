@@ -109,6 +109,7 @@ describe("GET /api/public/my-reservations", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -152,6 +153,48 @@ describe("GET /api/public/my-reservations", () => {
       expect(row?.requestable.cancel.reason).toBe("cancel_requests_closed");
       expect(row?.requestable.reschedule.allowed).toBe(false);
       expect(row?.requestable.reschedule.reason).toBe("reschedule_requests_closed");
+    } finally {
+      d1.sqlite.close();
+    }
+  });
+
+  it.each([
+    { scenario: "expired ISO approval", status: "pending_approval", expiresAt: "2026-10-14T00:00:00.123Z", visible: false },
+    { scenario: "ISO approval at expiry", status: "pending_approval", expiresAt: "2026-10-14T00:00:00.124Z", visible: false },
+    { scenario: "ISO approval one millisecond before expiry", status: "pending_approval", expiresAt: "2026-10-14T00:00:00.125Z", visible: true },
+    { scenario: "expired SQLite approval", status: "pending_approval", expiresAt: "2026-10-14 00:00:00", visible: false },
+    { scenario: "SQLite approval at expiry", status: "pending_approval", expiresAt: "2026-10-14 00:00:00.124", visible: false },
+    { scenario: "SQLite approval one millisecond before expiry", status: "pending_approval", expiresAt: "2026-10-14 00:00:00.125", visible: true },
+    { scenario: "expired offset approval", status: "pending_approval", expiresAt: "2026-10-14T09:00:00.123+09:00", visible: false },
+    { scenario: "offset approval at expiry", status: "pending_approval", expiresAt: "2026-10-14T09:00:00.124+09:00", visible: false },
+    { scenario: "offset approval one millisecond before expiry", status: "pending_approval", expiresAt: "2026-10-14T09:00:00.125+09:00", visible: true },
+    { scenario: "approval without an expiry", status: "pending_approval", expiresAt: null, visible: true },
+    { scenario: "confirmed booking with an old approval expiry", status: "confirmed", expiresAt: "2026-10-14T00:00:00.123Z", visible: true },
+    ...["rejected", "expired", "cancelled_by_customer", "cancelled_by_admin", "completed", "no_show"].map(status => ({
+      scenario: `${status} booking with a future approval expiry`,
+      status,
+      expiresAt: "2026-10-14T00:00:00.125Z",
+      visible: false
+    }))
+  ])("applies approval expiry and status filtering to $scenario", async ({ status, expiresAt, visible }) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-14T00:00:00.124Z"));
+    const d1 = createMigratedSqliteD1();
+    try {
+      seedReservation(d1, {
+        startAt: "2026-10-15T01:00:00.000Z",
+        endAt: "2026-10-15T02:00:00.000Z"
+      });
+      d1.sqlite.prepare("UPDATE reservations SET status = ?, pending_expires_at = ? WHERE id = 'reservation_t'")
+        .run(status, expiresAt);
+
+      const response = await createApp().request(
+        "/api/public/my-reservations",
+        { headers: authedGetHeaders }, baseEnv(d1)
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json() as { reservations: Array<{ id: string }> };
+      expect(body.reservations.map(row => row.id)).toEqual(visible ? ["reservation_t"] : []);
     } finally {
       d1.sqlite.close();
     }

@@ -14,10 +14,12 @@ const jsonResponse = (body: unknown, status = 200) => ({
 let dom: JSDOM;
 let reservationBodies: Record<string, unknown>[];
 let issueToken: (token: string) => void;
+let securityCallbacks: Record<"expired-callback" | "error-callback", () => unknown>;
 let optionsFail: boolean;
 let upcomingReservations: Record<string, unknown>[];
 const submitResponse = vi.fn();
 const gateResponse = vi.fn();
+const optionsResponse = vi.fn();
 
 const existingReservation = (index: number) => ({
   reservationId: `existing-example-${index}`, storeId: "st1", storeName: "架空店舗", serviceName: "架空メニュー",
@@ -26,6 +28,7 @@ const existingReservation = (index: number) => ({
 
 const setup = async ({ cap = 3, menuCount = 1, failOptions = false, securityLoaded = true, siteKey = "example-site-key", existingCount = 0 } = {}) => {
   optionsFail = failOptions;
+  optionsResponse.mockReset().mockResolvedValue(undefined);
   upcomingReservations = Array.from({ length: existingCount }, (_, index) => existingReservation(index));
   reservationBodies = [];
   submitResponse.mockReset().mockImplementation(async () =>
@@ -63,6 +66,7 @@ const setup = async ({ cap = 3, menuCount = 1, failOptions = false, securityLoad
   window.HTMLElement.prototype.scrollIntoView = () => {};
   browser.fetch = vi.fn(async (url: string, init?: { body?: string }) => {
     if (url.includes("/reservation-options")) {
+      await optionsResponse();
       if (optionsFail) throw new TypeError("offline");
       return jsonResponse(options);
     }
@@ -83,7 +87,8 @@ const setup = async ({ cap = 3, menuCount = 1, failOptions = false, securityLoad
   };
   if (securityLoaded) {
     browser.turnstile = {
-      render: (_target: unknown, callbacks: { callback: (token: string) => void }) => {
+      render: (_target: unknown, callbacks: { callback: (token: string) => void } & typeof securityCallbacks) => {
+        securityCallbacks = callbacks;
         issueToken = callbacks.callback;
         issueToken("example-token-1");
         return "example-widget";
@@ -141,6 +146,39 @@ const completeBooking = async () => {
 afterEach(() => dom?.window.close());
 
 describe("F17: reservation submission feedback and recovery", () => {
+  it.each(["expired-callback", "error-callback"] as const)("returns to the security widget when %s fires during confirmation", async callback => {
+    await setup();
+    await prepareConfirm();
+    securityCallbacks[callback]();
+    expect(q("confirm-panel").hidden).toBe(true);
+    expect(q("reservation-form").hidden).toBe(false);
+    expect(q("step2-content").hidden).toBe(false);
+    expect(q("group-booking").hidden).toBe(true);
+    expect(q("status").textContent).toBe("セキュリティ確認を完了してから、もう一度お試しください");
+    expect(dom.window.document.activeElement?.closest("[hidden]")).toBeNull();
+    expect(q<HTMLInputElement>("display-name").value).toBe("架空 太郎");
+    expect(q<HTMLButtonElement>("submit").disabled).toBe(true);
+    expect(reservationBodies).toHaveLength(0);
+    issueToken("example-token-2");
+    submitForm();
+    q<HTMLButtonElement>("confirm-submit").click();
+    await vi.waitFor(() => expect(q("success-panel").hidden).toBe(false));
+    expect(reservationBodies[0].turnstileToken).toBe("example-token-2");
+  });
+
+  it("keeps submission progress visible if the security token expires after sending", async () => {
+    await setup();
+    await prepareConfirm();
+    let complete!: (value: ReturnType<typeof jsonResponse>) => void;
+    submitResponse.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    q<HTMLButtonElement>("confirm-submit").click();
+    securityCallbacks["expired-callback"]();
+    expect(q("confirm-panel").hidden).toBe(false);
+    expect(q("confirm-status").textContent).toBe("送信中です…");
+    complete(jsonResponse({ ok: true, reservationId: "reservation-example", status: "pending_approval", startAt: START_AT }));
+    await vi.waitFor(() => expect(q("success-panel").hidden).toBe(false));
+  });
+
   it("announces submission progress inside the visible confirmation panel", async () => {
     await setup();
     await prepareConfirm();
@@ -149,6 +187,7 @@ describe("F17: reservation submission feedback and recovery", () => {
     const liveStatus = q("confirm-panel").querySelector<HTMLElement>("[role='status']");
     expect(liveStatus?.textContent).toBe("送信中です…");
     expect(liveStatus?.hidden).toBe(false);
+    expect(liveStatus?.getAttribute("aria-live")).toBeNull();
     expect(q("reservation-form").hidden).toBe(true);
   });
 
@@ -187,10 +226,39 @@ describe("U4: loading failures offer recovery", () => {
     expect(q("status").textContent).toContain("再読み込み");
     expect(q<HTMLButtonElement>("init-retry").hidden).toBe(false);
     optionsFail = false;
-    q<HTMLButtonElement>("init-retry").click();
+    const retry = q<HTMLButtonElement>("init-retry");
+    retry.focus();
+    retry.click();
+    expect(retry.hidden).toBe(false);
+    expect(retry.disabled).toBe(true);
+    expect(retry.getAttribute("aria-busy")).toBe("true");
+    expect(q("status").textContent).toBe("読み込んでいます…");
     await vi.waitFor(() => expect(dom.window.document.querySelectorAll("#services input[name='serviceIds']")).toHaveLength(1));
     expect(q("init-retry").hidden).toBe(true);
     expect(q("status").textContent).toBe("");
+    expect(retry.getAttribute("aria-busy")).toBe("false");
+    expect(dom.window.document.activeElement).toBe(q("store"));
+  });
+
+  it("keeps the initialization retry visible and announces an identical failure again", async () => {
+    await setup({ failOptions: true });
+    const failure = q("status").textContent;
+    const retry = q<HTMLButtonElement>("init-retry");
+    let finish!: () => void;
+    optionsResponse.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    retry.focus();
+    retry.click();
+    expect(retry.hidden).toBe(false);
+    expect(retry.disabled).toBe(true);
+    expect(retry.getAttribute("aria-busy")).toBe("true");
+    expect(dom.window.document.activeElement).toBe(retry);
+    expect(q("status").textContent).toBe("読み込んでいます…");
+    finish();
+    await vi.waitFor(() => expect(retry.disabled).toBe(false));
+    expect(retry.hidden).toBe(false);
+    expect(retry.getAttribute("aria-busy")).toBe("false");
+    expect(q("status").textContent).toBe(failure);
+    expect(dom.window.document.activeElement).toBe(retry);
   });
 
   it.each(["script error", "SDK timeout"])("puts a retry beside the security widget after %s", async failure => {
@@ -207,6 +275,9 @@ describe("U4: loading failures offer recovery", () => {
     await vi.waitFor(() => expect(q("turnstile-status").textContent).toContain("再読み込み"));
     expect(q("turnstile-status").previousElementSibling).toBe(q("turnstile-widget"));
     expect(q("turnstile-status").getAttribute("role")).toBe("status");
+    expect(q("turnstile-status").getAttribute("aria-live")).toBeNull();
+    expect(q("services-limit-status").getAttribute("aria-live")).toBeNull();
+    expect(q("status").textContent).toBe("");
     expect(q("submit-hint").textContent).toContain("セキュリティ確認");
     expect(q<HTMLButtonElement>("submit").disabled).toBe(true);
     expect(q<HTMLButtonElement>("turnstile-retry").hidden).toBe(false);
@@ -217,20 +288,54 @@ describe("U4: loading failures offer recovery", () => {
         return "example-widget";
       }, reset: () => {}, remove: () => {}
     };
-    q<HTMLButtonElement>("turnstile-retry").click();
+    const retry = q<HTMLButtonElement>("turnstile-retry");
+    retry.focus();
+    retry.click();
+    expect(retry.hidden).toBe(false);
+    expect(retry.disabled).toBe(true);
+    expect(retry.getAttribute("aria-busy")).toBe("true");
+    expect(dom.window.document.activeElement).toBe(retry);
+    expect(q("turnstile-status").textContent).toBe("読み込んでいます…");
     await vi.waitFor(() => expect(dom.window.document.getElementById("turnstile-sdk")).not.toBeNull());
     q("turnstile-sdk").dispatchEvent(new dom.window.Event("load"));
     await vi.waitFor(() => expect(q<HTMLButtonElement>("submit").disabled).toBe(false));
     expect(q("turnstile-status").textContent).toBe("");
     expect(q("turnstile-retry").hidden).toBe(true);
     expect(q("status").textContent).toBe("");
+    expect(retry.getAttribute("aria-busy")).toBe("false");
+    expect(dom.window.document.activeElement).toBe(q("submit"));
   });
 
-  it("explains a security check that cannot render instead of silently disabling submit", async () => {
-    await setup({ siteKey: "" });
+  it("keeps the security retry visible and announces a repeated load failure", async () => {
+    await setup({ securityLoaded: false });
     await prepareIdentity();
-    await vi.waitFor(() => expect(q("turnstile-status").textContent).toContain("セキュリティ確認を読み込めませんでした"));
-    expect(q("turnstile-status").textContent).toContain("再読み込み");
+    await vi.waitFor(() => expect(dom.window.document.getElementById("turnstile-sdk")).not.toBeNull());
+    q("turnstile-sdk").dispatchEvent(new dom.window.Event("error"));
+    const retry = q<HTMLButtonElement>("turnstile-retry");
+    await vi.waitFor(() => expect(retry.hidden).toBe(false));
+    const failure = q("turnstile-status").textContent;
+    retry.focus();
+    retry.click();
+    expect(retry.hidden).toBe(false);
+    expect(retry.disabled).toBe(true);
+    expect(retry.getAttribute("aria-busy")).toBe("true");
+    expect(q("turnstile-status").textContent).toBe("読み込んでいます…");
+    q("turnstile-sdk").dispatchEvent(new dom.window.Event("error"));
+    await vi.waitFor(() => expect(retry.disabled).toBe(false));
+    expect(retry.hidden).toBe(false);
+    expect(retry.getAttribute("aria-busy")).toBe("false");
+    expect(q("turnstile-status").textContent).toBe(failure);
+    expect(q("status").textContent).toBe("");
+    expect(dom.window.document.activeElement).toBe(retry);
+  });
+
+  it("explains a missing security site key as a configuration problem without retry", async () => {
+    await setup({ siteKey: "", securityLoaded: false });
+    await prepareIdentity();
+    await vi.waitFor(() => expect(q("turnstile-status").textContent).toBe("セキュリティ確認の準備ができていないため、現在お申し込みいただけません。お手数ですが店舗へお問い合わせください。"));
+    expect(q("turnstile-retry").hidden).toBe(true);
+    expect(dom.window.document.getElementById("turnstile-sdk")).toBeNull();
+    expect(q("status").textContent).toBe("");
     expect(q<HTMLButtonElement>("submit").disabled).toBe(true);
   });
 });

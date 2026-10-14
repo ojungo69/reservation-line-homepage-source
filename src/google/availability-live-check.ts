@@ -63,6 +63,7 @@ type GoogleSourceResult = { ok: true; busyIntervals: BusyInterval[] } | GoogleSo
 
 const CACHE_TTL_MS = 30_000;
 const CACHE_MAX_ENTRIES = 256;
+const SHARED_CACHE_TIMEOUT_MS = 500;
 
 type CacheEntry = {
   busyIntervals: BusyInterval[];
@@ -354,9 +355,6 @@ export async function fetchGoogleBusyIntervals(
     busyCache.delete(cacheKey);
   }
 
-  // Bound the entire lookup, including caches, token acquisition and every events page.
-  const deadline = AbortSignal.timeout(API_TIMEOUT_MS * (MAX_RETRIES + 1));
-  const signal = input.signal ? AbortSignal.any([input.signal, deadline]) : deadline;
   const sharedCacheKey = `https://google-availability-cache.invalid/v1/${encodeURIComponent(cacheKey)}`;
   let sharedCache: Cache | undefined;
   let sharedEntry: CacheEntry | undefined;
@@ -364,16 +362,19 @@ export async function fetchGoogleBusyIntervals(
     const cacheStorage: (CacheStorage & { readonly default?: Cache }) | undefined =
       typeof caches === "undefined" ? undefined : caches;
     sharedCache = cacheStorage?.default;
-    if (sharedCache) sharedEntry = await waitWithAbort(async () => {
-      const response = await sharedCache?.match(sharedCacheKey);
-      const entry: unknown = response?.ok ? await response.json() : undefined;
-      return isCacheEntry(entry) && entry.expiresAt > (input.now ?? Date.now)() ? entry : undefined;
-    }, AbortSignal.any([signal, AbortSignal.timeout(API_TIMEOUT_MS)]));
+    if (sharedCache) {
+      const readTimeout = AbortSignal.timeout(SHARED_CACHE_TIMEOUT_MS);
+      sharedEntry = await waitWithAbort(async () => {
+        const response = await sharedCache?.match(sharedCacheKey);
+        const entry: unknown = response?.ok ? await response.json() : undefined;
+        return isCacheEntry(entry) && entry.expiresAt > (input.now ?? Date.now)() ? entry : undefined;
+      }, input.signal ? AbortSignal.any([input.signal, readTimeout]) : readTimeout);
+    }
   } catch {
     // Shared caching is optional; cache outages must still allow the live check.
   }
-  if (signal.aborted) {
-    return { ok: false, reason: "fail_closed", errorClass: input.signal?.aborted ? "aborted" : "deadline_exceeded" };
+  if (input.signal?.aborted) {
+    return { ok: false, reason: "fail_closed", errorClass: "aborted" };
   }
   if (sharedEntry) {
     evictOldestIfNeeded();
@@ -382,6 +383,9 @@ export async function fetchGoogleBusyIntervals(
     return { ok: true, busyIntervals: sharedEntry.busyIntervals };
   }
 
+  // Give token acquisition and every Google events page their full shared deadline.
+  const deadline = AbortSignal.timeout(API_TIMEOUT_MS * (MAX_RETRIES + 1));
+  const signal = input.signal ? AbortSignal.any([input.signal, deadline]) : deadline;
   let accessToken: string | undefined;
   try {
     accessToken = await waitWithAbort(() => getAccessToken(input.env), signal);
@@ -458,14 +462,16 @@ export async function fetchGoogleBusyIntervals(
   };
   busyCache.set(cacheKey, entry);
   try {
-    if (sharedCache) await waitWithAbort(async () => sharedCache?.put(sharedCacheKey, Response.json(entry, {
-      headers: { "Cache-Control": `public, max-age=${CACHE_TTL_MS / 1_000}` }
-    })), AbortSignal.any([signal, AbortSignal.timeout(API_TIMEOUT_MS)]));
+    if (sharedCache) {
+      const writeTimeout = AbortSignal.timeout(SHARED_CACHE_TIMEOUT_MS);
+      await waitWithAbort(async () => sharedCache?.put(sharedCacheKey, Response.json(entry, {
+        headers: { "Cache-Control": `public, max-age=${CACHE_TTL_MS / 1_000}` }
+      })), input.signal ? AbortSignal.any([input.signal, writeTimeout]) : writeTimeout);
+    }
   } catch {
     // Cache write failures must not discard a verified Google result.
   }
-  // Only the caller's cancellation discards the result here: our own deadline expiring while
-  // the cache write is slow must not turn a verified Google answer into "no slots".
+  // Only caller cancellation discards a verified Google result during the optional cache write.
   if (input.signal?.aborted) {
     return { ok: false, reason: "fail_closed", errorClass: "aborted" };
   }
