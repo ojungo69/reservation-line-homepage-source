@@ -104,6 +104,14 @@ function compareStrings(a: string, b: string): number {
   return 0;
 }
 
+function reservationQueryErrorMessage(error: unknown): string {
+  const queryReason = error instanceof ApiError ? (error.body as { reason?: string } | null)?.reason : undefined;
+  const translatedQueryReason = queryReason ? errorMessage(queryReason) : null;
+  return translatedQueryReason && translatedQueryReason !== queryReason
+    ? translatedQueryReason
+    : "予約データの取得に失敗しました。";
+}
+
 // 空状態。フィルタが既定値から変更されているときだけ絞り込みのヒントを添える
 function ReservationsEmptyState({ hasActiveFilters }: Readonly<{ hasActiveFilters: boolean }>) {
   return (
@@ -192,8 +200,7 @@ export default function ReservationsPage() {
   // 無効な条件では query が止まっても placeholder が残るため、filter も確認する。
   const data = filter && !isPlaceholderData && !isError ? searchData : undefined;
   const isSearching = !!filter && (isPending || isPlaceholderData || isFetching);
-  const queryReason = error instanceof ApiError ? (error.body as { reason?: string } | null)?.reason : undefined;
-  const translatedQueryReason = queryReason ? errorMessage(queryReason) : null;
+  const queryErrorMessage = reservationQueryErrorMessage(error);
 
   const reservations = useMemo(() => {
     if (!data?.ok) return [];
@@ -407,7 +414,7 @@ export default function ReservationsPage() {
       )}
 
       {isSearching && (
-        <p role="status" className="text-sm text-muted-foreground">検索中です…</p>
+        <output className="block text-sm text-muted-foreground">検索中です…</output>
       )}
 
       {filter && isPending &&
@@ -431,9 +438,7 @@ export default function ReservationsPage() {
 
       {filter && isError && (
         <p role="alert" className="text-sm text-destructive">
-          {translatedQueryReason && translatedQueryReason !== queryReason
-            ? translatedQueryReason
-            : "予約データの取得に失敗しました。"}
+          {queryErrorMessage}
         </p>
       )}
 

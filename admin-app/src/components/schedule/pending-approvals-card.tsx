@@ -68,6 +68,22 @@ type BulkState =
   | { phase: "result"; items: PendingReservation[]; result: BulkApproveResult }
   | null;
 
+function partitionConfirmingApprovals(
+  bulkState: BulkState,
+  currentApprovalReason: (reservation: PendingReservation) => string,
+) {
+  // 確認した一覧の予約だけを、最新の期限で対象／対象外へ振り分ける。
+  const confirmingItems: PendingReservation[] = [];
+  const confirmingExcluded: Array<{ reservation: PendingReservation; reason: string }> = [];
+  if (bulkState?.phase !== "confirming") return { confirmingItems, confirmingExcluded };
+  for (const reservation of bulkState.items) {
+    const reason = currentApprovalReason(reservation);
+    if (reason) confirmingExcluded.push({ reservation, reason });
+    else confirmingItems.push(reservation);
+  }
+  return { confirmingItems, confirmingExcluded };
+}
+
 /**
  * ホーム(スケジュール)上部に承認待ち予約を一覧表示し、その場で承認/却下できる
  * ウィジェット。新規予約の承認待ちには専用ナビが無く毎回フィルタが必要だったため、
@@ -145,16 +161,10 @@ export function PendingApprovalsCard({
     // 戻して判定する。予約状態・予約自身のLINE状態は承認APIが最終確認する。
     return approvalUnavailableReason(current ?? snapshot, checkedAt);
   };
-  // 確認した一覧の予約だけを、最新の期限で対象／対象外へ振り分ける。
-  const confirmingItems: PendingReservation[] = [];
-  const confirmingExcluded: Array<{ reservation: PendingReservation; reason: string }> = [];
-  if (bulkState?.phase === "confirming") {
-    for (const reservation of bulkState.items) {
-      const reason = currentApprovalReason(reservation, data, now);
-      if (reason) confirmingExcluded.push({ reservation, reason });
-      else confirmingItems.push(reservation);
-    }
-  }
+  const { confirmingItems, confirmingExcluded } = partitionConfirmingApprovals(
+    bulkState,
+    (reservation) => currentApprovalReason(reservation, data, now),
+  );
   const approveReason = approveTarget ? currentApprovalReason(approveTarget, data, now) : "";
 
   const run = (target: PendingReservation, act: "approve" | "reject", reason?: string) => {

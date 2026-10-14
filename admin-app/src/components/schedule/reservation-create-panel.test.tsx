@@ -300,7 +300,7 @@ describe("ReservationCreatePanel", () => {
     fireEvent.change(search, { target: { value: query } });
     await screen.findByText("該当する顧客がいません。");
 
-    expect(screen.queryByText("電話番号は全桁で入力してください")).not.toBeNull();
+    expect(screen.getByText("電話番号は全桁で入力してください")).not.toBeNull();
     expect(search.getAttribute("placeholder")).toBe("名前・カナ・電話番号（全桁）で検索");
   });
 

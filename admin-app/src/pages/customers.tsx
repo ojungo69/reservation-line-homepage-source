@@ -155,6 +155,15 @@ export default function CustomersPage() {
     [searchData],
   );
 
+  let searchPlaceholder: string;
+  if (showArchived) {
+    searchPlaceholder = "アーカイブ一覧では検索できません";
+  } else if (isPrivileged) {
+    searchPlaceholder = "名前・カナ・電話番号で検索...";
+  } else {
+    searchPlaceholder = "名前・カナ・電話番号（全桁）で検索...";
+  }
+
   return (
     <div className="space-y-4 p-4 sm:p-6">
       <div className="space-y-4">
@@ -186,7 +195,7 @@ export default function CustomersPage() {
           aria-label="顧客を検索"
           value={searchQuery}
           onChange={(e) => { setSearchQuery(e.target.value); setOffset(0); }}
-          placeholder={showArchived ? "アーカイブ一覧では検索できません" : isPrivileged ? "名前・カナ・電話番号で検索..." : "名前・カナ・電話番号（全桁）で検索..."}
+          placeholder={searchPlaceholder}
           className="max-w-xs"
           // 検索 API はアーカイブ済みを返さないため、アーカイブ表示中は検索を無効化
           // (検索を始めると通常顧客が出る混乱を防ぐ)。(gemini)

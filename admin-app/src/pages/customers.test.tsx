@@ -278,7 +278,7 @@ describe("CustomersPage", () => {
     act(() => vi.advanceTimersByTime(300));
 
     expect(screen.getByText("該当する顧客が見つかりません")).toBeTruthy();
-    expect(screen.queryByText("電話番号は全桁で入力してください")).not.toBeNull();
+    expect(screen.getByText("電話番号は全桁で入力してください")).not.toBeNull();
     expect(search.getAttribute("placeholder")).toBe("名前・カナ・電話番号（全桁）で検索...");
   });
 
