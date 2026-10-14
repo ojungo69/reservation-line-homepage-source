@@ -27,9 +27,9 @@
 
 ## Verification and release
 
-- [ ] T010 Run the validation in quickstart.md and the leftover search; record results in `specs/002-remove-customer-gate/verification.md`.
-- [ ] T011 Review correctness, over-implementation and security; record findings and dispositions in `specs/002-remove-customer-gate/verification.md`.
-- [ ] T012 Verify every completed task once against files and evidence in `specs/002-remove-customer-gate/verification.md`.
+- [X] T010 Run the validation in quickstart.md and the leftover search; record results in `specs/002-remove-customer-gate/verification.md`.
+- [X] T011 Review correctness, over-implementation and security; record findings and dispositions in `specs/002-remove-customer-gate/verification.md`.
+- [X] T012 Verify every completed task once against files and evidence in `specs/002-remove-customer-gate/verification.md`.
 
 ## Dependencies
 
