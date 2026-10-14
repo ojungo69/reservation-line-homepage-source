@@ -12,6 +12,8 @@ import { LineQuotaCard } from "./line-quota-card";
 import { ReservationCapCard } from "./reservation-cap-card";
 import { BookingWindowCard } from "./booking-window-card";
 import { CustomerNoticeCard } from "./customer-notice-card";
+import { useSettings } from "@/hooks/use-settings";
+import { SettingsLoadError } from "./settings-tab-status";
 
 type StoreOption = { id: string; name: string };
 
@@ -30,12 +32,15 @@ const OFFSET_PRESETS = [
 
 export function ReminderTab({ stores }: Readonly<Props>) {
   const { offsets, isPending } = useReminderOffsets();
+  const { data, isError, refetch } = useSettings();
   const updateMutation = useReminderUpdate();
 
   const handleChange = (storeId: string, value: string) => {
     const offsetMinutes = value === "null" ? null : Number(value);
     updateMutation.mutate({ storeId, offsetMinutes });
   };
+
+  if (isError && !data) return <SettingsLoadError onRetry={() => { void refetch(); }} />;
 
   if (isPending) {
     return (
@@ -48,54 +53,61 @@ export function ReminderTab({ stores }: Readonly<Props>) {
   }
 
   return (
-    <div className="space-y-4">
-      <LineQuotaCard />
-      <BookingWindowCard />
-      <CustomerNoticeCard />
-      <ReservationCapCard />
-      <p className="text-sm text-muted-foreground">
-        予約前にLINEでリマインダーを送信するタイミングを設定します。
-      </p>
-      <div className="grid gap-3">
-        {stores.map((store) => {
-          const offset = offsets.find((o) => o.storeId === store.id);
-          const currentValue = offset?.offsetMinutes == null ? "null" : String(offset.offsetMinutes);
-          // A stored offset set outside the SPA (migration / API) can be a non-preset
-          // value; surface it as its own option so the Select shows the saved timing
-          // instead of rendering blank.
-          const isPreset = OFFSET_PRESETS.some((p) => p.value === currentValue);
-          // Scope the busy state to the store actually being saved, so saving one
-          // store doesn't lock every other store's Select in a multi-store salon.
-          const savingThis = updateMutation.isPending && updateMutation.variables?.storeId === store.id;
-          return (
-            <Card key={store.id} className="flex items-center justify-between p-4">
-              <span className="font-medium">{store.name}</span>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={currentValue}
-                  onValueChange={(v) => handleChange(store.id, v)}
-                  disabled={savingThis}
-                >
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {!isPreset && (
-                      <SelectItem value={currentValue}>{currentValue}分前</SelectItem>
-                    )}
-                    {OFFSET_PRESETS.map((p) => (
-                      <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {savingThis && (
-                  <span className="text-xs text-muted-foreground">保存中...</span>
-                )}
-              </div>
-            </Card>
-          );
-        })}
+    <>
+      {isError && <SettingsLoadError onRetry={() => { void refetch(); }} />}
+      {/* 再取得エラーでカードをアンマウントすると、店舗別の入力中の値が消える。 */}
+      <div className="space-y-4" hidden={isError}>
+        <p className="text-sm text-muted-foreground">
+          各店舗の予約ルールと通知設定を一覧で表示しています。上部の店舗選択による絞り込みは適用されません。
+        </p>
+        <LineQuotaCard />
+        <BookingWindowCard />
+        <CustomerNoticeCard />
+        <ReservationCapCard />
+        <p className="text-sm text-muted-foreground">
+          予約前にLINEでリマインダーを送信するタイミングを設定します。
+        </p>
+        <div className="grid gap-3">
+          {stores.map((store) => {
+            const offset = offsets.find((o) => o.storeId === store.id);
+            const currentValue = offset?.offsetMinutes == null ? "null" : String(offset.offsetMinutes);
+            // A stored offset set outside the SPA (migration / API) can be a non-preset
+            // value; surface it as its own option so the Select shows the saved timing
+            // instead of rendering blank.
+            const isPreset = OFFSET_PRESETS.some((p) => p.value === currentValue);
+            // Scope the busy state to the store actually being saved, so saving one
+            // store doesn't lock every other store's Select in a multi-store salon.
+            const savingThis = updateMutation.isPending && updateMutation.variables?.storeId === store.id;
+            return (
+              <Card key={store.id} className="flex items-center justify-between p-4">
+                <span className="font-medium">{store.name}</span>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={currentValue}
+                    onValueChange={(v) => handleChange(store.id, v)}
+                    disabled={savingThis}
+                  >
+                    <SelectTrigger className="w-[140px]" aria-label={`${store.name} のリマインダー`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!isPreset && (
+                        <SelectItem value={currentValue}>{currentValue}分前</SelectItem>
+                      )}
+                      {OFFSET_PRESETS.map((p) => (
+                        <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {savingThis && (
+                    <span className="text-xs text-muted-foreground">保存中...</span>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

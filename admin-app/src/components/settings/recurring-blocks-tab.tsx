@@ -4,7 +4,6 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FormHint, invalidFieldProps, type InvalidReason } from "@/components/ui/form-hint";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -33,7 +32,7 @@ const jstToIso = (date: string, time: string): string =>
 
 // プレビュー不可の理由。disabled 判定と表示を同じ導出から取り、フォームの
 // 上から下の順で最初に満たされていない条件のみ、対象フィールドと合わせて示す。
-// 店舗 (早期 return で実質不達) と曜日 (Badge グループで単一コントロールが
+// 店舗 (早期 return で実質不達) と曜日 (複数選択で単一コントロールが
 // 無い) は field: null にしてヒント文言のみで伝える。
 export function derivePreviewInvalid(
   selectedStoreId: string | null,
@@ -176,27 +175,29 @@ export function RecurringBlocksTab({ selectedStoreId }: Readonly<Props>) {
       </p>
 
       <div className="space-y-4">
-        <div className="space-y-2">
-          <Label>曜日</Label>
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">曜日</legend>
           <div className="flex gap-2">
             {WEEKDAYS.map((label, i) => (
-              <Badge
+              <Button
                 key={label}
+                type="button"
                 variant={selectedDays.includes(i) ? "default" : "outline"}
-                className="cursor-pointer px-4 py-3 hover:opacity-90"
+                aria-label={`${label}曜`}
+                aria-pressed={selectedDays.includes(i)}
                 onClick={() => toggleDay(i)}
               >
                 {label}
-              </Badge>
+              </Button>
             ))}
           </div>
-        </div>
+        </fieldset>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label>開始時刻</Label>
+            <Label htmlFor="recurring-start-time">開始時刻</Label>
             <Select value={startTime} onValueChange={setStartTime}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger id="recurring-start-time"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {TIME_OPTIONS.map((t) => (
                   <SelectItem key={t} value={t}>{t}</SelectItem>
@@ -205,9 +206,9 @@ export function RecurringBlocksTab({ selectedStoreId }: Readonly<Props>) {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>終了時刻</Label>
+            <Label htmlFor="recurring-end-time">終了時刻</Label>
             <Select value={endTime} onValueChange={setEndTime}>
-              <SelectTrigger {...invalidFieldProps(previewInvalid, "endTime", "recurring-preview-hint")}><SelectValue /></SelectTrigger>
+              <SelectTrigger id="recurring-end-time" {...invalidFieldProps(previewInvalid, "endTime", "recurring-preview-hint")}><SelectValue /></SelectTrigger>
               <SelectContent>
                 {TIME_OPTIONS.map((t) => (
                   <SelectItem key={t} value={t}>{t}</SelectItem>
@@ -223,8 +224,9 @@ export function RecurringBlocksTab({ selectedStoreId }: Readonly<Props>) {
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label>開始日</Label>
+            <Label htmlFor="recurring-start-date">開始日</Label>
             <Input
+              id="recurring-start-date"
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
@@ -232,8 +234,9 @@ export function RecurringBlocksTab({ selectedStoreId }: Readonly<Props>) {
             />
           </div>
           <div className="space-y-2">
-            <Label>終了日</Label>
+            <Label htmlFor="recurring-end-date">終了日</Label>
             <Input
+              id="recurring-end-date"
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
@@ -243,9 +246,9 @@ export function RecurringBlocksTab({ selectedStoreId }: Readonly<Props>) {
         </div>
 
         <div className="space-y-2">
-          <Label>リソース</Label>
+          <Label htmlFor="recurring-resource">リソース</Label>
           <Select value={resourceId} onValueChange={setResourceId}>
-            <SelectTrigger {...invalidFieldProps(previewInvalid, "resourceId", "recurring-preview-hint")}><SelectValue placeholder="リソースを選択" /></SelectTrigger>
+            <SelectTrigger id="recurring-resource" {...invalidFieldProps(previewInvalid, "resourceId", "recurring-preview-hint")}><SelectValue placeholder="リソースを選択" /></SelectTrigger>
             <SelectContent>
               {resourceList.filter((r) => r.active).map((r) => (
                 <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
@@ -255,8 +258,8 @@ export function RecurringBlocksTab({ selectedStoreId }: Readonly<Props>) {
         </div>
 
         <div className="space-y-2">
-          <Label>タイトル（任意）</Label>
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例: 休憩" />
+          <Label htmlFor="recurring-title">タイトル（任意）</Label>
+          <Input id="recurring-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例: 休憩" />
         </div>
 
         {/* 同時に文言が入るのは高々1つ。space-y の隙間を1要素分に抑えるためまとめる */}

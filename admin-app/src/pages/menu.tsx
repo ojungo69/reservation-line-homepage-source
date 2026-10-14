@@ -14,6 +14,8 @@ import {
 import { useServiceList } from "@/hooks/use-services";
 import { useStores } from "@/hooks/use-stores";
 import { useAuth } from "@/hooks/use-auth";
+import { useSettings } from "@/hooks/use-settings";
+import { SettingsLoadError } from "@/components/settings/settings-tab-status";
 import { ServiceDetailPanel } from "@/components/menu/service-detail-panel";
 import { ServiceCreateDialog } from "@/components/menu/service-create-dialog";
 
@@ -21,6 +23,7 @@ export default function MenuPage() {
   const { isPrivileged, user } = useAuth();
   const { stores, selectedStoreId, selectStore } = useStores();
   const { serviceList, storeNames, isPending } = useServiceList(selectedStoreId);
+  const { isError, refetch } = useSettings();
   // 組み合わせ割引のカテゴリ候補用に全店舗のメニュー名が要る (同じ queryKey なので追加フェッチなし)。
   const { serviceList: allServices } = useServiceList(null);
 
@@ -50,7 +53,9 @@ export default function MenuPage() {
         </div>
       </div>
 
-      {isPending ? (
+      {isError ? (
+        <SettingsLoadError onRetry={() => { void refetch(); }} />
+      ) : isPending ? (
         <div className="space-y-2">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-12 w-full" />

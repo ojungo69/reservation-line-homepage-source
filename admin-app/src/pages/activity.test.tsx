@@ -47,6 +47,12 @@ afterEach(() => {
 });
 
 describe("ActivityPage", () => {
+  it("操作者フィルタをラベル名で取得できる", () => {
+    render(<ActivityPage />);
+
+    expect(screen.getByRole("combobox", { name: "操作者" })).toBeTruthy();
+  });
+
   it("読込中・失敗・空一覧を区別する", () => {
     const { rerender } = render(<ActivityPage />);
     expect(document.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);

@@ -251,8 +251,9 @@ export function ConflictList({ conflicts, ownerOnly = false }: Readonly<Props>) 
           </AlertDialogHeader>
           {confirmAction && (
             <div className="space-y-2">
-              <Label>{needsReason(confirmAction.action) ? "理由" : "メモ（任意）"}</Label>
+              <Label htmlFor="conflict-reason">{needsReason(confirmAction.action) ? "理由" : "メモ（任意）"}</Label>
               <Input
+                id="conflict-reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 placeholder={needsReason(confirmAction.action) ? "理由を入力" : "メモを入力（任意）"}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ type StoreOption = { id: string; name: string };
 type Props = {
   stores: StoreOption[];
   selectedStoreId: string | null;
+  onEditingChange?: (storeId: string | null, editing: boolean, pending: boolean) => void;
 };
 
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
@@ -40,7 +41,7 @@ const timeOptionsWith = (current: string): readonly string[] =>
     ? TIME_OPTIONS
     : [...TIME_OPTIONS, current].sort((a, b) => toMinutes(a) - toMinutes(b));
 
-export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
+export function BusinessHoursTab({ stores, selectedStoreId, onEditingChange }: Readonly<Props>) {
   const storeId = selectedStoreId;
   const { data, isPending } = useBusinessHours(storeId);
   const updateMutation = useBusinessHoursUpdate();
@@ -48,9 +49,10 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
   const [editHours, setEditHours] = useState<BusinessHourRow[] | null>(null);
   const [editing, setEditing] = useState(false);
 
-  // Edit drafts reset when the store changes via the key prop in settings.tsx
-  // (<BusinessHoursTab key={effectiveStoreId} />), which remounts this tab —
-  // no reset effect needed.
+  // ページとヘッダーの共有店舗選択は同じ確認を通す。保存中の破棄も親で止める。
+  useEffect(() => {
+    onEditingChange?.(storeId, editing, updateMutation.isPending);
+  }, [storeId, editing, updateMutation.isPending, onEditingChange]);
 
   const hours = editHours ?? (data?.ok ? data.businessHours : null);
 
@@ -124,13 +126,16 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
             <div className="flex items-center gap-3">
               <span className="w-8 text-center font-medium">{WEEKDAYS[h.weekday]}</span>
               {editing ? (
-                <Badge
-                  variant={h.closed ? "secondary" : "default"}
-                  className="cursor-pointer px-4 py-2 hover:opacity-90"
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label={`${WEEKDAYS[h.weekday]}曜 ${h.closed ? "休業" : "営業"}`}
+                  aria-pressed={h.closed}
                   onClick={() => updateRow(h.weekday, "closed", !h.closed)}
                 >
                   {h.closed ? "休業" : "営業"}
-                </Badge>
+                </Button>
               ) : (
                 <Badge variant={h.closed ? "secondary" : "default"}>
                   {h.closed ? "休業" : "営業"}
@@ -142,7 +147,7 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
                 {editing ? (
                   <>
                     <Select value={h.opensAt} onValueChange={(v) => updateRow(h.weekday, "opensAt", v)}>
-                      <SelectTrigger className="w-[100px]">
+                      <SelectTrigger className="w-[100px]" aria-label={`${WEEKDAYS[h.weekday]}曜 開始`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -153,7 +158,7 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
                     </Select>
                     <span className="text-muted-foreground">〜</span>
                     <Select value={h.closesAt} onValueChange={(v) => updateRow(h.weekday, "closesAt", v)}>
-                      <SelectTrigger className="w-[100px]">
+                      <SelectTrigger className="w-[100px]" aria-label={`${WEEKDAYS[h.weekday]}曜 終了`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

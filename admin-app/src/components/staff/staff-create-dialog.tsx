@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,10 +51,21 @@ export function StaffCreateDialog({ open, onOpenChange, stores, defaultStoreId }
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState("staff");
   const [storeId, setStoreId] = useState(defaultStoreId ?? stores[0]?.id ?? "");
+  const wasOpenRef = useRef(false);
   const idempotencyKeyRef = useRef<string>("");
   if (!idempotencyKeyRef.current) {
     idempotencyKeyRef.current = crypto.randomUUID();
   }
+
+  // 開く時点の店舗を使い、遅れて店舗一覧が届いた場合だけ未選択を補う。
+  // 開いた後の店舗選択や送信中のドラフトは再取得で上書きしない。
+  useEffect(() => {
+    const isOpening = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (open && !createMutation.isPending && (isOpening || !storeId)) {
+      setStoreId(defaultStoreId ?? stores[0]?.id ?? "");
+    }
+  }, [open, defaultStoreId, stores, storeId, createMutation.isPending]);
 
   const roleOptions = user.role === "system_admin"
     ? ALL_ROLE_OPTIONS

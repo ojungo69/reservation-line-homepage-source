@@ -20,7 +20,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { PendingConfirmDialog } from "@/components/ui/pending-confirm-dialog";
-import { SettingsTabStatus } from "@/components/settings/settings-tab-status";
+import { SettingsLoadError, SettingsTabStatus } from "@/components/settings/settings-tab-status";
+import { useSettings } from "@/hooks/use-settings";
 import { useClosureList, useClosureCreate, useClosureUpdate, useClosureDelete } from "@/hooks/use-closures";
 import type { Closure } from "@/types/api";
 
@@ -57,6 +58,7 @@ function computeClosureInvalid(
 
 export function ClosuresTab({ selectedStoreId }: Readonly<Props>) {
   const { closureList, isPending } = useClosureList(selectedStoreId);
+  const { isError, refetch } = useSettings();
   const createMutation = useClosureCreate();
   const updateMutation = useClosureUpdate();
   const deleteMutation = useClosureDelete();
@@ -124,6 +126,8 @@ export function ClosuresTab({ selectedStoreId }: Readonly<Props>) {
       },
     });
   };
+
+  if (isError) return <SettingsLoadError onRetry={() => { void refetch(); }} />;
 
   if (!selectedStoreId || isPending) {
     return <SettingsTabStatus selectedStoreId={selectedStoreId} />;
@@ -202,8 +206,9 @@ export function ClosuresTab({ selectedStoreId }: Readonly<Props>) {
           </DialogHeader>
           <div className="max-h-[60vh] space-y-4 overflow-y-auto px-1">
             <div className="space-y-2">
-              <Label>開始日</Label>
+              <Label htmlFor="closure-start-date">開始日</Label>
               <Input
+                id="closure-start-date"
                 type="date"
                 value={startsAt}
                 onChange={(e) => setStartsAt(e.target.value)}
@@ -211,8 +216,9 @@ export function ClosuresTab({ selectedStoreId }: Readonly<Props>) {
               />
             </div>
             <div className="space-y-2">
-              <Label>終了日</Label>
+              <Label htmlFor="closure-end-date">終了日</Label>
               <Input
+                id="closure-end-date"
                 type="date"
                 value={endsAt}
                 onChange={(e) => setEndsAt(e.target.value)}
@@ -220,8 +226,8 @@ export function ClosuresTab({ selectedStoreId }: Readonly<Props>) {
               />
             </div>
             <div className="space-y-2">
-              <Label>理由</Label>
-              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="例: 年末年始休業" />
+              <Label htmlFor="closure-reason">理由</Label>
+              <Input id="closure-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="例: 年末年始休業" />
             </div>
             <FormHint id="closure-form-hint" reason={closureInvalid} />
             <DialogFooter>

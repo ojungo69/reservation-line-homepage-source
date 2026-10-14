@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 
 let isPrivileged = true;
 
+vi.mock("@/hooks/use-settings", () => ({
+  useSettings: () => ({ isError: false, refetch: vi.fn() }),
+}));
+
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: { role: isPrivileged ? "owner" : "staff", storeId: isPrivileged ? null : "store-1" },
@@ -46,7 +50,7 @@ describe("SettingsPage タブ権限", () => {
     expect(screen.getByRole("tab", { name: "営業時間" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "休業日" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "リソース" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "リマインダー" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "予約ルール・通知" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "繰り返しブロック" })).toBeTruthy();
   });
 
@@ -57,7 +61,7 @@ describe("SettingsPage タブ権限", () => {
     expect(screen.getByRole("tab", { name: "営業時間" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "休業日" })).toBeTruthy();
     expect(screen.queryByRole("tab", { name: "リソース" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "リマインダー" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "予約ルール・通知" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "繰り返しブロック" })).toBeNull();
   });
 });

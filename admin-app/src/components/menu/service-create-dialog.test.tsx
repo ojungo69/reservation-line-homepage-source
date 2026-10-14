@@ -3,9 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createService = vi.fn();
+let createPending = false;
 
 vi.mock("@/hooks/use-services", () => ({
-  useServiceCreate: () => ({ mutate: createService, isPending: false }),
+  useServiceCreate: () => ({ mutate: createService, isPending: createPending }),
 }));
 
 // Radix Select は JSDOM の pointer API 不足で操作できないため、CategorySelect だけ
@@ -76,7 +77,115 @@ const renderDialog = () =>
 
 beforeEach(() => {
   createService.mockReset();
+  createPending = false;
   createService.mockImplementation((_input, options) => options?.onSuccess?.());
+});
+
+describe("ServiceCreateDialog 店舗の初期選択", () => {
+  const selectionStores = [
+    { id: "store-1", name: "テスト中央店" },
+    { id: "store-2", name: "テスト北店" },
+  ];
+
+  it("閉じている間に変更された店舗を開いた時点で選択し、作成先に使う", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <ServiceCreateDialog open={false} onOpenChange={onOpenChange} stores={selectionStores} defaultStoreId="store-1" services={[]} />,
+    );
+    rerender(
+      <ServiceCreateDialog open={false} onOpenChange={onOpenChange} stores={selectionStores} defaultStoreId="store-2" services={[]} />,
+    );
+    rerender(
+      <ServiceCreateDialog open onOpenChange={onOpenChange} stores={selectionStores} defaultStoreId="store-2" services={[]} />,
+    );
+
+    expect(screen.getByLabelText("店舗").textContent).toContain("テスト北店");
+    await user.type(screen.getByLabelText("メニュー名"), "テストコース");
+    await user.click(screen.getByRole("button", { name: "追加" }));
+    expect(createService).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: "store-2", name: "テストコース" }),
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it("開いた後に店舗が届いたら先頭店舗を選択し、入力中のメニュー名を保持する", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <ServiceCreateDialog open onOpenChange={onOpenChange} stores={[]} defaultStoreId={null} services={[]} />,
+    );
+    await user.type(screen.getByLabelText("メニュー名"), "テストコース");
+    expect((screen.getByRole("button", { name: "追加" }) as HTMLButtonElement).disabled).toBe(true);
+    rerender(
+      <ServiceCreateDialog open onOpenChange={onOpenChange} stores={selectionStores} defaultStoreId={null} services={[]} />,
+    );
+
+    expect(screen.getByLabelText("店舗").textContent).toContain("テスト中央店");
+    expect((screen.getByLabelText("メニュー名") as HTMLInputElement).value).toBe("テストコース");
+    await user.click(screen.getByRole("button", { name: "追加" }));
+    expect(createService).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: "store-1", name: "テストコース" }),
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it("閉じている間に店舗一覧が届いた場合も開いた時点の先頭店舗を使う", () => {
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <ServiceCreateDialog open={false} onOpenChange={onOpenChange} stores={[]} defaultStoreId={null} services={[]} />,
+    );
+    rerender(
+      <ServiceCreateDialog open={false} onOpenChange={onOpenChange} stores={selectionStores} defaultStoreId={null} services={[]} />,
+    );
+    rerender(
+      <ServiceCreateDialog open onOpenChange={onOpenChange} stores={selectionStores} defaultStoreId={null} services={[]} />,
+    );
+
+    expect(screen.getByLabelText("店舗").textContent).toContain("テスト中央店");
+  });
+
+  it("手動の店舗選択とカテゴリ入りドラフトを再取得・送信待ち・再試行でも保持する", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const selectionServices = [{ storeId: "store-2", name: "テスト分類｜既存コース" }];
+    createService.mockImplementation(() => {});
+    const { rerender } = render(
+      <ServiceCreateDialog open onOpenChange={onOpenChange} stores={selectionStores} defaultStoreId="store-1" services={selectionServices} />,
+    );
+    await user.type(screen.getByLabelText("メニュー名"), "テストコース");
+    screen.getByLabelText("店舗").focus();
+    await user.keyboard("テスト北店");
+    await user.selectOptions(screen.getByLabelText("カテゴリ"), "テスト分類");
+
+    rerender(
+      <ServiceCreateDialog open onOpenChange={onOpenChange} stores={[...selectionStores]} defaultStoreId={null} services={[...selectionServices]} />,
+    );
+    expect(screen.getByLabelText("店舗").textContent).toContain("テスト北店");
+    expect((screen.getByLabelText("カテゴリ") as HTMLSelectElement).selectedOptions[0].textContent).toBe("テスト分類");
+    await user.click(screen.getByRole("button", { name: "追加" }));
+    const submitted = createService.mock.calls[0][0];
+    expect(submitted).toEqual(expect.objectContaining({ storeId: "store-2", name: "テスト分類｜テストコース" }));
+
+    createPending = true;
+    rerender(
+      <ServiceCreateDialog open onOpenChange={onOpenChange} stores={[...selectionStores]} defaultStoreId="store-1" services={[...selectionServices]} />,
+    );
+    expect(screen.getByLabelText("店舗").textContent).toContain("テスト北店");
+    expect((screen.getByLabelText("メニュー名") as HTMLInputElement).value).toBe("テストコース");
+    await user.keyboard("{Escape}");
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    createPending = false;
+    rerender(
+      <ServiceCreateDialog open onOpenChange={onOpenChange} stores={[...selectionStores]} defaultStoreId="store-1" services={[...selectionServices]} />,
+    );
+    await user.click(screen.getByRole("button", { name: "追加" }));
+    expect(createService).toHaveBeenLastCalledWith(
+      submitted,
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
 });
 
 describe("ServiceCreateDialog カテゴリ選択制", () => {
@@ -165,5 +274,31 @@ describe("ServiceCreateDialog カテゴリ選択制", () => {
     ).toBe(true);
     expect(screen.getByText(/「｜」は使えません/)).toBeTruthy();
     expect(createService).not.toHaveBeenCalled();
+  });
+});
+
+describe("ServiceCreateDialog 所要時間のラベル", () => {
+  it.each([
+    { mode: "プリセット", duration: 90 },
+    { mode: "カスタム", duration: 75 },
+  ])("$mode を所要時間ラベルで操作し、選んだ時間で作成する", async ({ mode, duration }) => {
+    const user = userEvent.setup();
+    renderDialog();
+    if (mode === "カスタム") {
+      await user.click(screen.getByRole("button", { name: "カスタム" }));
+      const input = screen.getByRole("spinbutton", { name: "所要時間" });
+      await user.clear(input);
+      await user.type(input, "75");
+    } else {
+      screen.getByRole("combobox", { name: "所要時間" }).focus();
+      await user.keyboard("90");
+    }
+    await user.type(screen.getByLabelText("メニュー名"), "テストコース");
+    await user.click(screen.getByRole("button", { name: "追加" }));
+
+    expect(createService).toHaveBeenCalledWith(
+      expect.objectContaining({ durationMinutes: duration }),
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
   });
 });

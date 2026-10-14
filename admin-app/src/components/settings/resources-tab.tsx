@@ -20,7 +20,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { PendingConfirmDialog } from "@/components/ui/pending-confirm-dialog";
-import { SettingsTabStatus } from "@/components/settings/settings-tab-status";
+import { SettingsLoadError, SettingsTabStatus } from "@/components/settings/settings-tab-status";
+import { useSettings } from "@/hooks/use-settings";
 import { useResourceList, useResourceCreate, useResourceUpdate, useResourceDelete } from "@/hooks/use-resources";
 import type { Resource } from "@/types/api";
 
@@ -30,6 +31,7 @@ type Props = {
 
 export function ResourcesTab({ selectedStoreId }: Readonly<Props>) {
   const { resourceList, isPending } = useResourceList(selectedStoreId);
+  const { isError, refetch } = useSettings();
   const createMutation = useResourceCreate();
   const updateMutation = useResourceUpdate();
   const deleteMutation = useResourceDelete();
@@ -106,6 +108,8 @@ export function ResourcesTab({ selectedStoreId }: Readonly<Props>) {
     });
   };
 
+  if (isError) return <SettingsLoadError onRetry={() => { void refetch(); }} />;
+
   if (!selectedStoreId || isPending) {
     return <SettingsTabStatus selectedStoreId={selectedStoreId} />;
   }
@@ -176,8 +180,9 @@ export function ResourcesTab({ selectedStoreId }: Readonly<Props>) {
           </DialogHeader>
           <div className="max-h-[60vh] space-y-4 overflow-y-auto px-1">
             <div className="space-y-2">
-              <Label>名前</Label>
+              <Label htmlFor="resource-name">名前</Label>
               <Input
+                id="resource-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="例: スタッフA"

@@ -124,9 +124,9 @@ export default function ActivityPage() {
           />
         </div>
         <div className="space-y-1">
-          <Label>操作者</Label>
+          <Label htmlFor="audit-actor">操作者</Label>
           <Select value={actorType} onValueChange={setActorType}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger id="audit-actor" className="w-40">
               <SelectValue placeholder="全て" />
             </SelectTrigger>
             <SelectContent>

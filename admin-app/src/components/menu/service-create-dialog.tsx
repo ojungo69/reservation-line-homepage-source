@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,10 +71,21 @@ export function ServiceCreateDialog({ open, onOpenChange, stores, defaultStoreId
   const [comboPrefix, setComboPrefix] = useState("");
   const [mensMenu, setMensMenu] = useState(false);
   const [storeId, setStoreId] = useState(defaultStoreId ?? stores[0]?.id ?? "");
+  const wasOpenRef = useRef(false);
   const idempotencyKeyRef = useRef<string>("");
   if (!idempotencyKeyRef.current) {
     idempotencyKeyRef.current = crypto.randomUUID();
   }
+
+  // 開く時点の店舗を使い、遅れて店舗一覧が届いた場合だけ未選択を補う。
+  // 開いた後の店舗選択や送信中のドラフトは再取得で上書きしない。
+  useEffect(() => {
+    const isOpening = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (open && !createMutation.isPending && (isOpening || !storeId)) {
+      setStoreId(defaultStoreId ?? stores[0]?.id ?? "");
+    }
+  }, [open, defaultStoreId, stores, storeId, createMutation.isPending]);
 
   const reset = () => {
     setName("");
@@ -272,10 +283,11 @@ export function ServiceCreateDialog({ open, onOpenChange, stores, defaultStoreId
             </div>
           )}
           <div className="space-y-2">
-            <Label>所要時間</Label>
+            <Label htmlFor="create-service-duration">所要時間</Label>
             {customDuration ? (
               <div className="flex items-center gap-2">
                 <Input
+                  id="create-service-duration"
                   type="number"
                   min={5}
                   max={1440}
@@ -303,7 +315,7 @@ export function ServiceCreateDialog({ open, onOpenChange, stores, defaultStoreId
                   value={String(durationMinutes)}
                   onValueChange={(v) => setDurationMinutes(Number(v))}
                 >
-                  <SelectTrigger className="w-[120px]">
+                  <SelectTrigger id="create-service-duration" className="w-[120px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
