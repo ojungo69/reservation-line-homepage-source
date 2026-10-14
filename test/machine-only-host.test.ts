@@ -28,6 +28,13 @@ describe("machine-only host", () => {
     }
   );
 
+  it.each(["MACHINE.example.invalid", "machine.example.invalid:443", "machine.example.invalid.", "machine.example.invalid.:443"])(
+    "treats the host spelling %s as the machine-only host",
+    async (host) => {
+      expect((await send(host, "/", "production")).status).toBe(404);
+    }
+  );
+
   it("refuses a reservation submission in production", async () => {
     const response = await send(MACHINE_HOST, "/api/public/reservations", "production", {
       method: "POST", body: "{}", headers: { "content-type": "application/json" }
@@ -37,13 +44,17 @@ describe("machine-only host", () => {
 
   it("keeps the probes and the signed webhooks reachable in production", async () => {
     expect((await send(MACHINE_HOST, "/api/health", "production")).status).toBe(200);
-    expect((await send(MACHINE_HOST, "/api/public/reservation-options", "production")).status).not.toBe(404);
+    const options = await send(MACHINE_HOST, "/api/public/reservation-options", "production");
+    expect(options.status).toBe(200);
+    expect(await options.json()).toMatchObject({ ok: true });
     const line = await send(MACHINE_HOST, "/api/line/webhook", "production", {
       method: "POST", body: "{}", headers: { "content-type": "application/json", "x-line-signature": "invalid" }
     });
-    expect(line.status).not.toBe(404);
+    expect(line.status).toBe(401);
+    expect(await line.json()).toEqual({ ok: false, reason: "invalid_signature" });
     const google = await send(MACHINE_HOST, "/api/google/calendar/webhook", "production", { method: "POST", body: "{}" });
-    expect(google.status).not.toBe(404);
+    expect(google.status).toBe(400);
+    expect(await google.json()).toEqual({ ok: false, reason: "invalid_request" });
   });
 
   it("serves the public pages on the public host and outside production", async () => {
