@@ -19,10 +19,11 @@ import { isAdminPrivileged, MAX_ID_LENGTH, storeExists, trimAndCap } from "./set
 // `idempotencyKey` for admin POST routes; PUT settings updates omit it the
 // same way settings-services / settings-resources / settings-staff PUTs do.
 
-const MIN_OFFSET_MINUTES = 0;
-// 72h before reservation. Aligns with the CHECK constraint in
-// migrations/0015_store_settings_reminder.sql; the two must move together
-// to keep the API contract and the schema in sync.
+// The dispatcher requires a positive offset; null is the explicit off value.
+// The historical schema still permits zero, but new API writes must reject it.
+const MIN_OFFSET_MINUTES = 1;
+// 72h before reservation. This upper bound matches the CHECK constraint in
+// migrations/0015_store_settings_reminder.sql.
 const MAX_OFFSET_MINUTES = 72 * 60;
 
 export type AdminReminderUpdateRequest = {

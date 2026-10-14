@@ -3059,12 +3059,20 @@ adminApiRoutes.post("/sync/conflicts/:id/manual-resolve", (c) => handleConflictR
 
 // 26-29. All-day candidates and conflict approval/rejection
 
+// getString treats an overlong reason like an omitted one. Reject it first so
+// the operator's explanation cannot silently disappear from the audit log.
+const hasOverlongConflictReason = (body: Record<string, unknown>): boolean =>
+  typeof body.reason === "string" && body.reason.length > 500;
+
 // 26. POST /sync/all-day-candidates/:conflictId/approve
 adminApiRoutes.post("/sync/all-day-candidates/:conflictId/approve", async (c) => {
   const guard = await guardConflictAction(c);
   if (!guard.ok) return guard.response;
   const { admin, db, body, idempotencyKey, conflictId } = guard.ctx;
 
+  if (isObject(body.closureScope) && hasOverlongConflictReason(body.closureScope)) {
+    return c.json({ ok: false, reason: "invalid_request" }, 400, ADMIN_PRIVATE_HEADERS);
+  }
   const closureScope = isObject(body.closureScope)
     ? { reason: getString(body.closureScope, "reason", 500) ?? undefined }
     : undefined;
@@ -3084,6 +3092,9 @@ adminApiRoutes.post("/sync/all-day-candidates/:conflictId/reject", async (c) => 
   if (!guard.ok) return guard.response;
   const { admin, db, body, idempotencyKey, conflictId } = guard.ctx;
 
+  if (hasOverlongConflictReason(body)) {
+    return c.json({ ok: false, reason: "invalid_request" }, 400, ADMIN_PRIVATE_HEADERS);
+  }
   const reason = getString(body, "reason", 500);
   const request: AllDayRejectRequest = {
     idempotencyKey,
@@ -3100,6 +3111,9 @@ adminApiRoutes.post("/sync/conflicts/:conflictId/approve-cancel", async (c) => {
   if (!guard.ok) return guard.response;
   const { admin, db, body, idempotencyKey, conflictId } = guard.ctx;
 
+  if (hasOverlongConflictReason(body)) {
+    return c.json({ ok: false, reason: "invalid_request" }, 400, ADMIN_PRIVATE_HEADERS);
+  }
   const reason = getString(body, "reason", 500) ?? null;
   const result = await approveReservationDeleteAsCancel({
     db,
@@ -3116,6 +3130,9 @@ adminApiRoutes.post("/sync/conflicts/:conflictId/reject-delete", async (c) => {
   if (!guard.ok) return guard.response;
   const { admin, db, body, idempotencyKey, conflictId } = guard.ctx;
 
+  if (hasOverlongConflictReason(body)) {
+    return c.json({ ok: false, reason: "invalid_request" }, 400, ADMIN_PRIVATE_HEADERS);
+  }
   const reason = getString(body, "reason", 500) ?? null;
   const result = await rejectReservationDeleteConflict({
     db,

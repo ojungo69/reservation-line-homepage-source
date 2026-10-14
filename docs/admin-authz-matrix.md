@@ -63,7 +63,7 @@
 | `POST /api/admin/reservations/:id/no-show` | ✅ 自店舗のみ (全期間) | ✅ | ✅ | 同上 | ✅ 2026-07-14 更新 |
 | `POST /api/admin/reservations/:id/correct-no-show` | ✅ 自店舗のみ | ✅ | ✅ | `authenticateAdminWithDb` + `validateAdminActionAuthorization` の店舗照合を冪等 replay より先に実施。所属店舗なしは 403 | ✅ 2026-09-12 staff 開放 |
 | `POST /api/admin/reservations/:id/restore-completed` | ❌ 403 | ✅ | ✅ | `requireOwnerWithDb` (認証直後・body 読取前) + `validateCorrectionRole` でも owner+ を再確認 | ✅ 2026-08-25 追加 |
-| `POST /api/admin/reservations/:id/reschedule` | ✅ 自店舗のみ (全期間) | ✅ | ✅ | `rescheduleAdminReservation` の store scope (reservation-reschedule.ts)。2026-07-14 に当日ガード撤廃。新スロットは `listRescheduleAvailability` の営業時間/空き判定を通す | ✅ 2026-07-14 更新 |
+| `POST /api/admin/reservations/:id/reschedule` | ✅ 自店舗のみ (全期間) | ✅ | ✅ | `rescheduleAdminReservation` の store scope (reservation-reschedule.ts)。2026-07-14 に当日ガード撤廃。空き枠取得は `resolveRescheduleAvailabilityContext` (admin-api.ts) で予約の店舗・状態を確認し、`getAvailableSlots` (operations.ts) で営業時間/空き判定を行う | ✅ 2026-07-14 更新 |
 | `PUT /api/admin/reservations/:id/cancellation-fee` | ✅ 自店舗のみ | ✅ | ✅ | route で `isAdminPrivileged` 以外は `store_id` 照合 (admin-api.ts)。no_show 時の未納フラグ set/clear。version は増やさない | ✅ 2026-08-09 追記 |
 | `POST /api/admin/reservations/auto-complete-overdue` | ❌ | ✅ | ✅ | `authenticateAdminWithDb` + `requireOwnerWithDb` (admin-api.ts)。期限超過の確定予約を一括完了する backfill (`autoCompleteReservations` graceMs=0)。日次 cron と同一の副作用・冪等・全店舗横断のため owner 限定 | ✅ 2026-07-21 追加 |
 
@@ -109,8 +109,8 @@
 | Endpoint | staff | owner | system_admin | 既存ガード位置 | Phase 0b 作業 |
 |---|---|---|---|---|---|
 | `GET /api/admin/external-blocks` | ✅ readonly | ✅ | ✅ | role 制約なし (一覧 read は全 role) | 変更なし |
-| `POST /api/admin/external-blocks` (作成) | ❌ | ✅ | ✅ | `createAdminExternalBlock` で staff forbidden (external-blocks.ts:277) | 変更なし |
-| `POST /api/admin/external-blocks/:id/cancel` | ❌ | ✅ | ✅ | `cancelAdminExternalBlock` で staff forbidden (external-blocks.ts:501) | 変更なし |
+| `POST /api/admin/external-blocks` (作成) | ❌ | ✅ | ✅ | `createAdminExternalBlock` で staff forbidden (external-blocks.ts) | 変更なし |
+| `POST /api/admin/external-blocks/:id/cancel` | ❌ | ✅ | ✅ | `cancelAdminExternalBlock` で staff forbidden (external-blocks.ts) | 変更なし |
 
 ### 設定 (settings)
 
@@ -136,13 +136,13 @@
 | `POST /api/admin/settings/closures` | ✅ 自店舗のみ | ✅ | ✅ | `isAdminAllowedForStoreSettings` (settings-closures.ts: create は request.storeId で判定) |
 | `PUT /api/admin/settings/closures/:id` | ✅ 自店舗のみ | ✅ | ✅ | `isAdminAllowedForStoreSettings` (settings-closures.ts: update は DB 上の current.store_id。cross-store 移動は `guardImmutableStore` が 409) |
 | `DELETE /api/admin/settings/closures/:id` | ✅ 自店舗のみ | ✅ | ✅ | 同上 (delete も current.store_id) |
-| `PUT /api/admin/settings/reminder` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-reminder.ts:92) |
-| `PUT /api/admin/settings/reservation-cap` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-reservation-cap.ts:84)。1顧客あたり予約上限 (#290) |
-| `PUT /api/admin/settings/booking-window` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-booking-window.ts:91)。予約受付期間1..90日 (#309) |
+| `PUT /api/admin/settings/reminder` | ❌ | ✅ | ✅ | `updateAdminReminderSettings` の `isAdminPrivileged` (settings-reminder.ts) |
+| `PUT /api/admin/settings/reservation-cap` | ❌ | ✅ | ✅ | `updateAdminReservationCapSettings` の `isAdminPrivileged` (settings-reservation-cap.ts)。1顧客あたり予約上限 (#290) |
+| `PUT /api/admin/settings/booking-window` | ❌ | ✅ | ✅ | `updateAdminBookingWindowSettings` の `isAdminPrivileged` (settings-booking-window.ts)。予約受付期間1..90日 (#309) |
 | `PUT /api/admin/settings/customer-notice` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-customer-notice.ts)。予約ページのお客様向けお知らせ 500字上限 |
 | `PUT /api/admin/settings/google-edit-mode` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-google-edit.ts) |
 | `GET /api/admin/settings/business-hours/:storeId` | ✅ 自店舗のみ | ✅ | ✅ | route 層で自店舗ガード (admin-api.ts) |
-| `PUT /api/admin/settings/business-hours/:storeId` | ✅ 自店舗のみ | ✅ | ✅ | `isAdminAllowedForStoreSettings` (settings-business-hours.ts:79) |
+| `PUT /api/admin/settings/business-hours/:storeId` | ✅ 自店舗のみ | ✅ | ✅ | `putBusinessHours` の `isAdminAllowedForStoreSettings` (settings-business-hours.ts) |
 
 ### 店舗ログイン (store logins) — #308
 
@@ -150,9 +150,9 @@
 
 | Endpoint | staff | owner | system_admin | 既存ガード位置 |
 |---|---|---|---|---|
-| `GET /api/admin/store-logins` | ❌ 403 | ✅ | ✅ | route で `isAdminPrivileged(role)` 即時 403 (admin-api.ts:1612) |
+| `GET /api/admin/store-logins` | ❌ 403 | ✅ | ✅ | route で `isAdminPrivileged(role)` 即時 403 (admin-api.ts) |
 | `POST /api/admin/store-logins` (登録/更新) | ❌ | ✅ | ✅ | `upsertStoreLogin` → `isAdminPrivileged` (settings-store-login.ts:upsertStoreLogin)。email 横取り防止 (`email_in_use`→409)・自己無効化防止 (`forbidden_self_deactivation`→403)。(2026-08-30 に追加した顧客タブ承認の削除処理は、承認コードの撤去に伴い 2026-10-14 に取り除いた) |
-| `DELETE /api/admin/store-logins/:storeId` (失効) | ❌ | ✅ | ✅ | `revokeStoreLogin` → `isAdminPrivileged` (settings-store-login.ts:680) + 自己失効防止 |
+| `DELETE /api/admin/store-logins/:storeId` (失効) | ❌ | ✅ | ✅ | `revokeStoreLogin` → `isAdminPrivileged` (settings-store-login.ts) + 自己失効防止 |
 
 ### LINE友だち紐付け (line friends) — #291-292
 
@@ -186,7 +186,7 @@
 
 | Endpoint | staff | owner | system_admin | 既存ガード位置 | Phase 0b 作業 |
 |---|---|---|---|---|---|
-| `GET /api/admin/audit-logs` | ❌ | ✅ | ✅ (metadata 全表示) | `listAdminAuditLogs` で staff forbidden (operations.ts:767)、metadata は system_admin のみ | 変更なし |
+| `GET /api/admin/audit-logs` | ❌ | ✅ | ✅ (metadata 全表示) | `listAdminAuditLogs` で staff forbidden (operations.ts)、metadata は system_admin のみ | 変更なし |
 
 ### 同期 (sync recovery)
 

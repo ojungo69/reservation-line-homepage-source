@@ -206,7 +206,7 @@ describe("admin settings — reminder notification endpoint", () => {
       }
     });
 
-    it("accepts the documented boundary values 0 and 4320 (200)", async () => {
+    it("accepts the boundary values 1 and 4320 (200)", async () => {
       const db = createMigratedSqliteD1();
       try {
         insertAdminUser(db, "owner");
@@ -219,7 +219,7 @@ describe("admin settings — reminder notification endpoint", () => {
           access.token,
           "PUT",
           "/api/admin/settings/reminder",
-          { storeId: "store_test", offsetMinutes: 0 }
+          { storeId: "store_test", offsetMinutes: 1 }
         );
         expect(lower.status).toBe(200);
 
@@ -340,11 +340,12 @@ describe("admin settings — reminder notification endpoint", () => {
       }
     });
 
-    it("returns 400 invalid_request for negative offset", async () => {
+    it.each([-1, 0])("returns 400 invalid_request for offset %i without changing settings", async (offsetMinutes) => {
       const db = createMigratedSqliteD1();
       try {
         insertAdminUser(db, "owner");
         seedStore(db, "store_test");
+        seedStoreSettings(db, { storeId: "store_test", offsetMinutes: 30 });
         const access = createAdminAccessFixture();
         vi.stubGlobal("fetch", createAccessJwksFetchMock(TEAM_DOMAIN, access.jwk));
 
@@ -353,7 +354,7 @@ describe("admin settings — reminder notification endpoint", () => {
           access.token,
           "PUT",
           "/api/admin/settings/reminder",
-          { storeId: "store_test", offsetMinutes: -1 }
+          { storeId: "store_test", offsetMinutes }
         );
 
         expect(response.status).toBe(400);
@@ -361,6 +362,12 @@ describe("admin settings — reminder notification endpoint", () => {
           ok: false,
           error: "invalid_request"
         });
+        expect(db.sqlite.prepare(
+          "SELECT reservation_reminder_offset_minutes AS offset FROM store_settings WHERE store_id = 'store_test'"
+        ).get()).toEqual({ offset: 30 });
+        expect(db.sqlite.prepare(
+          "SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'settings.reminder.update'"
+        ).get()).toEqual({ count: 0 });
       } finally {
         db.sqlite.close();
       }

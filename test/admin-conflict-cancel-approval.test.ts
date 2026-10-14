@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { captureExceptionSpy } = vi.hoisted(() => ({ captureExceptionSpy: vi.fn() }));
+vi.mock("@sentry/cloudflare", () => ({ captureException: captureExceptionSpy }));
 
 import {
   approveReservationDeleteAsCancel,
@@ -167,7 +170,37 @@ describe("approveReservationDeleteAsCancel", () => {
   });
 
   afterEach(() => {
+    captureExceptionSpy.mockClear();
     d1.sqlite.close();
+  });
+
+  it("reports a failed conflict reopen while preserving the original write_failed result", async () => {
+    seedReservation(d1);
+    seedConflict(d1);
+    // Fail the work after the claim, then fail reopening it. Real D1-shaped
+    // writes keep this regression independent of the service's private helpers.
+    d1.sqlite.exec(`
+      CREATE TRIGGER fail_cancel BEFORE UPDATE OF status ON reservations
+      BEGIN SELECT RAISE(ABORT, 'cancel batch failed'); END;
+      CREATE TRIGGER fail_reopen BEFORE UPDATE OF resolution_status ON google_calendar_conflicts
+      WHEN NEW.resolution_status = 'open'
+      BEGIN SELECT RAISE(ABORT, 'conflict reopen failed'); END;
+    `);
+
+    const result = await approveReservationDeleteAsCancel({
+      db: d1 as unknown as D1Database,
+      admin: fixtureAdmin("owner"),
+      conflictId: CONFLICT_ID,
+      request: { idempotencyKey: "key_reopen_failure", reason: null }
+    });
+
+    expect(result).toEqual({ ok: false, reason: "write_failed" });
+    expect(fetchReservation(d1, RESERVATION_ID)?.status).toBe("confirmed");
+    expect(fetchConflictStatus(d1, CONFLICT_ID)).toBe("approved_as_cancel");
+    expect(captureExceptionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("conflict reopen failed") }),
+      { tags: { component: "conflict-resolutions", op: "revert_failed" } }
+    );
   });
 
   it("1: forbidden when admin.role='staff'", async () => {
