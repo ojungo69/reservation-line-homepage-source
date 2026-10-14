@@ -1,6 +1,9 @@
 {
   "displayName": "Example Studio",
   "adminHostname": "admin.example.invalid",
+  "machineOnlyHostnames": [
+    "machine.example.invalid"
+  ],
   "operationsEmailSender": "noreply@example.invalid",
   "staffEmailDomain": "example.invalid",
   "mensMenuStoreId": "kyoto",

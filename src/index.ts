@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/cloudflare";
 import type { ErrorEvent, TransactionEvent } from "@sentry/core";
 
-import { createApp, isAdminHost, isAdminPrivatePath } from "./app";
+import { createApp, isAdminHost, isAdminPrivatePath, isMachineOnlyHost, isMachineOnlyPath } from "./app";
 import { ensureGoogleCalendarWatchChannels } from "./google/channel-watch";
 import { processDueCalendarSyncJobs } from "./google/calendar-sync";
 import { detectConflictBursts } from "./google/conflict-burst-detector";
@@ -503,6 +503,12 @@ async function routeRequest(
     !isAdminHost(host) &&
     isAdminPrivatePath(url.pathname)
   ) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  // A machine-only host (see isMachineOnlyHost) must not serve the public pages or APIs,
+  // or they could be used around the public host's bot protection and shared caches.
+  if (env.ENVIRONMENT === "production" && isMachineOnlyHost(host) && !isMachineOnlyPath(url.pathname)) {
     return new Response("Not Found", { status: 404 });
   }
 
