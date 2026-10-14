@@ -35,8 +35,10 @@ const hostnameOf = (host: string | null | undefined): string | null => {
   if (typeof host !== "string") return null;
   const lower = host.toLowerCase();
   const colonIdx = lower.indexOf(":");
+  let name = colonIdx >= 0 ? lower.slice(0, colonIdx) : lower;
   // "host." names the same host as "host", so compare without the root dot.
-  return (colonIdx >= 0 ? lower.slice(0, colonIdx) : lower).replace(/\.+$/, "");
+  while (name.endsWith(".")) name = name.slice(0, -1);
+  return name;
 };
 
 export const isAdminHost = (host: string | null | undefined): boolean => hostnameOf(host) === ADMIN_HOSTNAME;
