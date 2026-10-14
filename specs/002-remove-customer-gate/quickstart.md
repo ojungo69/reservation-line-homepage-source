@@ -14,8 +14,9 @@ npm run knip
 npm run admin:build
 ```
 
-Expected: all pass. Leftover search (SC-004) prints only the historical migration, the kept audit
-labels with their test, and this spec:
+Expected: all pass. Leftover search (SC-004) prints only the historical migration, the three kept
+audit labels with their assertions, and the two lines of `test/admin-customer-staff-access.test.ts`
+that check the removed endpoints answer not-found:
 
 ```bash
 git grep -n -i -E "customer[-_]?gate|customerGate|admin_customer_gate" -- . ':!specs/'

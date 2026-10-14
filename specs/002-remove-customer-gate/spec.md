@@ -101,7 +101,8 @@ midnight; as owner, open it once; then read the activity log.
 3. **Given** an owner or system administrator, **When** they open the list, **Then** nothing is
    recorded. Customer search used by reservation creation is not recorded either.
 4. **Given** the entry cannot be written, **When** staff open the list, **Then** the list still
-   loads and the failure is reported to error monitoring.
+   loads; the failure is reported to error monitoring, except transient database-maintenance
+   errors, which are only logged because the list itself is unaffected.
 
 ---
 
@@ -137,7 +138,8 @@ midnight; as owner, open it once; then read the activity log.
 - **FR-010**: This change MUST NOT add a dependency, configuration value or schema change.
 - **FR-011**: The first customer-list view of each staff member per JST day MUST be written to the
   activity log without customer data; owners, system administrators and customer search are not
-  recorded, and a failed write MUST NOT fail the list request.
+  recorded, and a failed write MUST NOT fail the list request. Failures follow the project's
+  monitoring policy: reported, except transient database errors that do not affect the response.
 
 ### Key Entities
 

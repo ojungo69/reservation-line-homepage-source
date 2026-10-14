@@ -13,7 +13,7 @@ Branch `feat/remove-customer-gate-20261014`, base `d2307b0`.
 | `npm run admin:test` | PASS, 73 files / 687 tests | 3263d83 |
 | `npm run test:worker` | PASS, 5 files / 35 tests | 1b6c168 (no Worker-suite inputs changed after) |
 | `npm run admin:build` | PASS | 1b6c168 |
-| Leftover search (quickstart.md) | only the three kept audit labels and their assertions | 3263d83 |
+| Leftover search (quickstart.md, excluding `migrations/`) | only the three kept audit labels with their assertions and the two removed-endpoint checks in the new test | 3263d83 |
 
 Test-first evidence: `test/admin-customer-staff-access.test.ts` failed before the removal
 (43 of 46 at the time, all for the gate: `403 customer_gate_required`, a `null` memo, live
