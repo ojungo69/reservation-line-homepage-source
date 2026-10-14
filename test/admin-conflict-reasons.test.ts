@@ -122,4 +122,19 @@ describe("conflict action reason validation", () => {
       await expect(response.json()).resolves.toMatchObject({ ok: true });
     });
   });
+  it.each(["ignore", "manual-resolve"])("rejects a 501-character note before %s", async (route) => {
+    seedConflict("google_all_day_event");
+
+    const response = await createApp().request(`/api/admin/sync/conflicts/conflict_reason/${route}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Cf-Access-Jwt-Assertion": access.token },
+      body: JSON.stringify({ idempotencyKey: "conflict_note_key", note: "あ".repeat(501) })
+    }, { DB: db, ACCESS_TEAM_DOMAIN: TEAM_DOMAIN, ACCESS_AUD });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ ok: false, reason: "invalid_request" });
+    expect(db.sqlite.prepare(
+      "SELECT resolution_status FROM google_calendar_conflicts WHERE id = 'conflict_reason'"
+    ).get()).toEqual({ resolution_status: "open" });
+  });
 });

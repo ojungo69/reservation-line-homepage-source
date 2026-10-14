@@ -524,6 +524,11 @@ const parseAdminSyncConflictResolutionRequest = (
   }
 
   const idempotencyKey = getString(body, "idempotencyKey", 256);
+  // getString treats an overlong note like an omitted one; reject it so the operator's
+  // note cannot silently disappear from the audit log (same rule as conflict reasons).
+  if (typeof body.note === "string" && body.note.length > 500) {
+    return undefined;
+  }
   const note = getString(body, "note", 500);
   if (!idempotencyKey) {
     return undefined;

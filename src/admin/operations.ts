@@ -1572,10 +1572,6 @@ export async function listAdminExternalBlocks(input: {
   to?: string;
   status?: string;
 }) {
-  if (input.admin.role === "staff" && !input.admin.store_id) {
-    return { ok: true as const, externalBlocks: [] as AdminExternalBlockListItem[], truncated: false };
-  }
-
   const storeFilter = input.admin.role === "staff" ? input.admin.store_id : null;
   const conditions: string[] = [];
   const params: string[] = [];
@@ -1598,6 +1594,11 @@ export async function listAdminExternalBlocks(input: {
     }
     conditions.push("external_blocks.status = ?");
     params.push(input.status);
+  }
+  // Validate filters first so every role gets the same 400 for a bad query; a staff member
+  // without a store then sees nothing (fail closed) instead of an unscoped list.
+  if (input.admin.role === "staff" && !input.admin.store_id) {
+    return { ok: true as const, externalBlocks: [] as AdminExternalBlockListItem[], truncated: false };
   }
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 

@@ -1234,6 +1234,24 @@ describe("admin operations API", () => {
     }
   });
 
+  it.each(["kyoto", null])("rejects an invalid external-block filter for staff the same way (%s)", async (storeId) => {
+    const db = createMigratedSqliteD1();
+    const access = createAccessJwtFixture();
+    vi.stubGlobal("fetch", createFetchMock(access.jwk));
+    try {
+      insertAdminUser(db, "staff");
+      if (storeId) {
+        db.sqlite.prepare(`INSERT INTO staff_members (id, store_id, display_name, role)
+          VALUES ('staff_external_blocks', ?, 'Example Staff', 'staff')`).run(storeId);
+        db.sqlite.prepare("UPDATE admin_users SET staff_member_id = 'staff_external_blocks' WHERE id = 'admin_operations_owner_1'").run();
+      }
+      const response = await adminRequest(db, access.token, "/api/admin/external-blocks?from=2099-02-30&to=2099-02-30");
+      expect(response.status).toBe(400);
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
   it("forbids staff from creating external blocks via HTTP", async () => {
     const db = createMigratedSqliteD1();
     const access = createAccessJwtFixture();
