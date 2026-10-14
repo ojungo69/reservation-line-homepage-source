@@ -16,6 +16,7 @@ export type ApiErrorCode =
   | "idempotency_conflict"
   | "idempotency_in_progress"
   | "line_not_reachable"
+  | "line_check_unavailable"
   | "write_failed"
   | "slot_unavailable"
   | "customer_time_conflict"
@@ -84,6 +85,7 @@ const ERROR_MESSAGES = {
   idempotency_conflict: "同じ操作が既に実行されています",
   idempotency_in_progress: "同じ操作を処理中です",
   line_not_reachable: "LINEに到達できません",
+  line_check_unavailable: "LINEへの到達状況を確認できないため、承認できません。時間をおいてもう一度お試しください。",
   write_failed: "保存に失敗しました",
   slot_unavailable: "選択した時間帯は既に埋まっています",
   customer_time_conflict: "同じ時間帯に既に予約があります",

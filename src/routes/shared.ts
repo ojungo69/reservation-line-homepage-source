@@ -379,7 +379,11 @@ export const guardConflictAction = async (
     };
   }
   const idempotencyKey = getString(body, "idempotencyKey", 256);
-  if (!idempotencyKey) {
+  // getString treats an overlong reason like an omitted one. Reject it so the operator's
+  // explanation cannot silently disappear from the audit log (all-day approval nests it).
+  const overlongReason = (value: unknown) =>
+    isObject(value) && typeof value.reason === "string" && value.reason.length > 500;
+  if (!idempotencyKey || overlongReason(body) || overlongReason(body.closureScope)) {
     return {
       ok: false,
       response: c.json({ ok: false, reason: "invalid_request" }, 400, ADMIN_PRIVATE_HEADERS)
@@ -444,6 +448,8 @@ const ADMIN_ACTION_FAILURE_STATUS = {
   idempotency_conflict: 409,
   idempotency_in_progress: 409,
   line_not_reachable: 409,
+  // Retryable: the LINE check could not run, so approval is held back for now.
+  line_check_unavailable: 503,
   store_closed: 400,
   write_failed: 500,
   invalid_request: 400,

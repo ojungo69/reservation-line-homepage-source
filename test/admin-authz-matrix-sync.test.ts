@@ -57,6 +57,12 @@ function sortedDiff(from: Set<string>, against: Set<string>): string[] {
 }
 
 describe("admin-authz-matrix sync", () => {
+  it("uses stable guard names instead of source line numbers", () => {
+    const markdown = readFileSync(resolve(process.cwd(), "docs/admin-authz-matrix.md"), "utf8");
+    // Source lines move during unrelated edits; guard names remain searchable.
+    expect(markdown.match(/\b[\w-]+\.ts:\d+/g) ?? []).toEqual([]);
+  });
+
   it("documents every /api/admin route registered by createApp(), and no ghosts", () => {
     const source = collectSourceAdminEndpoints();
     const markdown = readFileSync(

@@ -233,6 +233,7 @@ export type ReservationDetailResponse = {
 export type ExternalBlocksResponse = {
   ok: true;
   externalBlocks: ExternalBlock[];
+  truncated: boolean;
 };
 
 export type ReservationAction =
@@ -494,6 +495,8 @@ export type AuditLogItem = {
   id: string;
   actorType: string;
   actorId: string | null;
+  // actorId is an admin_users.id; the server resolves the linked staff member's name.
+  actorName: string | null;
   action: string;
   targetType: string;
   targetId: string;

@@ -1,7 +1,7 @@
 import { adminWriteGuard, adminWriteWasRevoked } from "./write-authorization";
 import type { AdminUser } from "./access";
 import { parseDateJstToUtcIso } from "../date-parse";
-import { captureBatchWriteFailure } from "../sentry-helpers";
+import { captureBatchWriteFailure, safeCaptureException } from "../sentry-helpers";
 import {
   buildCreateContext,
   fetchAdminActionIdempotency,
@@ -236,8 +236,14 @@ const revertConflictTo = async (
       )
       .bind(conflictId, fromStatus, adminId, claimedAt)
       .run();
-  } catch {
-    // best-effort; rare given batch already failed once
+  } catch (error) {
+    // A failed reopen leaves the conflict claimed, so report it without masking
+    // the original operation's failure. Even a transient D1 export lock must be
+    // reported here: the stuck claim needs an operator, it does not heal itself.
+    safeCaptureException(error, {
+      tags: { component: "conflict-resolutions", op: "revert_failed" },
+      captureTransientD1: true
+    });
   }
 };
 

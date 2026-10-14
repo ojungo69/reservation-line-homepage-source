@@ -524,6 +524,11 @@ const parseAdminSyncConflictResolutionRequest = (
   }
 
   const idempotencyKey = getString(body, "idempotencyKey", 256);
+  // getString treats an overlong note like an omitted one; reject it so the operator's
+  // note cannot silently disappear from the audit log (same rule as conflict reasons).
+  if (typeof body.note === "string" && body.note.length > 500) {
+    return undefined;
+  }
   const note = getString(body, "note", 500);
   if (!idempotencyKey) {
     return undefined;
@@ -1254,7 +1259,7 @@ adminApiRoutes.get("/customers", async (c) => {
       Number.isNaN(offset) ? 0 : offset,
       { archivedOnly, storeScope }
     );
-    if (isStaff) await recordStaffCustomerListView(db, admin);
+    if (isStaff) await recordStaffCustomerListView(db, admin, c.req.header("Sec-Fetch-Site"));
     return c.json(result, 200, ADMIN_PRIVATE_HEADERS);
   }
 
@@ -2771,10 +2776,13 @@ adminApiRoutes.get("/external-blocks", async (c) => {
 
   const result = await listAdminExternalBlocks({
     db: gate.db,
-    admin: gate.admin
+    admin: gate.admin,
+    from: c.req.query("from"),
+    to: c.req.query("to"),
+    status: c.req.query("status")
   });
 
-  return c.json(result, 200, ADMIN_PRIVATE_HEADERS);
+  return c.json(result, result.ok ? 200 : 400, ADMIN_PRIVATE_HEADERS);
 });
 
 // 15. POST /external-blocks

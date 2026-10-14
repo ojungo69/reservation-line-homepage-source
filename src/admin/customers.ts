@@ -283,19 +283,31 @@ export type CustomerListRow = {
 // opened the customer list, with no customer data. The id is derived from the day,
 // so concurrent page loads cannot write two rows. The target is the actor because the
 // row records the staff member's own action and audit_logs requires a target. A failed
-// write never blocks the list (staff work must not stop), but it is reported.
+// write never blocks the list (staff work must not stop); it goes to error monitoring,
+// except transient D1 errors, which are only logged (safeCaptureException's default).
 export const recordStaffCustomerListView = async (
   db: D1Database,
-  admin: { id: string; store_id: string | null }
+  admin: { id: string; store_id: string | null },
+  fetchSite?: string
 ): Promise<void> => {
   const jstDay = jstDayKey(Date.now());
+  // Another site can make a staff browser fetch the list first. Such a request gets its own
+  // row, so it cannot claim the day's record and the real view is still recorded. Skipping it
+  // instead would let anyone sending the header avoid the record.
+  const otherSite = fetchSite === "cross-site" || fetchSite === "same-site" ? fetchSite : null;
+  const idSuffix = otherSite ? `:${otherSite}` : "";
   try {
     await db
       .prepare(
         `INSERT OR IGNORE INTO audit_logs (id, actor_type, actor_id, action, target_type, target_id, metadata_json)
          VALUES (?, 'staff', ?, 'customer.list_view', 'admin_user', ?, ?)`
       )
-      .bind(`customer_list_view:${admin.id}:${jstDay}`, admin.id, admin.id, JSON.stringify({ adminStoreId: admin.store_id }))
+      .bind(
+        `customer_list_view:${admin.id}:${jstDay}${idSuffix}`,
+        admin.id,
+        admin.id,
+        JSON.stringify({ adminStoreId: admin.store_id, ...(otherSite ? { fetchSite: otherSite } : {}) })
+      )
       .run();
   } catch (error) {
     safeCaptureException(error, { tags: { component: "admin-customer-list", outcome: "list_view_audit_failed" } });
@@ -379,7 +391,7 @@ export const listAllCustomers = async (
         ORDER BY (SELECT MAX(${VISITED_AT_JST_ORDER_KEY})
                   FROM customer_visits cv
                   WHERE cv.customer_id = c.id AND cv.status = 'valid'${visitStore}) DESC NULLS LAST,
-                 c.created_at DESC
+                 c.created_at DESC, c.id DESC
         LIMIT ? OFFSET ?
         `
       )

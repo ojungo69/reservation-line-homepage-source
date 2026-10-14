@@ -441,6 +441,16 @@ describe("listAllCustomers", () => {
     expect(ids).toContain("c3");
   });
 
+  it("pages customers with tied creation times and no visits in descending id order", async () => {
+    d1.sqlite.exec("UPDATE customers SET created_at = '2026-05-01 00:00:00'");
+
+    const first = await listAllCustomers(d1 as unknown as D1Database, 2, 0);
+    const second = await listAllCustomers(d1 as unknown as D1Database, 2, 2);
+
+    expect(first.customers.map((customer) => customer.id)).toEqual(["c3", "c2"]);
+    expect(second.customers.map((customer) => customer.id)).toEqual(["c1"]);
+  });
+
   it("masks phone numbers showing only last 4 digits", async () => {
     const result = await listAllCustomers(d1 as unknown as D1Database);
     const c1 = result.customers.find((c) => c.id === "c1")!;

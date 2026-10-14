@@ -42,7 +42,12 @@ for another store's customer or a staff member without a store).
 `GET /customers?mode=list` (any page, including the archived view) by a staff member writes one
 activity row per staff member per JST day: action `customer.list_view`, target `admin_user`/the
 staff id, metadata `{"adminStoreId": "<store>"}`. Owners and system administrators are not
-recorded; `?q=` search is not recorded. A failed write never fails the list. It is reported to
+recorded; `?q=` search is not recorded. A request that a browser marks as coming from another
+site (`Sec-Fetch-Site: cross-site` or `same-site`) is recorded in its own row (id suffix and
+metadata `fetchSite`), so a forged early request cannot claim the day's row and a client that sends
+the header cannot avoid the record (at most three rows per staff member per day). The activity log shows the staff
+member's name: `GET /audit-logs` returns `actorName`, resolved through `admin_users.staff_member_id`
+(added 2026-10-14 after review). A failed write never fails the list. It is reported to
 error monitoring unless it is a transient D1 error (for example the weekly export lock), which is
 only logged, as for other failures that do not affect the response.
 

@@ -1287,8 +1287,7 @@ describe("Monotone Liquid Glass admin token mapping", () => {
     // — innocent strings pinned per file and per formatted violation. A new
     // occurrence anywhere else still fails.
     const NAMED_LITERAL_ALLOWLIST: Record<string, string[]> = {
-      "admin-app/src/routes.tsx": ["named color literal: menu"],
-      "admin-app/src/lib/auth-logout.test.ts": ["named color literal: window"]
+      "admin-app/src/routes.tsx": ["named color literal: menu"]
     };
     expect(cssValueViolations(adminCss), "index.css").toEqual([]);
     for (const { path, source } of adminSourceFiles) {

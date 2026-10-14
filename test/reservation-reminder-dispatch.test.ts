@@ -209,6 +209,19 @@ describe("reservation reminder dispatch", () => {
     expect(countNotificationJobs(d1, "reservation_reminder")).toBe(0);
   });
 
+  it("enqueues within the minimum one-minute reminder window", async () => {
+    setReminderOffset(d1, STORE_ID, 1);
+    seedReservation(d1, { id: "res_minimum_offset", storeId: STORE_ID });
+
+    const result = await dispatchReservationReminders(
+      d1 as unknown as D1Database,
+      Date.parse(RESERVATION_START) - 30_000
+    );
+
+    expect(result).toEqual({ scanned: 1, enqueued: 1 });
+    expect(countNotificationJobs(d1, "reservation_reminder")).toBe(1);
+  });
+
   it("does not enqueue for past reservations", async () => {
     setReminderOffset(d1, STORE_ID, 30);
     // start_at is in the past relative to NOW_MS

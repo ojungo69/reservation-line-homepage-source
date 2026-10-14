@@ -75,6 +75,7 @@ export const ADMIN_API_FAILURE_CODES = [
   "invalid_transition",
   "invalid_visit_date",
   "line_api_error",
+  "line_check_unavailable",
   "line_not_reachable",
   "missing_database",
   "no_active_resource",

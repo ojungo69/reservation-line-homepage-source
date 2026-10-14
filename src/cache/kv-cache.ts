@@ -29,9 +29,5 @@ export async function getCached<T>(
 // instant reflection is ever required, wire a `kv.delete(key)` into the admin
 // mutation handlers using CACHE_KEYS rather than reintroducing a dead helper.
 export const CACHE_KEYS = {
-  storeOptions: (storeId: string) => `store-options:${storeId}`,
   allStores: () => "all-stores",
-  businessHours: (storeId: string) => `business-hours:${storeId}`,
-  services: (storeId: string) => `services:${storeId}`,
-  resources: (storeId: string) => `resources:${storeId}`,
 } as const;

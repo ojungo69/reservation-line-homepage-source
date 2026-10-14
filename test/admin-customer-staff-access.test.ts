@@ -273,6 +273,52 @@ describe("staff customer access within their store", () => {
     ]);
   });
 
+  // The Access token must be issued at the faked time, as in the day-change test above.
+  const freezeAt = (iso: string) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(iso));
+    token = createAccessJwtFixture({
+      issuer: TEAM_DOMAIN,
+      audience: ACCESS_AUD,
+      keyId: "staff-access-key-1",
+      claims: { email: ADMIN_EMAIL, sub: ADMIN_SUBJECT },
+      signingKey
+    }).token;
+  };
+  const listWithFetchSite = (site?: string) =>
+    createApp().request(`${ADMIN_ORIGIN}/api/admin/customers?mode=list`, {
+      headers: { "Cf-Access-Jwt-Assertion": token, ...(site ? { "Sec-Fetch-Site": site } : {}) }
+    }, { DB: db, ACCESS_TEAM_DOMAIN: TEAM_DOMAIN, ACCESS_AUD });
+
+  it.each(["cross-site", "same-site"])("records a %s request separately so it cannot claim the day's view", async (site) => {
+    freezeAt("2026-10-14T03:00:00.000Z");
+    expect((await listWithFetchSite(site)).status).toBe(200);
+    expect((await request("/api/admin/customers?mode=list")).status).toBe(200);
+    const rows = listViewRows() as Array<{ id: string; metadata_json: string }>;
+    expect(rows.map((row) => row.id)).toEqual([
+      `customer_list_view:${ADMIN_ID}:2026-10-14`,
+      `customer_list_view:${ADMIN_ID}:2026-10-14:${site}`
+    ]);
+    expect(JSON.parse(rows[1].metadata_json)).toEqual({ adminStoreId: "kyoto", fetchSite: site });
+  });
+
+  it.each([undefined, "none", "unexpected-value"])("records Sec-Fetch-Site %s as the day's view", async (site) => {
+    freezeAt("2026-10-14T03:00:00.000Z");
+    expect((await listWithFetchSite(site)).status).toBe(200);
+    expect((listViewRows() as Array<{ id: string }>).map((row) => row.id)).toEqual([
+      `customer_list_view:${ADMIN_ID}:2026-10-14`
+    ]);
+  });
+
+  it("shows the staff member's name for the view record in the activity log", async () => {
+    expect((await request("/api/admin/customers?mode=list")).status).toBe(200);
+    db.sqlite.prepare("UPDATE admin_users SET role = 'owner' WHERE id = ?").run(ADMIN_ID);
+    const response = await request("/api/admin/audit-logs");
+    const body = await response.json() as { auditLogs: Array<{ action: string; actorName: string | null }> };
+    expect(response.status).toBe(200);
+    expect(body.auditLogs.find((log) => log.action === "customer.list_view")?.actorName).toBe("Example Staff A");
+  });
+
   it.each(["owner", "system_admin"])("does not record %s customer-list views", async (role) => {
     db.sqlite.prepare("UPDATE admin_users SET role = ?, staff_member_id = NULL WHERE id = ?").run(role, ADMIN_ID);
     expect((await request("/api/admin/customers?mode=list")).status).toBe(200);
