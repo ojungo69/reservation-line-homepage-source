@@ -46,7 +46,12 @@ function approvalUnavailableReason(reservation: PendingReservation, now = Date.n
   return "";
 }
 
+// The client already knows why a reservation cannot be approved (for example its deadline
+// passed during a bulk run), so it fails without a request and keeps that reason.
+class ApprovalUnavailableError extends Error {}
+
 function approvalErrorMessage(error: unknown): string {
+  if (error instanceof ApprovalUnavailableError) return error.message;
   if (error instanceof ApiError && typeof error.body === "object" && error.body !== null &&
     "reason" in error.body && error.body.reason === "invalid_transition") {
     return "承認できません。LINEの友だち状態・承認期限・予約状態を再確認してください。";
@@ -217,9 +222,8 @@ export function PendingApprovalsCard({
           // 直列送信の待機中にも期限や承認待ち一覧が変わりうる。既知の承認不可は
           // POSTせず失敗一覧に出し、以後の予約は引き続き処理する。
           const snapshot = snapshotOf.get(id);
-          if (snapshot && currentApprovalReason(snapshot, latestData.current)) {
-            throw new ApiError(409, { reason: "invalid_transition" });
-          }
+          const unavailable = snapshot ? currentApprovalReason(snapshot, latestData.current) : "";
+          if (unavailable) throw new ApprovalUnavailableError(unavailable);
           return api.post(`/api/admin/reservations/${id}/approve`, {
             idempotencyKey: crypto.randomUUID(),
             reason: "",

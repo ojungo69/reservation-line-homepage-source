@@ -279,7 +279,7 @@ describe("ReservationCreatePanel", () => {
     fireEvent.change(screen.getByLabelText("既存顧客を検索"), { target: { value: "検索" } });
     await screen.findByRole("list", { name: "顧客候補" });
 
-    expect(screen.queryByText("20件を超えています。名前をもう少し入力してください") !== null).toBe(truncated);
+    expect(screen.queryByText("候補が多いため一部のみ表示しています。名前をもう少し入力してください") !== null).toBe(truncated);
   });
 
   it.each(["123", "1234", "1234567890"])("スタッフの顧客候補検索 %s は全桁入力を案内する", async (query) => {

@@ -201,7 +201,12 @@ describe("PendingApprovalsCard", () => {
     await act(async () => { finishFirst?.(); });
     expect(await screen.findByText(change === "deadline" ? "成功 1 件 / 失敗 1 件" : "成功 2 件 / 失敗 0 件")).toBeTruthy();
     expect(mocks.post).toHaveBeenCalledTimes(change === "deadline" ? 1 : 2);
-    if (change === "deadline") expect(screen.getByText(/LINEの友だち状態・承認期限・予約状態を再確認してください/)).toBeTruthy();
+    // The client knows the deadline passed, so the failure names that reason.
+    if (change === "deadline") {
+      const results = screen.getByText("成功 1 件 / 失敗 1 件").closest("[role='dialog'], [role='alertdialog']");
+      expect(results?.textContent).toContain("承認期限が過ぎています。却下をご利用ください。");
+      expect(results?.textContent).not.toContain("LINEの友だち状態");
+    }
   });
 
   it.each(["confirming", "running"] as const)("一括%s中に同じIDの期限が更新されると対象外にし、POSTを送らない", async (phase) => {

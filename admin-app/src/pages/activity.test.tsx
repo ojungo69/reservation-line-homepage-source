@@ -114,7 +114,7 @@ describe("ActivityPage", () => {
     rerender(<ActivityPage />);
 
     expect(screen.getByRole("alert").textContent).toContain("操作記録の取得に失敗しました。");
-    expect(screen.queryAllByRole("button", { name: /IDをコピー:/ }).length).toBe(0);
+    expect(screen.queryAllByRole("button", { name: /IDをコピー:/ })).toHaveLength(0);
     expect(screen.queryByText(/表示件数が上限に達しました/)).toBeNull();
     expect(screen.queryByText("該当する操作記録はありません")).toBeNull();
     expect(screen.getByRole("button", { name: "再読み込み" })).toBeTruthy();

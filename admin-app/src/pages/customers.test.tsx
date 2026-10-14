@@ -237,7 +237,7 @@ describe("CustomersPage", () => {
     act(() => vi.advanceTimersByTime(300));
 
     expect(screen.getByText("検索 花子")).toBeTruthy();
-    expect(screen.queryByText("20件を超えています。名前をもう少し入力してください") !== null).toBe(truncated);
+    expect(screen.queryByText("候補が多いため一部のみ表示しています。名前をもう少し入力してください") !== null).toBe(truncated);
   });
 
   it.each([
