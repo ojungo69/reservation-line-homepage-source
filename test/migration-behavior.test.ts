@@ -948,6 +948,40 @@ describe("0040 drop of idx_reservations_one_pending_per_line", () => {
   });
 });
 
+describe("0058 drop of the customer-tab approval table", () => {
+  it("removes admin_customer_gate_challenges and its grant index, with rows present", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON;");
+    const migrationsDir = join(process.cwd(), "migrations");
+    const migrationFiles = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    try {
+      for (const file of migrationFiles.filter((file) => file < "0058")) {
+        db.exec(readFileSync(join(migrationsDir, file), "utf8"));
+      }
+      db.exec(`
+        INSERT INTO admin_users (id, email, access_subject, role)
+        VALUES ('admin_gate_drop', 'drop@example.com', 'sub-gate-drop', 'staff');
+        INSERT INTO admin_customer_gate_challenges (id, admin_user_id, code_hash, expires_at, verified_at, granted_until)
+        VALUES ('challenge_gate_drop', 'admin_gate_drop', '${"a".repeat(64)}',
+          '2026-10-14T00:05:00.000Z', '2026-10-14T00:01:00.000Z', '2026-10-14T12:01:00.000Z');
+      `);
+
+      const migrationFile = migrationFiles.find((file) => file.startsWith("0058_"));
+      expect(migrationFile).toBe("0058_drop_admin_customer_gate.sql");
+      if (!migrationFile) return;
+      db.exec(readFileSync(join(migrationsDir, migrationFile), "utf8"));
+
+      const leftovers = db
+        .prepare("SELECT name FROM sqlite_master WHERE name IN ('admin_customer_gate_challenges', 'idx_admin_customer_gate_grant')")
+        .all();
+      expect(leftovers).toEqual([]);
+      expect(db.prepare("SELECT id FROM admin_users WHERE id = 'admin_gate_drop'").get()).toEqual({ id: "admin_gate_drop" });
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe("0041 services.price_label migration", () => {
   it("backfills existing rows to NULL and enforces the 80-character limit", () => {
     const db = new DatabaseSync(":memory:");
