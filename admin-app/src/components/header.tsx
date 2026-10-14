@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Menu, Search, Moon, Monitor, Sun, ChevronDown, LogOut, type LucideIcon } from "lucide-react";
+import { Menu, Search, Moon, Monitor, Sun, ChevronDown, Check, LogOut, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { useStores } from "@/hooks/use-stores";
@@ -44,6 +44,8 @@ export function Header({ onMenuToggle }: Readonly<HeaderProps>) {
   const [commandOpen, setCommandOpen] = useState(false);
 
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
+  const currentStoreName = selectedStore?.name ?? "全店舗";
+  const canSwitchStore = !isStoreFixed && stores.length > 1;
 
   return (
     <>
@@ -71,33 +73,44 @@ export function Header({ onMenuToggle }: Readonly<HeaderProps>) {
 
         <div className="flex-1" />
 
-        <Badge variant="outline" className="hidden text-xs sm:inline-flex">
-          {selectedStore?.name ?? "全店舗"}
-        </Badge>
+        {!canSwitchStore && (
+          <Badge variant="outline" className="max-w-32 truncate text-xs" title={currentStoreName}>
+            {currentStoreName}
+          </Badge>
+        )}
 
-        {!isStoreFixed && stores.length > 1 && (
+        {canSwitchStore && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                aria-label="店舗を切り替え"
-                className="flex min-h-11 min-w-11 items-center gap-1 rounded-md px-2 py-2 text-xs text-muted-foreground hover:bg-accent"
+                aria-label={`店舗を切り替え（現在：${currentStoreName}）`}
+                className="flex min-h-11 min-w-11 max-w-40 items-center gap-1 rounded-md px-2 py-2 text-xs text-muted-foreground hover:bg-accent"
+                title={currentStoreName}
               >
-                店舗切替
-                <ChevronDown className="size-3" aria-hidden="true" />
+                <span className="truncate">{currentStoreName}</span>
+                <ChevronDown className="size-3 shrink-0" aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => selectStore(null)}>
+              <DropdownMenuItem
+                role="menuitemradio"
+                aria-checked={selectedStoreId === null}
+                onSelect={() => selectStore(null)}
+              >
+                <Check className={cn("size-4", selectedStoreId !== null && "invisible")} aria-hidden="true" />
                 全店舗
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               {stores.map((store) => (
                 <DropdownMenuItem
                   key={store.id}
-                  onClick={() => selectStore(store.id)}
+                  role="menuitemradio"
+                  aria-checked={selectedStoreId === store.id}
+                  onSelect={() => selectStore(store.id)}
                   className={cn(selectedStoreId === store.id && "font-medium")}
                 >
+                  <Check className={cn("size-4", selectedStoreId !== store.id && "invisible")} aria-hidden="true" />
                   {store.name}
                 </DropdownMenuItem>
               ))}

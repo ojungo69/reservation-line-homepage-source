@@ -16,6 +16,24 @@ const FILTERS: Array<{ key: LineFriendsFilter; label: string }> = [
   { key: "all", label: "すべて" }
 ];
 
+function getLinkDisabledReason(
+  profileStatus: LineFriendListItem["profileStatus"],
+  storeId: string,
+  isStoresPending: boolean,
+  hasMultipleStores: boolean,
+): string | undefined {
+  if (!storeId) {
+    if (isStoresPending) return "店舗情報を読み込み中のため紐付けできません。";
+    if (hasMultipleStores) return "紐付け先の店舗を選択すると紐付けできます。";
+    return "店舗情報がないため紐付けできません。";
+  }
+  if (profileStatus === "pending") {
+    return "プロフィールが未取得のため紐付けできません。「友だちを同期」をお試しください。";
+  }
+  if (profileStatus === "unavailable") return "プロフィールを取得できないため紐付けできません。";
+  return undefined;
+}
+
 export default function LineFriendsPage() {
   const [filter, setFilter] = useState<LineFriendsFilter>("unlinked");
   const [q, setQ] = useState("");
@@ -72,6 +90,7 @@ export default function LineFriendsPage() {
             key={f.key}
             size="sm"
             variant={filter === f.key ? "default" : "outline"}
+            aria-pressed={filter === f.key}
             onClick={() => {
               setFilter(f.key);
               setPage(1);
@@ -82,6 +101,7 @@ export default function LineFriendsPage() {
         ))}
         <Input
           className="w-48"
+          aria-label="LINE友だちを名前で検索"
           placeholder="名前で検索"
           value={q}
           onChange={(e) => {
@@ -113,47 +133,56 @@ export default function LineFriendsPage() {
               : "該当がありません。"}
           </p>
         )}
-        {items.map((f) => (
-          <div key={f.lineUserId} className="flex items-center justify-between gap-3 p-3">
-            <div className="flex min-w-0 items-center gap-3">
-              {f.pictureUrl ? (
-                <img src={f.pictureUrl} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
-              ) : (
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-muted text-xs text-muted-foreground">
-                  ?
+        {items.map((f) => {
+          const disabledReason = getLinkDisabledReason(f.profileStatus, effectiveStoreId, isStoresPending, stores.length > 1);
+          const reasonId = disabledReason ? `link-disabled-${f.lineUserId}` : undefined;
+          return (
+            <div key={f.lineUserId} className="flex items-center justify-between gap-3 p-3">
+              <div className="flex min-w-0 items-center gap-3">
+                {f.pictureUrl ? (
+                  <img src={f.pictureUrl} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
+                ) : (
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-muted text-xs text-muted-foreground">
+                    ?
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {f.displayName ?? (f.profileStatus === "unavailable" ? "（取得不可）" : "（未取得）")}
+                  </p>
+                  {f.linked && <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">紐付け済み</p>}
+                  {!f.linked && disabledReason && (
+                    <p id={reasonId} className="text-xs text-muted-foreground">{disabledReason}</p>
+                  )}
+                </div>
+              </div>
+
+              {!f.linked && (
+                <div className="flex shrink-0 flex-wrap items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={effectiveStoreId === "" || f.profileStatus !== "fetched"}
+                    aria-describedby={reasonId}
+                    onClick={() => setExistingFor(f)}
+                  >
+                    <UserCheck className="mr-1 h-4 w-4" />
+                    既存客に紐付け
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={effectiveStoreId === "" || f.profileStatus !== "fetched"}
+                    aria-describedby={reasonId}
+                    onClick={() => setNewFor(f)}
+                  >
+                    <UserPlus className="mr-1 h-4 w-4" />
+                    新規登録して紐付け
+                  </Button>
                 </div>
               )}
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">
-                  {f.displayName ?? (f.profileStatus === "unavailable" ? "（取得不可）" : "（未取得）")}
-                </p>
-                {f.linked && <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">紐付け済み</p>}
-              </div>
             </div>
-
-            {!f.linked && (
-              <div className="flex shrink-0 flex-wrap items-center gap-1">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={effectiveStoreId === "" || f.profileStatus !== "fetched"}
-                  onClick={() => setExistingFor(f)}
-                >
-                  <UserCheck className="mr-1 h-4 w-4" />
-                  既存客に紐付け
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={effectiveStoreId === "" || f.profileStatus !== "fetched"}
-                  onClick={() => setNewFor(f)}
-                >
-                  <UserPlus className="mr-1 h-4 w-4" />
-                  新規登録して紐付け
-                </Button>
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {totalPages > 1 && (

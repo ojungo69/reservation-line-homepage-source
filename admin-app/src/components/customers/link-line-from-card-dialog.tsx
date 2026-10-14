@@ -103,6 +103,7 @@ export function LinkLineFromCardDialog({ customer, onClose }: Readonly<Props>) {
         )}
 
         <Input
+          aria-label="LINE友だちを名前で検索"
           placeholder="LINE友だちの名前で検索"
           value={q}
           onChange={(e) => setQ(e.target.value)}
