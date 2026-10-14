@@ -1,0 +1,62 @@
+version: 2
+updates:
+  # Dependency updates start here: the private deployment pins package manifests to this
+  # repository and adopts them through its fixed-revision import, so update PRs opened there
+  # can never merge. GitHub Actions updates are not configured: the workflow files are pinned
+  # quality configuration on the private side and need a reviewed approval change.
+  - package-ecosystem: npm
+    directory: /
+    # Supply-chain cooldown: skip versions published less than 7 days ago (hijacked releases are
+    # usually yanked within days). Security updates are exempt and open immediately.
+    cooldown:
+      default-days: 7
+    # Compiler majors require explicit compatibility review: the app uses TS7, while
+    # test/helpers/admin-failure-code-scan.ts uses the TS6 compiler API through the
+    # typescript-ast alias.
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # Workers pool 0.22 requires Vitest 4. Remove both ignores together when the pool supports
+      # the next major; upgrade Vitest and coverage together. admin-app uses this same root
+      # installation for tests and coverage.
+      - dependency-name: vitest
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/coverage-v8"
+        update-types: ["version-update:semver-major"]
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 10
+    groups:
+      # Keep the runner, coverage provider and Workers pool compatible in one PR.
+      vitest-stack:
+        applies-to: version-updates
+        patterns:
+          - vitest
+          - "@vitest/coverage-v8"
+          - "@cloudflare/vitest-pool-workers"
+      # One PR for the remaining minor/patch updates keeps review and adoption to one import.
+      # Majors stay separate so breaking changes are easy to review and revert.
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+
+  # admin-app/ has its own package.json and lockfile; the root entry above does not cover it.
+  - package-ecosystem: npm
+    directory: /admin-app
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"

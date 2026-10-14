@@ -20,7 +20,7 @@ afterEach(() => {
 describe("表示中のスケジュールの鮮度", () => {
   it.each([
     { name: "予約", hook: () => useReservations("2026-09-29"), response: { ok: true, reservations: [] } },
-    { name: "ブロック", hook: useExternalBlocks, response: { ok: true, externalBlocks: [] } },
+    { name: "ブロック", hook: () => useExternalBlocks("2026-09-29"), response: { ok: true, externalBlocks: [] } },
     { name: "承認待ち", hook: usePendingReservations, response: { ok: true, reservations: [] } },
     { name: "スケジュール設定", hook: () => useSettings({ live: true }), response: { ok: true, settings: {} } },
   ])("$nameを30秒で更新し、hiddenでは停止、復帰時は直ちに取得する", async ({ hook, response }) => {

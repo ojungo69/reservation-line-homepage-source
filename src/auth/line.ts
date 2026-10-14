@@ -8,7 +8,6 @@ type LineIdTokenPayload = {
   nonce?: string;
   name?: string;
   picture?: string;
-  email?: string;
 };
 
 export type LineIdTokenResult =
@@ -174,8 +173,8 @@ export async function verifyLineIdToken(
       iat: payload.iat,
       nonce: typeof payload.nonce === "string" ? payload.nonce : undefined,
       name: typeof payload.name === "string" ? payload.name : undefined,
-      picture: typeof payload.picture === "string" ? payload.picture : undefined,
-      email: typeof payload.email === "string" ? payload.email : undefined
+      // The email claim is deliberately not read: nothing uses or stores a customer email.
+      picture: typeof payload.picture === "string" ? payload.picture : undefined
     }
   };
 }

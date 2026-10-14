@@ -124,11 +124,13 @@ describe("LINE server-side verification", () => {
   });
 
   it("omits nonce for LIFF tokens that were issued without an app-provided nonce", async () => {
+    // LINE adds an email claim when the channel has email permission; it must not be read.
     const fetchMock = okFetch({
       sub: "line_user_1",
       aud: "line_channel_id",
       exp: 1_800_000_000,
-      iat: 1_700_000_000
+      iat: 1_700_000_000,
+      email: "customer@example.com"
     });
 
     const result = await verifyLineIdToken(
@@ -148,8 +150,7 @@ describe("LINE server-side verification", () => {
         iat: 1_700_000_000,
         nonce: undefined,
         name: undefined,
-        picture: undefined,
-        email: undefined
+        picture: undefined
       }
     });
     const [, init] = vi.mocked(fetchMock).mock.calls[0] ?? [];

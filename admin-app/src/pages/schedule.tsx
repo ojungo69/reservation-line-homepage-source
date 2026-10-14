@@ -62,7 +62,7 @@ export default function SchedulePage() {
   } = useReservations(dateKey);
   const { data: pendingData, isPending: pendingLoading, isError: pendingError } = usePendingReservations();
   const { data: settingsData, isPending: settingsLoading, isError: settingsError, dataUpdatedAt: settingsUpdatedAt, refetch: refetchSettings } = useSettings({ live: true });
-  const { data: blocksData, isPending: blocksLoading, isError: blocksError, dataUpdatedAt: blocksUpdatedAt, refetch: refetchBlocks } = useExternalBlocks();
+  const { data: blocksData, isPending: blocksLoading, isError: blocksError, dataUpdatedAt: blocksUpdatedAt, refetch: refetchBlocks } = useExternalBlocks(dateKey);
   const cancelBlockMutation = useExternalBlockCancel();
 
   const settings = settingsData?.ok ? settingsData.settings : null;
@@ -87,6 +87,13 @@ export default function SchedulePage() {
     </div>
       );
     }
+    if (blocksData?.ok && blocksData.truncated) {
+      return (
+        <p role="alert" className="mx-4 mt-2 text-sm text-destructive">
+          ブロックの表示件数が上限を超えています。一部の予定が表示されていないため、空き状況を正確に確認できません。
+        </p>
+      );
+    }
     if (lastUpdatedAt <= 0) return null;
     return (
     <p className="px-4 py-1 text-xs text-muted-foreground">予定の最終更新: {formatDateTime(new Date(lastUpdatedAt).toISOString())}</p>
@@ -102,18 +109,11 @@ export default function SchedulePage() {
     );
   }, [reservationsData, selectedStoreId]);
 
+  // The query already asks the server for the day's active blocks only.
   const filteredBlocks = useMemo(() => {
     const externalBlocks = blocksData?.ok ? blocksData.externalBlocks : [];
-    const dayStartMs = Date.parse(`${dateKey}T00:00:00+09:00`);
-    const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
-    return externalBlocks.filter((b) => {
-      if (b.status !== "active") return false;
-      if (selectedStoreId && b.storeId !== selectedStoreId) return false;
-      const blockStartMs = Date.parse(b.startAt);
-      const blockEndMs = Date.parse(b.endAt);
-      return blockStartMs < dayEndMs && blockEndMs > dayStartMs;
-    });
-  }, [blocksData, selectedStoreId, dateKey]);
+    return externalBlocks.filter((b) => !selectedStoreId || b.storeId === selectedStoreId);
+  }, [blocksData, selectedStoreId]);
 
   const counts = useMemo(() => {
     const pendingList = pendingData?.ok ? pendingData.reservations : [];

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { Reservation } from "@/types/api";
 import { useSettings } from "@/hooks/use-settings";
+import { useExternalBlocks } from "@/hooks/use-external-blocks";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,7 +29,7 @@ const settingsQuery = {
   refetch: vi.fn(),
 };
 const blocksQuery = {
-  data: { ok: true, externalBlocks: [{ id: "block-1", storeId: "store-1", titleSnapshot: "研修", startAt: "2026-07-24T10:00:00+09:00", endAt: "2026-07-24T11:00:00+09:00", status: "active" }] },
+  data: { ok: true, truncated: false, externalBlocks: [{ id: "block-1", storeId: "store-1", titleSnapshot: "研修", startAt: "2026-07-24T10:00:00+09:00", endAt: "2026-07-24T11:00:00+09:00", status: "active" }] },
   isPending: false,
   isError: false,
   dataUpdatedAt: Date.parse("2026-07-24T01:00:00Z"),
@@ -65,7 +66,7 @@ vi.mock("@/hooks/use-settings", () => ({
 }));
 
 vi.mock("@/hooks/use-external-blocks", () => ({
-  useExternalBlocks: () => blocksQuery,
+  useExternalBlocks: vi.fn(() => blocksQuery),
   useExternalBlockCancel: () => ({ mutate: cancelBlock, isPending: false }),
 }));
 
@@ -160,6 +161,8 @@ beforeEach(() => {
   settingsQuery.data = settingsData;
   settingsQuery.dataUpdatedAt = Date.parse("2026-07-24T01:00:00Z");
   vi.mocked(useSettings).mockClear();
+  vi.mocked(useExternalBlocks).mockClear();
+  blocksQuery.data.truncated = false;
   for (const query of [settingsQuery, blocksQuery]) {
     query.isPending = false;
     query.isError = false;
@@ -172,6 +175,22 @@ afterEach(() => {
 });
 
 describe("SchedulePage", () => {
+  it("表示日の変更を外部ブロックの取得範囲にも反映する", async () => {
+    render(<SchedulePage />);
+    expect(useExternalBlocks).toHaveBeenLastCalledWith("2026-07-24");
+    await userEvent.setup().click(screen.getByRole("button", { name: "翌日へ" }));
+    expect(useExternalBlocks).toHaveBeenLastCalledWith("2026-07-25");
+  });
+
+  it("外部ブロックが上限を超えた場合は日表示で空き状況の警告を出す", async () => {
+    blocksQuery.data.truncated = true;
+    const { rerender } = render(<SchedulePage />);
+    expect(screen.getByRole("alert").textContent).toContain("空き状況を正確に確認できません");
+    blocksQuery.data.truncated = false;
+    rerender(<SchedulePage />);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("スマホでは選択日の過去・深夜の予約を読め、詳細編集中も幅変更で内容を保持する", async () => {
     const user = userEvent.setup();
     isNarrow = true;

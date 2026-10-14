@@ -434,13 +434,6 @@ const getBusySlots = async (
     dayStart: Date;
     dayEnd: Date;
     nowIso: string;
-    /**
-     * Reschedule only: the id of the reservation being moved. Its own slot_locks are
-     * excluded so the picker can offer a same-day shift that merely overlaps the
-     * customer's current booking — approval deletes those locks before re-inserting, so
-     * they are not a real conflict for this reservation. Booking (new) passes nothing.
-     */
-    excludeReservationLockOwnerId?: string;
   }
 ) => {
   // Ignore ONLY a pending lock whose TTL has already lapsed. Pending web bookings hold a
@@ -449,9 +442,6 @@ const getBusySlots = async (
   // confirmed lock must still block). Filtering only stranded/orphaned PENDING locks makes
   // availability self-correcting against the documented bulk-cleanup incident class without
   // ever freeing a genuinely-held confirmed slot.
-  const excludeOwn = input.excludeReservationLockOwnerId
-    ? " AND NOT (owner_type = 'reservation' AND owner_id = ?)"
-    : "";
   const statement = db.prepare(
     `
         SELECT slot_at
@@ -460,7 +450,7 @@ const getBusySlots = async (
           AND resource_id = ?
           AND slot_at >= ?
           AND slot_at < ?
-          AND NOT (lock_status = 'pending' AND expires_at IS NOT NULL AND datetime(expires_at) <= datetime(?))${excludeOwn}
+          AND NOT (lock_status = 'pending' AND expires_at IS NOT NULL AND datetime(expires_at) <= datetime(?))
       `
   );
   const bindings: (string)[] = [
@@ -470,9 +460,6 @@ const getBusySlots = async (
     toIso(input.dayEnd),
     input.nowIso
   ];
-  if (input.excludeReservationLockOwnerId) {
-    bindings.push(input.excludeReservationLockOwnerId);
-  }
   const rows = await statement.bind(...bindings).all<{ slot_at: string }>();
   return new Set((rows.results ?? []).map((row) => row.slot_at));
 };
@@ -869,8 +856,8 @@ const buildAvailabilityResult = (
     : {})
 });
 
-// Shared "context + date → slots" core used by both the booking path (new reservation)
-// and the reschedule path. Returns "invalid" for an unrenderable date, "fail_closed" when
+// Compute public booking slots from the context and date.
+// Returns "invalid" for an unrenderable date, "fail_closed" when
 // the Google live check cannot confirm availability, or the slot list otherwise.
 const computeAvailabilitySlots = async (input: {
   db: D1Database;
@@ -881,7 +868,6 @@ const computeAvailabilitySlots = async (input: {
   fetcher?: typeof fetch;
   accessTokenProvider?: (env: Partial<WorkerBindings>) => Promise<string | undefined>;
   now?: () => number;
-  excludeReservationLockOwnerId?: string;
 }): Promise<PublicAvailabilitySlot[] | "invalid" | "fail_closed"> => {
   const { context, date, nowMs } = input;
   const weekday = getWeekday(date, context.timezone);
@@ -913,8 +899,7 @@ const computeAvailabilitySlots = async (input: {
       resourceId: context.resourceId,
       dayStart,
       dayEnd,
-      nowIso: new Date(nowMs).toISOString(),
-      excludeReservationLockOwnerId: input.excludeReservationLockOwnerId
+      nowIso: new Date(nowMs).toISOString()
     }),
     getClosures(input.db, {
       storeId: context.storeId,

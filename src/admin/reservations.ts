@@ -9,6 +9,7 @@ import {
 import { trackEvent, type ReservationEventType } from "../analytics/metrics";
 import { sha256Hex } from "../crypto-utils";
 import { captureBatchWriteFailure } from "../sentry-helpers";
+import { withOutboundTimeout } from "../outbound-timeout";
 import { isNonEmptyString } from "./reservation-time-utils";
 
 const ACTION_TO_EVENT: Record<AdminReservationAction, ReservationEventType> = {
@@ -68,6 +69,9 @@ type AdminReservationFailure = {
     | "idempotency_conflict"
     | "idempotency_in_progress"
     | "line_not_reachable"
+    // The LINE check itself could not run (timeout, upstream or configuration error);
+    // approval stays blocked, but the customer is not classified as unreachable.
+    | "line_check_unavailable"
     | "store_closed"
     | "write_failed";
 };
@@ -286,17 +290,17 @@ const checkLineReachability = async (input: {
   env: Partial<WorkerBindings>;
   lineUserId: string | null;
   fetcher?: typeof fetch;
-}) => {
+}): Promise<boolean | undefined> => {
   if (!isNonEmptyString(input.lineUserId, 128)) {
     return false;
   }
   const token = input.env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN;
   if (!isNonEmptyString(token, 4096)) {
-    return false;
+    return undefined;
   }
 
   try {
-    const fetcher = input.fetcher ?? fetch.bind(globalThis);
+    const fetcher = withOutboundTimeout(input.fetcher ?? fetch.bind(globalThis), 5_000);
     const response = await fetcher(
       `https://api.line.me/v2/bot/profile/${encodeURIComponent(input.lineUserId)}`,
       {
@@ -305,9 +309,12 @@ const checkLineReachability = async (input: {
         }
       }
     );
-    return response.ok;
+    if (response.ok) return true;
+    // Only 404 establishes that this user cannot be reached. Upstream or configuration
+    // failures leave approval blocked without misclassifying the customer as unreachable.
+    return response.status === 404 ? false : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 };
 
@@ -828,14 +835,13 @@ const verifyApprovalLineReachability = async (input: {
     lineUserId: input.reservation.line_user_id,
     fetcher: input.fetcher
   });
-  if (reachable) {
+  if (reachable === true) {
     return undefined;
   }
 
-  return {
-    ok: false,
-    reason: "line_not_reachable"
-  };
+  return reachable === false
+    ? { ok: false, reason: "line_not_reachable" }
+    : { ok: false, reason: "line_check_unavailable" };
 };
 
 const buildApproveStatements = (input: {

@@ -17,6 +17,7 @@ const log = (
   targetType: "reservation",
   targetId: "reservation-1",
   metadataJson: null,
+  actorName: null,
   rejectionReason: null,
   createdAt: "2026-07-24 10:00:00",
   ...overrides,
@@ -30,6 +31,12 @@ describe("audit formatting", () => {
         new Map([["staff-1", "山田 花子"]]),
       ),
     ).toBe("山田 花子 が 予約を承認");
+  });
+
+  it("prefers the staff name the server resolved for the admin user", () => {
+    expect(
+      formatAuditSummary(log({ actorId: "admin-1", actorName: "佐藤 一郎" }), new Map()),
+    ).toBe("佐藤 一郎 が 予約を承認");
   });
 
   it("falls back to the generic staff label for an unknown staff id", () => {
