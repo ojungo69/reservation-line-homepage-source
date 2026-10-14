@@ -1180,6 +1180,9 @@ describe("admin operations API", () => {
         const body = await response.json() as { externalBlocks: { id: string }[]; truncated: boolean };
         expect(body.externalBlocks).toHaveLength(200);
         expect(body.truncated).toBe(truncated);
+        // Every row shares start_at, so only the id tie-breaker decides which 200 rows come back and in what order.
+        const idsDescending = Array.from({ length: count }, (_, index) => `block-${index}`).sort().reverse();
+        expect(body.externalBlocks.map((block) => block.id)).toEqual(idsDescending.slice(0, 200));
       } finally {
         db.sqlite.close();
       }
