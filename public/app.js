@@ -822,6 +822,18 @@ const renderServices = (services) => {
   updateServicesSummary();
 };
 
+const updateServicesTotal = (selected) => {
+  if (!elements.servicesTotal) return;
+  const totalAmount = selectionTotalAmount(selected);
+  if (totalAmount === null) {
+    elements.servicesTotal.hidden = true;
+    elements.servicesTotal.textContent = "";
+  } else {
+    elements.servicesTotal.textContent = `合計 ${formatTotalAmount(totalAmount)}`;
+    elements.servicesTotal.hidden = false;
+  }
+};
+
 // Reflect the current checkbox selection in the collapsed dropdown trigger label
 // and the removable tag list below it. The menu is multi-select; the popover keeps
 // the full grouped checkbox list, while these surfaces summarise the choice so the
@@ -857,16 +869,7 @@ const updateServicesSummary = () => {
     }
   }
 
-  if (elements.servicesTotal) {
-    const totalAmount = selectionTotalAmount(selected);
-    if (totalAmount === null) {
-      elements.servicesTotal.hidden = true;
-      elements.servicesTotal.textContent = "";
-    } else {
-      elements.servicesTotal.textContent = `合計 ${formatTotalAmount(totalAmount)}`;
-      elements.servicesTotal.hidden = false;
-    }
-  }
+  updateServicesTotal(selected);
 
   if (elements.servicesTags) {
     elements.servicesTags.replaceChildren();
@@ -1785,6 +1788,47 @@ const findNextAvailableDate = async () => {
   }
 };
 
+const showAvailabilityResponseError = (response, body, background) => {
+  state.availabilityLastFetchFailed = true;
+  if (background) return;
+  setSlotNotice("");
+  // A response can cross midnight after its date was valid at fetch start.
+  const dateExpired = response.status === 400 && body?.reason === "invalid_request" &&
+    elements.date.value < formatDateInput(new Date(), getSelectedStore().timezone);
+  // The duration cap has a dedicated reason so the customer learns the fix
+  // (fewer menus) instead of reading a generic availability failure.
+  let message = "空き時間を取得できませんでした";
+  if (body?.reason === "duration_limit_exceeded") {
+    message = "選択されたメニューの合計施術時間が上限（235分）を超えています。メニューの数を減らして再度お試しください。";
+  } else if (dateExpired) {
+    message = "日付を選び直してください";
+  }
+  clearSlots(message);
+};
+
+const renderUpdatedAvailabilitySlots = (body, previousAvailability, background) => {
+  const previousSlots = previousAvailability?.slots ?? [];
+  const slotsUnchanged = background && previousAvailability && previousAvailability.timezone === body.timezone &&
+    previousSlots.length === (body.slots?.length ?? 0) &&
+    previousSlots.every((slot, index) => slot.startAt === body.slots[index].startAt);
+  if (slotsUnchanged) return;
+
+  const focusedStartAt = background && elements.slots.contains(document.activeElement)
+    ? document.activeElement?.dataset.startAt : undefined;
+  renderSlots();
+  if (!focusedStartAt) return;
+
+  const replacement = Array.from(elements.slots.querySelectorAll(".slot-button"))
+    .find(button => button.dataset.startAt === focusedStartAt);
+  if (!replacement) {
+    focusRegion(elements.slots);
+    return;
+  }
+  elements.slots.querySelector(".slot-button[tabindex='0']")?.setAttribute("tabindex", "-1");
+  replacement.tabIndex = 0;
+  replacement.focus({ preventScroll: true });
+};
+
 const loadAvailability = async ({ background = false } = {}) => {
   cancelAvailabilityRequest();
   state.nextDateSearchCursor = "";
@@ -1835,19 +1879,7 @@ const loadAvailability = async ({ background = false } = {}) => {
     state.availabilityFetchInFlight = false;
     if (!background) elements.slots.setAttribute("aria-busy", "false");
     if (!response.ok || !body.ok || body.availabilityStatus === "unavailable") {
-      state.availabilityLastFetchFailed = true;
-      if (background) return;
-      setSlotNotice("");
-      // A response can cross midnight after its date was valid at fetch start.
-      const dateExpired = response.status === 400 && body?.reason === "invalid_request" &&
-        elements.date.value < formatDateInput(new Date(), getSelectedStore().timezone);
-      // The duration cap has a dedicated reason so the customer learns the fix
-      // (fewer menus) instead of reading a generic availability failure.
-      clearSlots(
-        body?.reason === "duration_limit_exceeded"
-          ? "選択されたメニューの合計施術時間が上限（235分）を超えています。メニューの数を減らして再度お試しください。"
-          : dateExpired ? "日付を選び直してください" : "空き時間を取得できませんでした"
-      );
+      showAvailabilityResponseError(response, body, background);
       return;
     }
     state.availabilityLastFetchFailed = false;
@@ -1856,26 +1888,7 @@ const loadAvailability = async ({ background = false } = {}) => {
     // Set before renderSlots so the "選択できる空き時間がありません" case (a men's
     // menu on a closed weekday) is shown together with the reason.
     setSlotNotice(body.notice);
-    const previousSlots = previousAvailability?.slots ?? [];
-    const slotsUnchanged = background && previousAvailability && previousAvailability.timezone === body.timezone &&
-      previousSlots.length === (body.slots?.length ?? 0) &&
-      previousSlots.every((slot, index) => slot.startAt === body.slots[index].startAt);
-    if (!slotsUnchanged) {
-      const focusedStartAt = background && elements.slots.contains(document.activeElement)
-        ? document.activeElement?.dataset.startAt : undefined;
-      renderSlots();
-      if (focusedStartAt) {
-        const replacement = Array.from(elements.slots.querySelectorAll(".slot-button"))
-          .find(button => button.dataset.startAt === focusedStartAt);
-        if (replacement) {
-          elements.slots.querySelector(".slot-button[tabindex='0']")?.setAttribute("tabindex", "-1");
-          replacement.tabIndex = 0;
-          replacement.focus({ preventScroll: true });
-        } else {
-          focusRegion(elements.slots);
-        }
-      }
-    }
+    renderUpdatedAvailabilitySlots(body, previousAvailability, background);
   } catch {
     if (requestId === state.availabilityRequestId) {
       state.availabilityFetchInFlight = false;

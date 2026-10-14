@@ -63,6 +63,21 @@ const parseReservationGateRequest = (
   };
 };
 
+const parsePublicReservationCustomer = (
+  customerObj: Record<string, unknown> | undefined
+): PublicReservationRequest["customer"] => {
+  if (!customerObj) {
+    return undefined;
+  }
+  const displayName = getString(customerObj, "displayName", 120);
+  const displayNameKana = getString(customerObj, "displayNameKana", 120);
+  const phone = getString(customerObj, "phone", 32);
+  if (!displayName || !phone) {
+    return undefined;
+  }
+  return { displayName, displayNameKana, phone };
+};
+
 const parsePublicReservationSubmitRequest = (
   body: unknown,
   remoteIp: string | undefined
@@ -94,9 +109,7 @@ const parsePublicReservationSubmitRequest = (
   }
   const resourceId = getString(body, "resourceId", 128);
   const startAt = getString(body, "startAt", 64);
-  const displayName = customerObj ? getString(customerObj, "displayName", 120) : undefined;
-  const displayNameKana = customerObj ? getString(customerObj, "displayNameKana", 120) : undefined;
-  const phone = customerObj ? getString(customerObj, "phone", 32) : undefined;
+  const customer = parsePublicReservationCustomer(customerObj);
   const noticeVersion = getString(body.consents, "noticeVersion", 64);
   const cancellationPolicyVersion = getString(body.consents, "cancellationPolicyVersion", 64);
   const privacyPolicyVersion = getString(body.consents, "privacyPolicyVersion", 64);
@@ -122,7 +135,7 @@ const parsePublicReservationSubmitRequest = (
     return undefined;
   }
   // When a customer object is supplied, it must carry a usable name + phone.
-  if (customerObj && (!displayName || !phone)) {
+  if (customerObj && !customer) {
     return undefined;
   }
 
@@ -142,9 +155,7 @@ const parsePublicReservationSubmitRequest = (
       serviceIds,
       resourceId,
       startAt,
-      ...(customerObj && displayName && phone
-        ? { customer: { displayName, displayNameKana, phone } }
-        : {}),
+      ...(customer ? { customer } : {}),
       consents: {
         noticeVersion,
         cancellationPolicyVersion,
