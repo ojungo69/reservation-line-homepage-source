@@ -38,6 +38,12 @@ only seam), then runs the validation set in plan.md.
 - [X] T011 [US6] F24: replace line anchors with function names in `docs/admin-authz-matrix.md`; make `test/admin-authz-matrix-sync.test.ts` reject `.ts:<line>` anchors.
 - [X] T012 [US6] F3: add `.github/dependabot.yml` for the root and `admin-app` npm packages with the existing cooldown, grouping and ignore rules.
 
+## Review follow-ups (specs/002)
+
+- [X] T016 FR-012: other-site list views get their own audit row (`src/admin/customers.ts`, `test/admin-customer-staff-access.test.ts`).
+- [X] T017 FR-012: `GET /audit-logs` returns `actorName`; the activity log prefers it (`src/admin/operations.ts`, `admin-app/src/lib/audit-format.ts`).
+- [X] T018 FR-012: `verifyLineIdToken` stops reading the email claim (`src/auth/line.ts`, `test/auth.test.ts`).
+
 ## Verification and release
 
 - [ ] T013 Merge cluster branches, run the full validation set, record results in `specs/003-quality-fixes/verification.md`.

@@ -75,13 +75,14 @@ long-lived tab, many menus and a booking cap of one.
 **Why this priority**: Unlimited anonymous availability calls each query the calendar provider;
 if its quota is exhausted every slot shows as unavailable for every customer.
 
-**Independent Test**: Repeat identical availability requests across isolates; the provider is
-called once per cache window per store, calendar and range.
+**Independent Test**: Repeat identical availability requests across isolates in one data center;
+the provider is called once per cache window per store, calendar and range.
 
 **Acceptance Scenarios**:
 
-1. **Given** the same availability request from many visitors within the cache window,
-   **When** they arrive, **Then** the calendar provider is queried at most once per window.
+1. **Given** the same availability request from many visitors served by one data center within
+   the cache window, **When** they arrive, **Then** the calendar provider is queried at most once
+   per window for that data center (the shared cache is not replicated between data centers).
 2. **Given** the shared cache is unavailable, **When** a request arrives, **Then** behavior falls
    back to today's per-instance cache without failing the request.
 
@@ -97,8 +98,8 @@ called once per cache window per store, calendar and range.
 3. Confirm dialogs name the action on the confirm button and use the destructive style for
    destructive actions.
 4. Booking-rule settings live under a tab whose name matches its content.
-5. Staff searching by phone learn that the full number is required, and long name searches say
-   when results were cut off.
+5. Staff searching by phone learn that the full number is required, and a name search whose
+   results exceed the 20-row result limit says that the list was cut off.
 
 ---
 
@@ -109,10 +110,14 @@ called once per cache window per store, calendar and range.
 1. The approval-time LINE reachability check times out and distinguishes "not reachable" from
    "could not check".
 2. The admin slot picker does not offer slots inside store closures or in the past.
-3. External blocks for the viewed period are always returned, regardless of older history.
+3. External blocks are filtered to the viewed period and status before the 200-row limit is
+   applied, so the viewed period is always returned regardless of older history; when more than
+   200 rows match, the response says so and the schedule shows a warning. Invalid filters are
+   rejected with a validation error for every role.
 4. Customer list pages never repeat or skip rows when sort keys tie.
 5. A reminder offset of 0 is rejected instead of silently disabling the reminder.
-6. Conflict reasons longer than the limit are rejected instead of silently dropped.
+6. Conflict-resolution reasons (including the all-day closure reason) and resolution notes longer
+   than 500 characters are rejected instead of silently dropped.
 7. A failed revert after a lost conflict-resolution race is reported to error monitoring.
 8. Unused code paths found by the review are removed.
 
@@ -143,14 +148,18 @@ called once per cache window per store, calendar and range.
   NOT reuse a spent security token.
 - **FR-005**: Customer-facing screens MUST NOT reveal treatment length.
 - **FR-006**: Background refreshes MUST NOT rebuild unchanged lists or replace them on failure.
-- **FR-007**: Availability results from the calendar provider MUST be shared across instances for
-  the existing cache window, with a fallback to the per-instance cache.
+- **FR-007**: Availability results from the calendar provider MUST be shared across instances in
+  the same data center for the existing cache window, with a fallback to the per-instance cache.
 - **FR-008**: Interactive controls in the listed admin screens MUST have accessible names and states.
 - **FR-009**: Server endpoints in User Story 5 MUST return correct, complete results or a specific
   error code.
 - **FR-010**: Dependency update automation MUST target this repository.
 - **FR-011**: No new runtime dependency is added. Existing authorization, store scoping and
   write-time actor checks stay unchanged.
+- **FR-012** (review follow-ups of specs/002, added 2026-10-14): a staff customer-list view that a
+  browser marks as coming from another site is recorded in its own row so it can neither claim nor
+  avoid the day's record; the activity log names the staff member behind each staff action; the
+  LINE ID-token email claim is not read, because nothing uses or stores a customer email.
 
 ### Key Entities
 
