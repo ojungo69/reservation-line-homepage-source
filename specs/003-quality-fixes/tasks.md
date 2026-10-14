@@ -30,13 +30,13 @@ only seam), then runs the validation set in plan.md.
 
 ## User Story 5 (P2): correct server results
 
-- [ ] T009 [P] [US5] B1: F9, F10, F34, F40 in `src/admin/reservations.ts`, `src/admin/operations.ts`, `admin-app/src/hooks/use-external-blocks.ts`, `src/admin/customers.ts`.
-- [ ] T010 [P] [US5] B2: F39 (reporting only), F41, F42, U17, U18 in `src/admin/conflict-resolutions.ts`, `src/admin/settings-reminder.ts`, `src/routes/admin-api.ts`, `src/reservations/public-options.ts`, `src/cache/kv-cache.ts` and the unused logout export.
+- [X] T009 [P] [US5] B1: F9, F10, F34, F40 in `src/admin/reservations.ts`, `src/admin/operations.ts`, `admin-app/src/hooks/use-external-blocks.ts`, `src/admin/customers.ts`.
+- [X] T010 [P] [US5] B2: F39 (reporting only), F41, F42, U17, U18 in `src/admin/conflict-resolutions.ts`, `src/admin/settings-reminder.ts`, `src/routes/admin-api.ts`, `src/reservations/public-options.ts`, `src/cache/kv-cache.ts` and the unused logout export.
 
 ## User Story 6 (P3): repository maintenance
 
-- [ ] T011 [US6] F24: replace line anchors with function names in `docs/admin-authz-matrix.md`; make `test/admin-authz-matrix-sync.test.ts` reject `.ts:<line>` anchors.
-- [ ] T012 [US6] F3: add `.github/dependabot.yml` for the root and `admin-app` npm packages with the existing cooldown, grouping and ignore rules.
+- [X] T011 [US6] F24: replace line anchors with function names in `docs/admin-authz-matrix.md`; make `test/admin-authz-matrix-sync.test.ts` reject `.ts:<line>` anchors.
+- [X] T012 [US6] F3: add `.github/dependabot.yml` for the root and `admin-app` npm packages with the existing cooldown, grouping and ignore rules.
 
 ## Verification and release
 
