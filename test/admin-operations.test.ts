@@ -10,7 +10,7 @@ import { createApp } from "../src/app";
 import worker from "../src/index";
 import type { WorkerBindings } from "../src/bindings";
 import { ADMIN_SPA_CSP } from "../src/security-headers";
-import { createAccessJwksFetchMock, createAccessJwtFixture as createAccessJwtFixtureBase, requestUrl, insertAdminUser as insertAdminUserHelper, grantCustomerTabGate, type AdminRole } from "./helpers/admin-access";
+import { createAccessJwksFetchMock, createAccessJwtFixture as createAccessJwtFixtureBase, requestUrl, insertAdminUser as insertAdminUserHelper, type AdminRole } from "./helpers/admin-access";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 
 const TEAM_DOMAIN = "https://team.example.cloudflareaccess.com";
@@ -44,10 +44,6 @@ const insertAdminUser = (db: SqliteD1Database, role: AdminRole = "owner") => {
     role,
     updatedAt: "2026-05-09T00:00:00.000Z",
   });
-  // spec 008 の顧客タブゲートは staff にだけ効く。このファイルのテストは店舗スコープと
-  // role を見るものなので、承認済みの状態から始める (ゲート自体は
-  // test/admin-customer-gate.test.ts で検証する)。
-  if (role === "staff") grantCustomerTabGate(db, "admin_operations_owner_1");
 };
 
 const baseEnv = (db: SqliteD1Database): Record<string, unknown> => ({
@@ -2928,8 +2924,7 @@ describe("GET /api/admin/reservations/:id — customerMemo / customerAllergyNote
 });
 
 // 来店履歴 1 ページの件数はサーバーと管理画面の 2 箇所にある。ずれると「さらに読み込む」が
-// 出ないか、出たまま空を引き続ける。どちらも黙って壊れるので、値の一致を固定する
-// (顧客タブゲートの MAX_ATTEMPTS と同じ形)。
+// 出ないか、出たまま空を引き続ける。どちらも黙って壊れるので、値の一致を固定する。
 describe("来店履歴のページサイズ", () => {
   it("サーバーと管理画面で同じ件数を持つ", () => {
     const readConstant = (path: string) => {

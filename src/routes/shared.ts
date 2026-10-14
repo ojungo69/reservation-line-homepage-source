@@ -4,7 +4,6 @@ import type { AppEnvironment, QueueKickTarget, ConflictActionGuardResult, Confli
 import type { AdminAuthResult, AdminUser } from "../admin/access";
 import { authenticateAdmin } from "../admin/access";
 import { isAdminMutationRateLimited } from "../admin/settings-route-helpers";
-import { hasActiveCustomerGateGrant } from "../admin/customer-gate";
 import type { AdminReservationActionResult } from "../admin/reservations";
 import type { AdminCreateReservationResult } from "../admin/reservation-create";
 import type { AdminRescheduleReservationResult } from "../admin/reservation-reschedule";
@@ -40,12 +39,6 @@ export const ADMIN_PRIVATE_HEADERS = PRIVATE_RESPONSE_HEADERS;
 export const PUBLIC_RESERVATION_HEADERS = PRIVATE_RESPONSE_HEADERS;
 
 export const FORBIDDEN_BODY = { ok: false, reason: "forbidden" } as const;
-// Distinct from FORBIDDEN_BODY so the SPA can tell "you may never do this" from
-// "enter the owner's code and you may" — the card is rendered off this reason.
-export const CUSTOMER_GATE_REQUIRED_BODY = {
-  ok: false,
-  reason: "customer_gate_required"
-} as const;
 export const MISSING_DB_BODY = { ok: false, reason: "missing_database" } as const;
 
 export const SEARCH_LIMIT = 500;
@@ -333,24 +326,6 @@ export const assertStaffCustomerStoreScope = async (
   if (!admin.store_id) return c.json(FORBIDDEN_BODY, 403, ADMIN_PRIVATE_HEADERS);
   const allowed = await staffCanAccessCustomer(db, customerId, admin.store_id);
   return allowed ? null : c.json(FORBIDDEN_BODY, 403, ADMIN_PRIVATE_HEADERS);
-};
-
-/**
- * Owner-approval gate for the customer tab (spec 008). Owner / system_admin always
- * pass. A staff user passes only while holding a grant from a verified one-time code.
- *
- * Called inline right after the caller is resolved, NOT as path middleware: the
- * customer routes and the schedule's reservation detail share the `/customers/*`
- * prefix, and the owner's decision was to gate the customer tab only.
- */
-export const assertCustomerTabGate = async (
-  c: Context<AppEnvironment>,
-  db: D1Database,
-  admin: { id: string; role: string }
-): Promise<Response | null> => {
-  if (admin.role !== "staff") return null;
-  const granted = await hasActiveCustomerGateGrant(db, admin.id);
-  return granted ? null : c.json(CUSTOMER_GATE_REQUIRED_BODY, 403, ADMIN_PRIVATE_HEADERS);
 };
 
 // Conflict action guard

@@ -19,8 +19,6 @@ import {
   requireOwnerWithDb,
   staffHasStore,
   assertStaffCustomerStoreScope,
-  assertCustomerTabGate,
-  CUSTOMER_GATE_REQUIRED_BODY,
   guardConflictAction,
   statusForAdminAuthResult,
   statusForAdminActionResult,
@@ -197,12 +195,13 @@ import { archiveCsvToR2 } from "../storage/r2-helpers";
 import { safeCaptureException } from "../sentry-helpers";
 import { expandRrule } from "../google/rrule-expander";
 import { JST_OFFSET_MS } from "../time-utils";
-import { searchAdminCustomers, listAllCustomers, listCustomerMergeCandidates, OWN_STORE_MEMBERSHIP_ARMS } from "../admin/customers";
 import {
-  hasActiveCustomerGateGrant,
-  requestCustomerGateCode,
-  verifyCustomerGateCode
-} from "../admin/customer-gate";
+  searchAdminCustomers,
+  listAllCustomers,
+  listCustomerMergeCandidates,
+  OWN_STORE_MEMBERSHIP_ARMS,
+  recordStaffCustomerListView
+} from "../admin/customers";
 import {
   acknowledgeAdminSyncJob,
   isAdminSyncJobSource,
@@ -1223,64 +1222,6 @@ function resolveCustomerStoreScope(
   return storeParam && storeParam !== "all" ? storeParam : null;
 }
 
-// 6b. POST /customer-gate/request, POST /customer-gate/verify — the owner-approval
-// one-time code for the customer tab (spec 008). Both are covered by the sub-app-wide
-// CSRF / Sec-Fetch-Site guard (the `use("*")` above, which applies regardless of where a
-// route is registered) and by the per-admin mutation throttle inside
-// authenticateAdminRoute, which authenticateAdminWithDb goes through.
-adminApiRoutes.post("/customer-gate/request", async (c) => {
-  const gate = await authenticateAdminWithDb(c, ADMIN_PRIVATE_HEADERS);
-  if (!gate.ok) return gate.response;
-  // owner / system_admin never hold a grant, so asking for a code is meaningless
-  // rather than forbidden.
-  if (gate.admin.role !== "staff") {
-    return c.json({ ok: false, reason: "not_applicable" }, 400, ADMIN_PRIVATE_HEADERS);
-  }
-  // 店舗の紐付けが無い staff は GET /customers 自体が 403 なので、承認を得ても使い道が
-  // 無い。ここを開けたままにすると「オーナー宛メールを 1 時間に 10 通投げられるだけの
-  // 口」になるので、顧客タブと同じ fail-closed をコードの発行の前に置く。
-  if (!staffHasStore(gate.admin)) {
-    return c.json(FORBIDDEN_BODY, 403, ADMIN_PRIVATE_HEADERS);
-  }
-
-  const result = await requestCustomerGateCode({ db: gate.db, env: c.env, admin: gate.admin });
-  if (result.ok) return c.json(result, 200, ADMIN_PRIVATE_HEADERS);
-
-  if (result.reason === "rate_limited") return c.json(result, 429, ADMIN_PRIVATE_HEADERS);
-  if (result.reason === "gate_email_failed") return c.json(result, 502, ADMIN_PRIVATE_HEADERS);
-  if (result.reason === "forbidden") return c.json(result, 403, ADMIN_PRIVATE_HEADERS);
-  return c.json(result, 500, ADMIN_PRIVATE_HEADERS);
-});
-
-adminApiRoutes.post("/customer-gate/verify", async (c) => {
-  const gate = await authenticateAdminWithDb(c, ADMIN_PRIVATE_HEADERS);
-  if (!gate.ok) return gate.response;
-  if (gate.admin.role !== "staff") {
-    return c.json({ ok: false, reason: "not_applicable" }, 400, ADMIN_PRIVATE_HEADERS);
-  }
-  if (!staffHasStore(gate.admin)) {
-    return c.json(FORBIDDEN_BODY, 403, ADMIN_PRIVATE_HEADERS);
-  }
-  const parsed = await parseJsonObjectBody(c);
-  if (!parsed.ok) return parsed.response;
-
-  const body = parsed.body as { challengeId?: unknown; code?: unknown };
-  // The code is exactly 6 digits; anything else never reaches the hash comparison.
-  if (typeof body.challengeId !== "string" || typeof body.code !== "string" || !/^\d{6}$/.test(body.code)) {
-    return c.json({ ok: false, reason: "invalid_request" }, 400, ADMIN_PRIVATE_HEADERS);
-  }
-
-  const result = await verifyCustomerGateCode({
-    db: gate.db,
-    admin: gate.admin,
-    challengeId: body.challengeId,
-    code: body.code
-  });
-  if (result.ok) return c.json(result, 200, ADMIN_PRIVATE_HEADERS);
-  if (result.reason === "forbidden") return c.json(result, 403, ADMIN_PRIVATE_HEADERS);
-  return c.json(result, result.reason === "rate_limited" ? 429 : 400, ADMIN_PRIVATE_HEADERS);
-});
-
 // 7. GET /customers — search or list all.
 // Staff may now read customers, but ONLY their own store's (own-store = a
 // reservation, a VALID visit, or a manual registration at the staff's store).
@@ -1300,15 +1241,8 @@ adminApiRoutes.get("/customers", async (c) => {
   const storeScope = resolveCustomerStoreScope(admin, isStaff, c.req.query("store"));
 
   const db = c.env.DB;
-  // 顧客タブのオーナー承認ゲート (spec 008)。名簿の閲覧・列挙は承認が要るが、`?q=` の
-  // 名前検索は予約作成の顧客ピッカーと LINE 友だち紐付けが同じ URL を叩くので止めず、
-  // memo を落として返す。承認の有無はサーバーが決め、クライアント申告では分岐しない。
-  const gateGranted = isStaff ? await hasActiveCustomerGateGrant(db, admin.id) : true;
   const mode = c.req.query("mode");
   if (mode === "list") {
-    if (!gateGranted) {
-      return c.json(CUSTOMER_GATE_REQUIRED_BODY, 403, ADMIN_PRIVATE_HEADERS);
-    }
     const offset = Number.parseInt(c.req.query("offset") ?? "0", 10);
     const archivedOnly = c.req.query("view") === "archived";
     // The archived view is open to staff too (2026-08-26): they can archive their
@@ -1320,6 +1254,7 @@ adminApiRoutes.get("/customers", async (c) => {
       Number.isNaN(offset) ? 0 : offset,
       { archivedOnly, storeScope }
     );
+    if (isStaff) await recordStaffCustomerListView(db, admin);
     return c.json(result, 200, ADMIN_PRIVATE_HEADERS);
   }
 
@@ -1328,8 +1263,7 @@ adminApiRoutes.get("/customers", async (c) => {
     db,
     query: q,
     storeScope,
-    isStaff,
-    redactMemo: !gateGranted
+    isStaff
   });
   if (!result.ok) {
     return c.json(result, 400, ADMIN_PRIVATE_HEADERS);
@@ -1447,8 +1381,6 @@ adminApiRoutes.get("/customers/:id", async (c) => {
   const authGate = await authenticateAdminRoute(c);
   if (!authGate.ok) return authGate.response;
   if (!c.env.DB) return c.json(MISSING_DB_BODY, 500, ADMIN_PRIVATE_HEADERS);
-  const gate = await assertCustomerTabGate(c, c.env.DB, authGate.admin);
-  if (gate) return gate;
 
   const result = await getAdminCustomerDetail({
     db: c.env.DB,
@@ -1467,13 +1399,11 @@ adminApiRoutes.get("/customers/:id", async (c) => {
 
 // 8b. GET /customers/:id/visits?offset=N — 来店履歴の続き。顧客詳細が返すのは先頭
 // 50 件だけなので、それより古い施術メモはここから引く (issue #650)。認可は
-// getAdminCustomerDetail と同じ (Access → 顧客タブのゲート → staff は自店舗のみ)。
+// getAdminCustomerDetail と同じ (Access → staff は自店舗のみ)。
 adminApiRoutes.get("/customers/:id/visits", async (c) => {
   const authGate = await authenticateAdminRoute(c);
   if (!authGate.ok) return authGate.response;
   if (!c.env.DB) return c.json(MISSING_DB_BODY, 500, ADMIN_PRIVATE_HEADERS);
-  const gate = await assertCustomerTabGate(c, c.env.DB, authGate.admin);
-  if (gate) return gate;
 
   const rawOffset = c.req.query("offset");
   const offset = rawOffset === undefined ? 0 : Number(rawOffset);
@@ -1500,8 +1430,6 @@ adminApiRoutes.get("/customers/:id/reservations", async (c) => {
   const authGate = await authenticateAdminRoute(c);
   if (!authGate.ok) return authGate.response;
   if (!c.env.DB) return c.json(MISSING_DB_BODY, 500, ADMIN_PRIVATE_HEADERS);
-  const gate = await assertCustomerTabGate(c, c.env.DB, authGate.admin);
-  if (gate) return gate;
   const rawOffset = c.req.query("offset");
   const result = await listAdminCustomerReservations({
     db: c.env.DB,
@@ -1524,8 +1452,6 @@ adminApiRoutes.get("/customers/:id/consents", async (c) => {
   const authGate = await authenticateAdminRoute(c);
   if (!authGate.ok) return authGate.response;
   if (!c.env.DB) return c.json(MISSING_DB_BODY, 500, ADMIN_PRIVATE_HEADERS);
-  const gate = await assertCustomerTabGate(c, c.env.DB, authGate.admin);
-  if (gate) return gate;
 
   const rawOffset = c.req.query("offset");
   const offset = rawOffset === undefined ? 0 : Number(rawOffset);
@@ -1551,8 +1477,6 @@ adminApiRoutes.get("/customers/:id/consents", async (c) => {
 const handleCustomerBlockAction = async (c: Context<AppEnvironment>, action: "block" | "unblock") => {
   const gate = await authenticateAdminWithDb(c, ADMIN_PRIVATE_HEADERS);
   if (!gate.ok) return gate.response;
-  const tabGate = await assertCustomerTabGate(c, gate.db, gate.admin);
-  if (tabGate) return tabGate;
   const parsed = await parseJsonBody(c, ADMIN_PRIVATE_HEADERS);
   if (!parsed.ok) return parsed.response;
 
@@ -1600,8 +1524,6 @@ const handleCustomerArchiveAction = async (
 ) => {
   const gate = await authenticateAdminWithDb(c, ADMIN_PRIVATE_HEADERS);
   if (!gate.ok) return gate.response;
-  const tabGate = await assertCustomerTabGate(c, gate.db, gate.admin);
-  if (tabGate) return tabGate;
   const parsed = await parseJsonBody(c, ADMIN_PRIVATE_HEADERS);
   if (!parsed.ok) return parsed.response;
 
@@ -1637,9 +1559,6 @@ type CustomerMutationPrep =
 const prepareCustomerMutation = async (c: Context<AppEnvironment>): Promise<CustomerMutationPrep> => {
   const gate = await authenticateAdminWithDb(c, ADMIN_PRIVATE_HEADERS);
   if (!gate.ok) return { ok: false, response: gate.response };
-
-  const tabGate = await assertCustomerTabGate(c, gate.db, gate.admin);
-  if (tabGate) return { ok: false, response: tabGate };
 
   const customerId = c.req.param("id");
   if (!customerId) {
@@ -2053,9 +1972,7 @@ adminApiRoutes.patch("/customers/:id/profile", async (c) => {
 });
 
 /**
- * 施術メモ本体の検証。ルートから切り出してあるのは、顧客タブのゲート (spec 008) を足した
- * 時点でハンドラの認知的複雑度が Sonar の上限を超えたため (S3776)。判定の中身も順序も
- * 変えていない。
+ * 施術メモと競合検知用の期待値を同じ場所で検証し、ハンドラの認知的複雑度を抑える。
  */
 const readTreatmentNotes = (
   body: { treatmentNotes?: unknown; expectedTreatmentNotes?: unknown }
@@ -2097,13 +2014,6 @@ const customerVisitNotesWriteFailure = async (
 adminApiRoutes.put("/customers/:id/visits/:visitId/notes", async (c) => {
   const gate = await authenticateAdminWithDb(c, ADMIN_PRIVATE_HEADERS);
   if (!gate.ok) return gate.response;
-  // Gated even though the reservation-detail panel edits karte through this same
-  // route: the panel's exemption (FR-012 / NG-001) is about what it DISPLAYS. This
-  // is a write, and without the gate an unapproved staff member could overwrite or
-  // erase any of their store's treatment notes — visit ids are handed out by the
-  // ungated GET /reservations/:id.
-  const tabGate = await assertCustomerTabGate(c, gate.db, gate.admin);
-  if (tabGate) return tabGate;
   const parsed = await parseJsonBody(c, ADMIN_PRIVATE_HEADERS);
   if (!parsed.ok) return parsed.response;
   const rawBody = parsed.body;
@@ -2305,8 +2215,6 @@ adminApiRoutes.delete("/customers/:id/visits/:visitId", async (c) => {
 adminApiRoutes.post("/customers", async (c) => {
   const gate = await authenticateAdminWithDb(c, ADMIN_PRIVATE_HEADERS);
   if (!gate.ok) return gate.response;
-  const tabGate = await assertCustomerTabGate(c, gate.db, gate.admin);
-  if (tabGate) return tabGate;
   const parsed = await parseJsonObjectBody(c);
   if (!parsed.ok) return parsed.response;
 

@@ -571,22 +571,6 @@ export const updateAdminStaff = async (input: {
             linkedAdminUsersSynced: true
           })
         ),
-      // 顧客タブの承認 (spec 008) は admin_user_id だけで引くので、役割を入れ替えても
-      // 12 時間の承認がそのまま残る。staff → owner → staff と往復すればコード無しで
-      // 顧客タブが開いてしまうため、役割が実際に変わるときは落とす。無効化中の行も同じで、
-      // authenticateAdmin が active = 1 を要求するあいだ承認は死んでいるが、12 時間以内に
-      // 再有効化するとそのまま生き返る。名前だけの編集で毎回落とすと、オーナーが設定を
-      // 触るたびにスタッフが再申請することになるので、その 2 つの場合に限る。UPDATE より
-      // 前に置くのは、ここで比較する role と active が変更前の値である必要があるから。
-      input.db
-        .prepare(
-          `DELETE FROM admin_customer_gate_challenges
-           WHERE admin_user_id IN (
-             SELECT id FROM admin_users
-             WHERE staff_member_id = ? AND (role <> ? OR active = 0)
-           )`
-        )
-        .bind(input.staffId, input.request.role),
       // authenticateAdmin authorizes from admin_users.role + admin_users.active,
       // not from the linked staff_members row. Promote/demote and deactivate
       // through this endpoint must propagate so the privilege change takes

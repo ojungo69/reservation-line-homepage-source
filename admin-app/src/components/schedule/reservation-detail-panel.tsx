@@ -28,15 +28,12 @@ import { reservationOriginLabel, reservationSourceLabel } from "@/lib/reservatio
 import type { ReservationAction } from "@/types/api";
 import { DetailRow as Row } from "@/components/ui/detail-row";
 import { PendingConfirmDialog } from "@/components/ui/pending-confirm-dialog";
-import { CustomerGateCard } from "@/components/customers/customer-gate-card";
-import { useCustomerDetail } from "@/hooks/use-customers";
 import { ApiError } from "@/lib/api-client";
 
 type ReservationDetailPanelProps = {
   reservationId: string | null;
   onClose: () => void;
   onOpenChart?: (customerId: string, reservationId: string) => void;
-  suspended?: boolean;
   onRebook?: (info: { customerId?: string | null; customerName: string; customerKana?: string | null; phone?: string | null; serviceIds: string[]; resourceId?: string; storeId?: string }) => void;
 };
 
@@ -155,7 +152,6 @@ export function ReservationDetailPanel({
   onClose,
   onRebook,
   onOpenChart,
-  suspended = false,
 }: Readonly<ReservationDetailPanelProps>) {
   const reservationQuery = useReservationDetail(reservationId);
   const { data, isPending, isFetching } = reservationQuery;
@@ -173,7 +169,6 @@ export function ReservationDetailPanel({
   const [notesBaseline, setNotesBaseline] = useState<string | null>(null);
   const [notesConflict, setNotesConflict] = useState(false);
   const [editingNotes, setEditingNotes] = useState(false);
-  const [notesGateRequired, setNotesGateRequired] = useState(false);
   // 保存済みの施術メモを空にして上書きしようとしたとき。カルテが消える操作なので
   // 一度確認する (新規入力側は空だと保存ボタン自体が無効なので、この確認は要らない)。
   const [clearNotesVisitId, setClearNotesVisitId] = useState<string | null>(null);
@@ -193,7 +188,6 @@ export function ReservationDetailPanel({
     setShowNotesPrompt(false);
     setNotesText("");
     setEditingNotes(false);
-    setNotesGateRequired(false);
     setNotesConflict(false);
     setNotesBaseline(null);
     setClearNotesVisitId(null);
@@ -201,28 +195,6 @@ export function ReservationDetailPanel({
   }, [reservationId]);
 
   const reservation = data?.ok ? data.reservation : null;
-  const checkNotesGate = !isPrivileged && (editingNotes || showNotesPrompt);
-  const notesGate = useCustomerDetail(checkNotesGate ? reservation?.customerId ?? null : null);
-  const gateDenied = notesGateRequired || [notesGate.error, notesGate.failureReason].some((error) =>
-    error instanceof ApiError && error.status === 403 &&
-    (error.body as { reason?: string } | null)?.reason === "customer_gate_required"
-  );
-  const notesBlocked = notesConflict || (checkNotesGate && (gateDenied || notesGate.isFetching || notesGate.isError || !notesGate.data?.ok));
-  let notesGateContent = <output className="block text-xs text-muted-foreground">
-    {notesGate.isFetching || !notesGate.data?.ok ? "保存に必要な承認を確認しています..." : "オーナーの確認済みです。承認は12時間有効です。"}
-  </output>;
-  if (gateDenied) {
-    notesGateContent = <CustomerGateCard purpose="notes" onVerified={() => {
-      setNotesGateRequired(false);
-      void notesGate.refetch();
-    }} />;
-  } else if (notesGate.isError) {
-    notesGateContent = <div role="alert" className="space-y-2 text-sm">
-      <p>保存に必要な承認を確認できません。下書きを保持したまま再確認できます。</p>
-      <Button size="sm" variant="outline" disabled={notesGate.isFetching} onClick={() => { void notesGate.refetch(); }}>承認を再確認</Button>
-    </div>;
-  }
-  const notesGateNotice = checkNotesGate ? <div className="space-y-2">{notesGateContent}</div> : null;
   // 施術メモの編集対象は有効な来店記録だけ。reservation_id は UNIQUE なので
   // 有効な行は高々1件で、無効化された行へ fallback してはいけない
   // (訂正で取り消した来店のメモを編集できてしまう)。
@@ -300,7 +272,7 @@ export function ReservationDetailPanel({
   };
 
   const handleSaveNotes = (visitId: string) => {
-    if (!reservation || notesBlocked) return;
+    if (!reservation || notesConflict) return;
     saveNotes(
       {
         customerId: reservation.customerId,
@@ -323,11 +295,6 @@ export function ReservationDetailPanel({
             setNotesConflict(true);
             setClearNotesVisitId(null);
           }
-          if (error instanceof ApiError && error.status === 403 &&
-            (error.body as { reason?: string } | null)?.reason === "customer_gate_required") {
-            setNotesGateRequired(true);
-            setClearNotesVisitId(null);
-          }
         },
       },
     );
@@ -347,7 +314,7 @@ export function ReservationDetailPanel({
   return (
     <>
       <Sheet
-        open={!!reservationId && !suspended}
+        open={!!reservationId}
         onOpenChange={(open) => {
           if (open) return;
           if (hasUnsavedNotes) {
@@ -461,14 +428,13 @@ export function ReservationDetailPanel({
                 <>
                   <Separator />
                   <Section title="施術メモ">
-                    {editingNotes && notesGateNotice}
                     {editingNotes && conflictNotice}
                     {editingNotes ? (
                       <NotesEditor
                         value={notesText}
                         onChange={setNotesText}
                         saving={isSavingNotes}
-                        saveDisabled={isSavingNotes || notesBlocked}
+                        saveDisabled={isSavingNotes || notesConflict}
                         saveLabel={isSavingNotes ? "保存中..." : "保存"}
                         onSave={() => {
                           // 保存済みのメモを空で上書きしようとしている場合だけ確認を挟む。
@@ -652,13 +618,12 @@ export function ReservationDetailPanel({
                 <>
                   <Separator />
                   <Section title="施術メモを記録">
-                    {notesGateNotice}
                     {conflictNotice}
                     <NotesEditor
                       value={notesText}
                       onChange={setNotesText}
                       saving={isSavingNotes}
-                      saveDisabled={isSavingNotes || notesBlocked || !notesText.trim() || !latestVisit || isFetching}
+                      saveDisabled={isSavingNotes || notesConflict || !notesText.trim() || !latestVisit || isFetching}
                       saveLabel={getNotesSaveLabel(isSavingNotes, isFetching, !!latestVisit)}
                       onSave={() => {
                         const visit = latestVisit;
@@ -676,7 +641,7 @@ export function ReservationDetailPanel({
         </SheetContent>
       </Sheet>
 
-      <AlertDialog open={!!confirm && !suspended} onOpenChange={(open) => {
+      <AlertDialog open={!!confirm} onOpenChange={(open) => {
         if (!open && isActioning) return;
         if (!open) {
           setConfirm(null);
@@ -715,7 +680,7 @@ export function ReservationDetailPanel({
       </AlertDialog>
 
       <PendingConfirmDialog
-        open={!!clearNotesVisitId && !suspended}
+        open={!!clearNotesVisitId}
         pending={isSavingNotes}
         title="施術メモを消しますか？"
         description="この予約に記録されている施術メモが消えます。この操作は取り消せません。"
@@ -728,7 +693,7 @@ export function ReservationDetailPanel({
       />
 
       <PendingConfirmDialog
-        open={discardDraftNext !== null && !suspended}
+        open={discardDraftNext !== null}
         pending={false}
         title="書きかけの施術メモがあります"
         description="保存していない内容は失われます。閉じてよろしいですか？"
@@ -742,11 +707,11 @@ export function ReservationDetailPanel({
       {/* パネル(Sheet)は常時マウントで reservationId 切替のみ。時間変更ダイアログを詳細パネルの
           対象に同期させ、別予約へ切替・パネルを閉じた後に前回対象で開いたままにならないようにする。 */}
       <ReservationRescheduleDialog
-        reservation={!suspended && rescheduleTarget?.id === reservationId ? rescheduleTarget : null}
+        reservation={rescheduleTarget?.id === reservationId ? rescheduleTarget : null}
         onClose={() => setRescheduleTarget(null)}
       />
       <ReservationDurationDialog
-        reservation={!suspended && durationTarget?.id === reservationId ? durationTarget : null}
+        reservation={durationTarget?.id === reservationId ? durationTarget : null}
         onClose={() => setDurationTarget(null)}
       />
     </>

@@ -8,7 +8,9 @@
 >
 > 2026-08-26 更新: 顧客の手動登録・アーカイブ/復元・ブロック/解除を staff に開放し、店舗スコープの定義に `customers.created_store_id` を足した (specs/006)。⚠️ 突合テストはエンドポイント集合しか見ておらず role 列も前文も検査しないので、認可の変更はレビューで本表の更新を確認すること。
 >
-> 2026-08-30 更新: 顧客タブにオーナー承認のワンタイムコード・ゲートを追加した (specs/008)。staff は店舗スコープに**加えて**、オーナー宛メールに届く 6 桁コードを検証して得た 12 時間の承認を持たない限り顧客系 API を通れない。owner / system_admin は対象外。
+> 2026-08-30 更新: 顧客タブにオーナー承認のワンタイムコード・ゲートを追加した (specs/008)。staff は店舗スコープに**加えて**、オーナー宛メールに届く 6 桁コードを検証して得た 12 時間の承認を持たない限り顧客系 API を通れない。owner / system_admin は対象外。 (2026-10-14 撤去)
+>
+> 2026-10-14: 顧客タブのオーナー承認コードを撤去。staff は自店舗スコープのみ。代わりに staff の顧客一覧表示を JST の 1 日 1 行 `customer.list_view` として監査に残す (顧客データは含めない)。
 
 ## Role 定義
 
@@ -27,7 +29,7 @@
 
 2026-09-14: PR #704のプロフィールに続き、顧客メモ・来店施術メモ・手動顧客登録・手動来店追加/編集/削除・予約作成/日時変更・キャンセル料未納変更の9操作にも同じactor検査を適用。顧客メモは更新時の3条件の店舗紐付け、来店メモは現在の来店店舗と有効/非archive/非merge状態、予約作成の既存顧客再利用は予約INSERT前のcanonical状態と店舗紐付けを確認する。新予約自身で所属を作って権限検査を通すことはできない。日時変更は対象店舗を保持し、キャンセル料は更新時にもstaffの店舗を照合する。権限失効では全batchをrollbackする。既に成功した冪等リプレイの契約は変更しない。
 
-2026-09-29 (specs/015): #664の残19ルート（同期・競合解消・外部ブロック・LINE友だち・顧客タブ承認・push・繰り返し作成・管理起動auto-complete）にも同じ書込時actor検査を適用する。claim、分割batch、最終監査も対象にし、権限失効後の新たな業務副作用を拒否する。失効前に完了した部分成功は保持し、自分が取得したclaimの解除や発行したchallengeの補償は失効後も行う。外部メール／push／provider読取は直前に最新actorを検査するが、DB検査と外部APIを原子的にはできないため、その間の失効raceまで消える保証ではない。Cron共有処理は管理起動時だけactorを渡し、自律処理を維持する。共通rate-limit、last_seen_at、staging診断をこの業務書込保証へ暗黙に含めない。詳細は このマトリクスの該当操作 を参照。
+2026-09-29 (specs/015): #664の残19ルート（同期・競合解消・外部ブロック・LINE友だち・顧客タブ承認・push・繰り返し作成・管理起動auto-complete）にも同じ書込時actor検査を適用する。claim、分割batch、最終監査も対象にし、権限失効後の新たな業務副作用を拒否する。失効前に完了した部分成功は保持し、自分が取得したclaimの解除や発行したchallengeの補償は失効後も行う。外部メール／push／provider読取は直前に最新actorを検査するが、DB検査と外部APIを原子的にはできないため、その間の失効raceまで消える保証ではない。Cron共有処理は管理起動時だけactorを渡し、自律処理を維持する。共通rate-limit、last_seen_at、staging診断をこの業務書込保証へ暗黙に含めない。詳細は このマトリクスの該当操作 を参照。 (うち顧客タブ承認の2ルートは2026-10-14に撤去)
 
 凡例:
 - ✅ 既存 server-side ガードあり (data layer or handler)
@@ -59,7 +61,7 @@
 | `POST /api/admin/reservations/:id/cancel` | ✅ 自店舗のみ (全期間) | ✅ | ✅ | `validateAdminActionAuthorization` の store scope。2026-07-14 に当日ガード撤廃 | ✅ 2026-07-14 更新 |
 | `POST /api/admin/reservations/:id/complete` | ✅ 自店舗のみ (全期間) | ✅ | ✅ | 同上 | ✅ 2026-07-14 更新 |
 | `POST /api/admin/reservations/:id/no-show` | ✅ 自店舗のみ (全期間) | ✅ | ✅ | 同上 | ✅ 2026-07-14 更新 |
-| `POST /api/admin/reservations/:id/correct-no-show` | ✅ 自店舗のみ・顧客タブ承認不要 | ✅ | ✅ | `authenticateAdminWithDb` + `validateAdminActionAuthorization` の店舗照合を冪等 replay より先に実施。所属店舗なしは 403 | ✅ 2026-09-12 staff 開放 |
+| `POST /api/admin/reservations/:id/correct-no-show` | ✅ 自店舗のみ | ✅ | ✅ | `authenticateAdminWithDb` + `validateAdminActionAuthorization` の店舗照合を冪等 replay より先に実施。所属店舗なしは 403 | ✅ 2026-09-12 staff 開放 |
 | `POST /api/admin/reservations/:id/restore-completed` | ❌ 403 | ✅ | ✅ | `requireOwnerWithDb` (認証直後・body 読取前) + `validateCorrectionRole` でも owner+ を再確認 | ✅ 2026-08-25 追加 |
 | `POST /api/admin/reservations/:id/reschedule` | ✅ 自店舗のみ (全期間) | ✅ | ✅ | `rescheduleAdminReservation` の store scope (reservation-reschedule.ts)。2026-07-14 に当日ガード撤廃。新スロットは `listRescheduleAvailability` の営業時間/空き判定を通す | ✅ 2026-07-14 更新 |
 | `PUT /api/admin/reservations/:id/cancellation-fee` | ✅ 自店舗のみ | ✅ | ✅ | route で `isAdminPrivileged` 以外は `store_id` 照合 (admin-api.ts)。no_show 時の未納フラグ set/clear。version は増やさない | ✅ 2026-08-09 追記 |
@@ -75,33 +77,31 @@
 - アーカイブ済み顧客は**全ロールで読み取り専用**（メモ / プロフィール / 施術メモ / 来店追加の各 API が `archived_at IS NULL` を要求する）。読める範囲だけを `includeArchived` で広げている
 - ブロックとアーカイブは**全店舗共通の状態**。1 店舗のスタッフの操作が他店舗にも及ぶ（オーナーが付けたブロックをスタッフが解除できることを含む）。実行者の店舗は audit metadata の `adminStoreId` に残す
 
-> **顧客タブのオーナー承認ゲート (specs/008)**: 下表で「✅ 承認要」と書いた行は、staff の場合に店舗スコープに加えて有効な承認 (`admin_customer_gate_challenges.granted_until > now`) を要求する。承認が無ければ 403 `customer_gate_required`。ガードは `assertCustomerTabGate` (shared.ts) を各ハンドラの認証直後にインラインで呼ぶ形で、パススコープのミドルウェアは使わない (`/customers/*` は予約詳細パネルが使う共有ルートまで巻き込むため)。owner / system_admin は素通り。**予約詳細パネルに表示される顧客情報 (`GET /api/admin/reservations/:id`) は対象外** — オーナーの明示判断で、表示だけは承認なしでも見える。ただしカルテの**書き込み**は対象内。
+> staff の顧客系 API は管理者認証と上記の店舗スコープで制限する。予約詳細パネルからの施術メモ保存にも同じ店舗制限を適用する。owner / system_admin の権限は変更しない。
 
 | Endpoint | staff | owner | system_admin | ガード位置 |
 |---|---|---|---|---|
-| `POST /api/admin/customer-gate/request` | ✅ 承認コードの発行を要求する。60 秒に 1 回・1 時間 10 回まで | ❌ 400 `not_applicable` | ❌ 400 `not_applicable` | `authenticateAdminWithDb` → `requestCustomerGateCode` (customer-gate.ts)。コードはオーナー宛メールにのみ出て、応答本文には含まれない |
-| `POST /api/admin/customer-gate/verify` | ✅ 6 桁コードを検証し 12 時間の承認を得る。15 分に 10 回まで | ❌ 400 `not_applicable` | ❌ 400 `not_applicable` | `authenticateAdminWithDb` → `verifyCustomerGateCode` (customer-gate.ts)。試行加算・照合・承認付与の UPDATE と、結果に応じた監査 INSERT 2 本を 1 つの `db.batch` (D1 では単一トランザクション) で流す |
-| `GET /api/admin/customers?q=...` (検索) | ✅ 自店舗顧客のみ。**承認が無いときは `memo` を `null` に落として返す** (403 にしない) | ✅ 全顧客 | ✅ | `searchAdminCustomers(storeScope)` で staff を自店舗 membership に限定 (customers.ts)。承認の有無で `redactMemo` を決めるのはサーバー側 (admin-api.ts)。予約作成の顧客ピッカーが同じ URL を叩くため止めない (LINE 友だち紐付けも同じ URL だが `isAdminPrivileged` の owner 以上限定なので staff には関係しない)。氏名とマスク電話は `GET /reservations/search?keyword=` が元から返す範囲と同じ |
-| `GET /api/admin/customers?mode=list` (一覧) | ✅ 承認要・自店舗顧客のみ・集計値も自店舗のみ | ✅ 全顧客 | ✅ | `listAllCustomers(storeScope)` で行集合・visitCount/lastVisitAt/nextReservationAt を自店舗 scope (customers.ts) |
-| `GET /api/admin/customers?view=archived` | ✅ 承認要・自店舗のアーカイブ済み顧客のみ | ✅ | ✅ | `listAllCustomers(storeScope)` の membership 句がそのまま効く。2026-08-26 に staff 403 を撤去 (復元の導線がここにしか無いため) |
-| `GET /api/admin/customers/:id` (詳細) | ✅ 承認要・自店舗顧客のみ・来店/予約履歴も自店舗のみ。**アーカイブ済みの自店舗顧客も可** (復元用・読み取りのみ)。統合元 (merge tombstone) と対象外は 403 (forbidden) | ✅ 全顧客 (アーカイブ/統合元含む) | ✅ | `getAdminCustomerDetail(admin)` で staff store-scope gate (`includeArchived: true`) + visits/reservations を自店舗 filter (operations.ts)。顧客 SELECT の staff 条件は `merged_into_id IS NULL` のみ。**2026-08-31 に顧客のメールアドレスを撤去した**ので、この応答に email は含まれない (role 別の redaction も無くなった) |
-| `POST /api/admin/customers` (手動顧客登録) | ✅ 承認要・自店舗の顧客として登録 (`created_store_id = admin.store_id`)。店舗紐付けの無い staff は 403 | ✅ `created_store_id` は NULL | ✅ | `authenticateAdminWithDb` + `parseJsonObjectBody` → `createAdminCustomer` (customer-create.ts) で role 判定。紙カルテ顧客の手動登録。冪等 (requestHash に登録店舗を含む) + audit。2026-08-26 に staff 開放 |
-| `PUT /api/admin/customers/:id/memo` | ✅ 承認要・自店舗顧客のみ | ✅ | ✅ | `prepareCustomerMutation` → `writeCustomerText`。actor・店舗・非archive/非mergeを同一batchで確認。optional `expectedMemo` が不一致なら409、成功時だけ監査を書く。未指定の旧UIは従来の更新を維持 |
-| `PUT /api/admin/customers/:id/referrer` | ✅ 承認要・自店舗顧客のみ | ✅ | ✅ | `prepareCustomerMutation`。紹介者名は任意、期待値必須。actor検査・店舗・非archive/非merge・CASを同一batchで照合し、成功時だけ本文を含めない監査を書く |
-| `PATCH /api/admin/customers/:id/profile` | ✅ 承認要・自店舗顧客のみ | ✅ | ✅ | `assertStaffCustomerStoreScope` (shared.ts) |
-| `GET /api/admin/customers/:id/visits` (来店履歴の続き) | ✅ 承認要・自店舗顧客のみ・自店舗の来店のみ | ✅ 全顧客 | ✅ | `listAdminCustomerVisits(admin)` が詳細と同じ store-scope gate を通し、同じ 1 ページ分のクエリ (`selectCustomerVisitsPage`) を offset 付きで引く (operations.ts) |
-| `GET /api/admin/customers/:id/reservations` (予約履歴の続き) | ✅ 承認要・自店舗顧客のみ・自店舗の予約のみ | ✅ 全顧客 | ✅ | `listAdminCustomerReservations(admin)`。店舗制限をLIMIT/OFFSET前に適用し、50件ずつ日時・IDの降順で返す。archiveは閲覧可 |
-| `GET /api/admin/customers/:id/consents` (通常同意履歴の続き) | ✅ 承認要・自店舗顧客の自店舗予約に紐付く記録のみ | ✅ 全顧客 | ✅ | `authenticateAdminRoute` → `assertCustomerTabGate` → `listAdminCustomerConsents`。staffは顧客所属と予約の現在customer/store一致を照合する。同意の保存元が既存統合で同一顧客と証明できる旧顧客も含めるが、無関係な所有者不一致や予約との紐付け不明な記録は返さない。50件単位でopaque記録ID・同意種別・版・日時だけを返す |
-| `PUT /api/admin/customers/:id/visits/:visitId/notes` | ✅ 承認要・自店舗 visit のみ (書き込みなので予約詳細パネルからの編集も承認が要る) | ✅ | ✅ | routeでvisit店舗を確認し、actor・店舗・有効visit・顧客非archive/非mergeを同一batchで再確認。optional `expectedTreatmentNotes` が不一致なら409、成功時だけ監査を書く。未指定の旧UIは従来の更新を維持 |
+| `GET /api/admin/customers?q=...` (検索) | ✅ 自店舗顧客のみ。`memo` を返す | ✅ 全顧客 | ✅ | `searchAdminCustomers(storeScope)` で staff を自店舗 membership に限定 (customers.ts)。予約作成の顧客ピッカーと LINE 友だち紐付けも同じ URL を使う (LINE 友だち紐付けは `isAdminPrivileged` の owner 以上限定なので staff には関係しない)。氏名とマスク電話は `GET /reservations/search?keyword=` が元から返す範囲と同じ |
+| `GET /api/admin/customers?mode=list` (一覧) | ✅ 自店舗顧客のみ・集計値も自店舗のみ。初回表示を JST の 1 日 1 行で監査 (`customer.list_view`) | ✅ 全顧客 (監査しない) | ✅ (監査しない) | `listAllCustomers(storeScope)` で行集合・visitCount/lastVisitAt/nextReservationAt を自店舗 scope (customers.ts)。staff の表示は `recordStaffCustomerListView` (customers.ts) が日付由来の id で `INSERT OR IGNORE` する。記録に失敗しても一覧は返す |
+| `GET /api/admin/customers?view=archived` | ✅ 自店舗のアーカイブ済み顧客のみ | ✅ | ✅ | `listAllCustomers(storeScope)` の membership 句がそのまま効く。2026-08-26 に staff 403 を撤去 (復元の導線がここにしか無いため) |
+| `GET /api/admin/customers/:id` (詳細) | ✅ 自店舗顧客のみ・来店/予約履歴も自店舗のみ。**アーカイブ済みの自店舗顧客も可** (復元用・読み取りのみ)。統合元 (merge tombstone) と対象外は 403 (forbidden) | ✅ 全顧客 (アーカイブ/統合元含む) | ✅ | `getAdminCustomerDetail(admin)` で staff store-scope gate (`includeArchived: true`) + visits/reservations を自店舗 filter (operations.ts)。顧客 SELECT の staff 条件は `merged_into_id IS NULL` のみ。**2026-08-31 に顧客のメールアドレスを撤去した**ので、この応答に email は含まれない (role 別の redaction も無くなった) |
+| `POST /api/admin/customers` (手動顧客登録) | ✅ 自店舗の顧客として登録 (`created_store_id = admin.store_id`)。店舗紐付けの無い staff は 403 | ✅ `created_store_id` は NULL | ✅ | `authenticateAdminWithDb` + `parseJsonObjectBody` → `createAdminCustomer` (customer-create.ts) で role 判定。紙カルテ顧客の手動登録。冪等 (requestHash に登録店舗を含む) + audit。2026-08-26 に staff 開放 |
+| `PUT /api/admin/customers/:id/memo` | ✅ 自店舗顧客のみ | ✅ | ✅ | `prepareCustomerMutation` → `writeCustomerText`。actor・店舗・非archive/非mergeを同一batchで確認。optional `expectedMemo` が不一致なら409、成功時だけ監査を書く。未指定の旧UIは従来の更新を維持 |
+| `PUT /api/admin/customers/:id/referrer` | ✅ 自店舗顧客のみ | ✅ | ✅ | `prepareCustomerMutation`。紹介者名は任意、期待値必須。actor検査・店舗・非archive/非merge・CASを同一batchで照合し、成功時だけ本文を含めない監査を書く |
+| `PATCH /api/admin/customers/:id/profile` | ✅ 自店舗顧客のみ | ✅ | ✅ | `assertStaffCustomerStoreScope` (shared.ts) |
+| `GET /api/admin/customers/:id/visits` (来店履歴の続き) | ✅ 自店舗顧客のみ・自店舗の来店のみ | ✅ 全顧客 | ✅ | `listAdminCustomerVisits(admin)` が詳細と同じ store-scope gate を通し、同じ 1 ページ分のクエリ (`selectCustomerVisitsPage`) を offset 付きで引く (operations.ts) |
+| `GET /api/admin/customers/:id/reservations` (予約履歴の続き) | ✅ 自店舗顧客のみ・自店舗の予約のみ | ✅ 全顧客 | ✅ | `listAdminCustomerReservations(admin)`。店舗制限をLIMIT/OFFSET前に適用し、50件ずつ日時・IDの降順で返す。archiveは閲覧可 |
+| `GET /api/admin/customers/:id/consents` (通常同意履歴の続き) | ✅ 自店舗顧客の自店舗予約に紐付く記録のみ | ✅ 全顧客 | ✅ | `authenticateAdminRoute` → `listAdminCustomerConsents`。staffは顧客所属と予約の現在customer/store一致を照合する。同意の保存元が既存統合で同一顧客と証明できる旧顧客も含めるが、無関係な所有者不一致や予約との紐付け不明な記録は返さない。50件単位でopaque記録ID・同意種別・版・日時だけを返す |
+| `PUT /api/admin/customers/:id/visits/:visitId/notes` | ✅ 自店舗 visit のみ | ✅ | ✅ | routeでvisit店舗を確認し、actor・店舗・有効visit・顧客非archive/非mergeを同一batchで再確認。optional `expectedTreatmentNotes` が不一致なら409、成功時だけ監査を書く。未指定の旧UIは従来の更新を維持 |
 | `POST /api/admin/customers/:id/visits` (手動来店追加) | ❌ | ✅ | ✅ | `authenticateOwnerWithJsonBody` で owner+ |
 | `PATCH /api/admin/customers/:id/visits/:visitId` (手動来店の日付編集) | ❌ | ✅ | ✅ | `authenticateOwnerWithJsonBody` → `updateAdminCustomerVisit`。予約由来 visit は immutable (`reservation_linked`) |
 | `DELETE /api/admin/customers/:id/visits/:visitId` (手動来店削除) | ❌ | ✅ | ✅ | `authenticateAdminRoute` + `requireOwnerWithDb` → `deleteAdminCustomerVisit`。DELETE は JSON body 無しのため owner JSON gate ではなく `requireOwnerWithDb` |
 | `GET /api/admin/customers/merge-candidates` | ❌ | ✅ | ✅ | `requireOwnerWithDb` |
 | `POST /api/admin/customers/:id/merge` | ❌ | ✅ | ✅ | `requireAdminContext` + merge ドメイン層 (店舗横断・破壊的のため owner 限定) |
-| `POST /api/admin/customers/:id/archive` | ✅ 承認要・自店舗スコープの顧客のみ | ✅ | ✅ | `setAdminCustomerArchiveStatus` の `staffMayActOnCustomer` (customer-actions.ts)。入力検証の直後・冪等読取より前に判定 |
-| `POST /api/admin/customers/:id/unarchive` | ✅ 承認要・自店舗スコープの顧客のみ (アーカイブ済みを判定対象に含む) | ✅ | ✅ | 同上。archive/unarchive の両方向で `includeArchived: true`（アーカイブ済みかどうかは authz ではなく状態。これが無いと復元も、同一冪等キーでの archive 再送も 403 になる） |
-| `POST /api/admin/customers/:id/block` | ✅ 承認要・自店舗スコープの顧客のみ | ✅ | ✅ | `setAdminCustomerBlockStatus` の `staffMayActOnCustomer` (customer-actions.ts)。ブロックは全店舗に効く共通状態 |
-| `POST /api/admin/customers/:id/unblock` | ✅ 承認要・自店舗スコープの顧客のみ | ✅ | ✅ | 同上。アーカイブ済み顧客は対象外 (`fetchCustomer` が `archived_at IS NULL` を要求) なので、先に復元が要る |
+| `POST /api/admin/customers/:id/archive` | ✅ 自店舗スコープの顧客のみ | ✅ | ✅ | `setAdminCustomerArchiveStatus` の `staffMayActOnCustomer` (customer-actions.ts)。入力検証の直後・冪等読取より前に判定 |
+| `POST /api/admin/customers/:id/unarchive` | ✅ 自店舗スコープの顧客のみ (アーカイブ済みを判定対象に含む) | ✅ | ✅ | 同上。archive/unarchive の両方向で `includeArchived: true`（アーカイブ済みかどうかは authz ではなく状態。これが無いと復元も、同一冪等キーでの archive 再送も 403 になる） |
+| `POST /api/admin/customers/:id/block` | ✅ 自店舗スコープの顧客のみ | ✅ | ✅ | `setAdminCustomerBlockStatus` の `staffMayActOnCustomer` (customer-actions.ts)。ブロックは全店舗に効く共通状態 |
+| `POST /api/admin/customers/:id/unblock` | ✅ 自店舗スコープの顧客のみ | ✅ | ✅ | 同上。アーカイブ済み顧客は対象外 (`fetchCustomer` が `archived_at IS NULL` を要求) なので、先に復元が要る |
 | `POST /api/admin/customers/:id/delete` (完全削除・不可逆) | ❌ | ✅ | ✅ | `executeAdminCustomerDelete` で staff forbidden (customer-delete.ts)。顧客と全関連行を FK 順で物理削除。**確定/未来の予約・稼働中 Google イベント・処理中 Google 同期がある場合は 409 拒否**(先にアーカイブ/取消)。通常運用はアーカイブ推奨で、これはテストデータ整理用 |
 
 ### 外部ブロック (external blocks)
@@ -151,7 +151,7 @@
 | Endpoint | staff | owner | system_admin | 既存ガード位置 |
 |---|---|---|---|---|
 | `GET /api/admin/store-logins` | ❌ 403 | ✅ | ✅ | route で `isAdminPrivileged(role)` 即時 403 (admin-api.ts:1612) |
-| `POST /api/admin/store-logins` (登録/更新) | ❌ | ✅ | ✅ | `upsertStoreLogin` → `isAdminPrivileged` (settings-store-login.ts:558)。email 横取り防止 (`email_in_use`→409)・自己無効化防止 (`forbidden_self_deactivation`→403)。2026-08-30 追加: Case B で role が実際に変わるときは顧客タブの承認 (spec 008) を同じ batch で落とす — `admin_users.role` を書き換えるもう 1 本の経路なので、スタッフ設定側と揃えないと staff → owner → staff の往復で承認が生き残る |
+| `POST /api/admin/store-logins` (登録/更新) | ❌ | ✅ | ✅ | `upsertStoreLogin` → `isAdminPrivileged` (settings-store-login.ts:upsertStoreLogin)。email 横取り防止 (`email_in_use`→409)・自己無効化防止 (`forbidden_self_deactivation`→403)。2026-08-30 追加: Case B で role が実際に変わるときは顧客タブの承認 (spec 008) を同じ batch で落とす — `admin_users.role` を書き換えるもう 1 本の経路なので、スタッフ設定側と揃えないと staff → owner → staff の往復で承認が生き残る (2026-10-14 撤去) |
 | `DELETE /api/admin/store-logins/:storeId` (失効) | ❌ | ✅ | ✅ | `revokeStoreLogin` → `isAdminPrivileged` (settings-store-login.ts:680) + 自己失効防止 |
 
 ### LINE友だち紐付け (line friends) — #291-292

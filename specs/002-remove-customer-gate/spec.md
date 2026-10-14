@@ -82,6 +82,29 @@ entries; call the former code endpoints; change a staff member's role.
 
 ---
 
+### User Story 4 - The owner can see when staff opened the customer list (Priority: P2)
+
+With the code gone, the owner keeps a light trace: the activity log shows, once per staff member
+per day, that they opened the customer list. No customer data is recorded.
+
+**Why this priority**: Owner-approved replacement for the trace the approval step used to leave.
+
+**Independent Test**: As staff, open the customer list several times on one day and once after
+midnight; as owner, open it once; then read the activity log.
+
+**Acceptance Scenarios**:
+
+1. **Given** a staff member, **When** they open the customer list for the first time on a JST
+   day, **Then** one activity entry is written; further list pages that day write nothing.
+2. **Given** the JST date changes, **When** they open the list again, **Then** a new entry is
+   written for the new day.
+3. **Given** an owner or system administrator, **When** they open the list, **Then** nothing is
+   recorded. Customer search used by reservation creation is not recorded either.
+4. **Given** the entry cannot be written, **When** staff open the list, **Then** the list still
+   loads and the failure is reported to error monitoring.
+
+---
+
 ### Edge Cases
 
 - An admin page opened before deployment may still call the removed endpoints. The server answers
@@ -112,6 +135,9 @@ entries; call the former code endpoints; change a staff member's role.
 - **FR-008**: Owner and system-administrator behavior MUST stay unchanged.
 - **FR-009**: Documentation that describes staff authorization MUST describe the new behavior.
 - **FR-010**: This change MUST NOT add a dependency, configuration value or schema change.
+- **FR-011**: The first customer-list view of each staff member per JST day MUST be written to the
+  activity log without customer data; owners, system administrators and customer search are not
+  recorded, and a failed write MUST NOT fail the list request.
 
 ### Key Entities
 
@@ -134,6 +160,8 @@ entries; call the former code endpoints; change a staff member's role.
 - **SC-003**: Zero customer-tab code emails are sent after deployment.
 - **SC-004**: Zero references to the former approval records remain in application code and tests.
 - **SC-005**: Historical activity-log entries render with readable labels (automated test).
+- **SC-006**: Exactly one list-view entry per staff member per JST day (automated test across a
+  day boundary).
 
 ## Assumptions
 

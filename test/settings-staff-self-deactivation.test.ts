@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../src/app";
-import { createAccessJwksFetchMock, createAccessJwtFixture as createAccessJwtFixtureBase, type AccessJwk, insertAdminUser as insertAdminUserHelper, grantCustomerTabGate, type AdminRole } from "./helpers/admin-access";
+import { createAccessJwksFetchMock, createAccessJwtFixture as createAccessJwtFixtureBase, type AccessJwk, insertAdminUser as insertAdminUserHelper, type AdminRole } from "./helpers/admin-access";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 
 const TEAM_DOMAIN = "https://team.example.cloudflareaccess.com";
@@ -198,83 +198,6 @@ describe("F-3.2: staff self-deactivation lockout guard (PUT)", () => {
         .prepare("SELECT display_name, role FROM staff_members WHERE id = 'staff_name'")
         .get() as { display_name: string; role: string };
       expect(row).toMatchObject({ display_name: "新名前", role: "owner" });
-    } finally {
-      db.sqlite.close();
-    }
-  });
-
-  it("drops the customer tab grant when the role changes, and keeps it when it does not", async () => {
-    // 顧客タブの承認 (spec 008) は admin_user_id だけで引くので、staff → owner → staff と
-    // 12 時間以内に往復すると古い承認が生き残る。役割の変更でだけ落とす。
-    const db = createMigratedSqliteD1();
-    try {
-      seedStore(db);
-      seedStaff(db, { id: "staff_gate", storeId: "store_test", role: "staff", displayName: "承認済み" });
-      // 操作するのは owner、承認を持っているのは対象の staff 本人。
-      insertAdminUser(db);
-      insertAdminUser(db, {
-        id: "admin_gate_1",
-        staffMemberId: "staff_gate",
-        role: "staff",
-        email: "gate-staff@example.com",
-        accessSubject: "access-subject-gate-staff"
-      });
-      grantCustomerTabGate(db, "admin_gate_1");
-      const access = createAccessJwtFixture();
-      vi.stubGlobal("fetch", createFetchMock(access.jwk));
-
-      const grants = () =>
-        (
-          db.sqlite
-            .prepare("SELECT id FROM admin_customer_gate_challenges WHERE admin_user_id = 'admin_gate_1'")
-            .all() as Array<{ id: string }>
-        ).length;
-
-      // 名前だけの変更 (role は staff のまま) — 承認は残る。
-      const renamed = await adminRequest(db, access.token, "PUT", "/api/admin/settings/staff/staff_gate", {
-        storeId: "store_test",
-        displayName: "改名後",
-        role: "staff",
-        active: true,
-        expectedVersion: 1
-      });
-      expect(renamed.status).toBe(200);
-      expect(grants()).toBe(1);
-
-      // 役割の変更 — 承認は消える。
-      const promoted = await adminRequest(db, access.token, "PUT", "/api/admin/settings/staff/staff_gate", {
-        storeId: "store_test",
-        displayName: "改名後",
-        role: "owner",
-        active: true,
-        expectedVersion: 2
-      });
-      expect(promoted.status).toBe(200);
-      expect(grants()).toBe(0);
-
-      // 無効化 → 再有効化。無効化のあいだ承認は authenticateAdmin に弾かれて死んでいるが、
-      // 12 時間以内に戻すと生き返ってコード無しで顧客タブが開いていた。判定は変更前の値を
-      // 見るので、落ちるのは「無効から有効に戻す」側。
-      grantCustomerTabGate(db, "admin_gate_1");
-      const deactivated = await adminRequest(db, access.token, "PUT", "/api/admin/settings/staff/staff_gate", {
-        storeId: "store_test",
-        displayName: "改名後",
-        role: "owner",
-        active: false,
-        expectedVersion: 3
-      });
-      expect(deactivated.status).toBe(200);
-      expect(grants()).toBe(1);
-
-      const reactivated = await adminRequest(db, access.token, "PUT", "/api/admin/settings/staff/staff_gate", {
-        storeId: "store_test",
-        displayName: "改名後",
-        role: "owner",
-        active: true,
-        expectedVersion: 4
-      });
-      expect(reactivated.status).toBe(200);
-      expect(grants()).toBe(0);
     } finally {
       db.sqlite.close();
     }

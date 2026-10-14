@@ -5,7 +5,6 @@ import { executeAdminCustomerMerge } from "../src/admin/customer-merge";
 import {
   createAccessJwksFetchMock,
   createAccessJwtFixture,
-  grantCustomerTabGate,
   insertAdminUser,
 } from "./helpers/admin-access";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
@@ -41,7 +40,6 @@ const seedAdmin = (db: SqliteD1Database, role: "owner" | "staff", staffMemberId:
     staffMemberId,
     updatedAt: "2026-09-12T00:00:00.000Z",
   });
-  if (role === "staff") grantCustomerTabGate(db, "admin_customer_consents");
 };
 
 const seedCustomer = (db: SqliteD1Database, id: string) => {
@@ -141,7 +139,6 @@ describe("admin customer ordinary consent history", () => {
       for (const role of ["owner", "staff"] as const) {
         if (role === "staff") {
           db.sqlite.exec("UPDATE admin_users SET role = 'staff', staff_member_id = 'staff_owner_kyoto' WHERE id = 'admin_customer_consents'");
-          grantCustomerTabGate(db, "admin_customer_consents");
         }
         const detail = await request(db, access.token, "/api/admin/customers/merge_c");
         expect(detail.status).toBe(200);

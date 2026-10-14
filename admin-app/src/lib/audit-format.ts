@@ -15,12 +15,12 @@ const ACTION_LABELS: Record<string, string> = {
   admin_external_block_created: "ブロック枠を作成",
   admin_external_block_cancelled: "ブロック枠をキャンセル",
   system_reservation_expired: "予約が期限切れ",
-  // 顧客タブのオーナー承認 (spec 008)。ここが未登録だと、オーナーの活動ログに
-  // customer_gate_verify_failed のような英語のコードがそのまま並ぶ。この活動ログは
-  // 「誰かがコードを何度も間違えている」にオーナーが気付ける唯一の経路。
+  // 顧客タブのオーナー承認コードは 2026-10-14 に撤去した。
+  // 過去の監査行を活動ログで読めるよう、当時のラベルを保持する。
   customer_gate_code_requested: "顧客タブの確認コードを申請",
   customer_gate_verified: "顧客タブの確認コードを照合",
   customer_gate_verify_failed: "顧客タブの確認コードが不一致",
+  "customer.list_view": "顧客一覧を表示",
   "customer.memo_update": "顧客メモを更新",
   "customer.profile_update": "顧客プロフィールを更新",
   "customer.visit_notes_update": "施術メモを更新",

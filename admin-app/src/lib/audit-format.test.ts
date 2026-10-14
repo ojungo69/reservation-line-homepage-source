@@ -107,7 +107,14 @@ describe("終端状態の訂正の監査ラベル", () => {
   });
 });
 
-describe("顧客タブの承認ゲートの監査ラベル (spec 008)", () => {
+describe("スタッフの顧客一覧表示の記録", () => {
+  it("customer.list_view を日本語で表示する", () => {
+    const staff = new Map([["staff-1", "山田 花子"]]);
+    expect(formatAuditSummary(log({ action: "customer.list_view" }), staff)).toBe("山田 花子 が 顧客一覧を表示");
+  });
+});
+
+describe("2026-10-14 に撤去した顧客タブ承認コードの履歴用監査ラベル", () => {
   it("3 つのアクションと admin_user を日本語で表示する (内部コードを出さない)", () => {
     const staff = new Map([["staff-1", "山田 花子"]]);
     expect(formatAuditSummary(log({ action: "customer_gate_code_requested" }), staff)).toBe(
@@ -116,8 +123,7 @@ describe("顧客タブの承認ゲートの監査ラベル (spec 008)", () => {
     expect(formatAuditSummary(log({ action: "customer_gate_verified" }), staff)).toBe(
       "山田 花子 が 顧客タブの確認コードを照合",
     );
-    // オーナーが「誰かがコードを何度も間違えている」に気付ける唯一の経路なので、
-    // ここが英語のコードのままだと読み飛ばされる。
+    // 機能の撤去後も、過去のコード不一致の監査行を日本語で読めるようにする。
     expect(formatAuditSummary(log({ action: "customer_gate_verify_failed" }), staff)).toBe(
       "山田 花子 が 顧客タブの確認コードが不一致",
     );

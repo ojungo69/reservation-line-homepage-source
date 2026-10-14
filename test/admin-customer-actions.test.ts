@@ -9,7 +9,6 @@ import { createApp } from "../src/app";
 import {
   createAccessJwksFetchMock,
   createAccessJwtFixture,
-  grantCustomerTabGate,
   insertAdminUser,
   type AccessJwk,
 } from "./helpers/admin-access";
@@ -1375,7 +1374,6 @@ describe("POST /api/admin/customers/:id/archive | /unarchive", () => {
            VALUES ('admin_archive_staff_kyoto', ?, ?, 'staff', 'staff_owner_kyoto', 1, '2026-05-22T00:00:00.000Z')`
         )
         .run(ADMIN_EMAIL, ADMIN_ACCESS_SUBJECT);
-      grantCustomerTabGate(db, "admin_archive_staff_kyoto");
       db.sqlite
         .prepare(
           `INSERT INTO customers (id, display_name, block_status, archived_at, created_store_id, updated_at)

@@ -33,22 +33,6 @@ export function useCustomerList(
       );
     },
     staleTime: 30_000,
-    // 顧客タブの承認 (spec 008) は 12 時間で切れるが、QueryClient は
-    // refetchOnWindowFocus: false なので、開いたままのタブは期限が過ぎても一覧を描画した
-    // ままになる。取得済みのデータとはいえ「12 時間で閉じる」と言っている以上、定期的に
-    // 取り直して 403 を踏ませる。
-    // refetchIntervalInBackground は既定の false のままなので、正確には「タブに戻ってきて
-    // から最大 5 分後に閉じる」。裏に回ったタブが描いたままなのは画面だけで、API は毎回
-    // サーバー側で拒否する。
-    // ponytail: 5 分間隔のポーリング。期限ちょうどに閉じたければ grantedUntil を応答に
-    // 載せて一発のタイマーにするが、そのために API の表面を増やすほどの精度は要らない。
-    // **顧客詳細を開いている間も止めない。** 止めると、パネルを開いたままにするだけで
-    // 承認の失効に気付かない時間をいくらでも延ばせる (#651 の P1)。書きかけが消える件
-    // (#652-3) はこちらを止める理由にはしない — 承認が切れている以上その保存はサーバー側でも
-    // 弾かれるので、消えないようにしても保存はできない。判断は
-    // `admin-app/src/pages/customers.test.tsx` の「顧客詳細を開いても承認失効のポーリングは
-    // 止めない」で固定してある。
-    refetchInterval: 5 * 60_000,
     // Keep the previous page only across offset (pagination) changes for the SAME
     // store + archived filter. When the store filter or archived view changes the
     // query key, drop the placeholder so we never briefly render (and allow editing

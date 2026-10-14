@@ -545,45 +545,13 @@ const buildCaseWrites = (input: {
   const { db, request, canonicalRow, disabledRows, nowIso } = input;
   const emailWrite = () =>
     writeForEmailStatements({ db, storeId: request.storeId, request, disabledRows, nowIso });
-  // 無効化されている行は、この upsert が revive するとき staff_member_id も access_subject も
-  // 差し替わる (次にログインした別人がその行に紐付く)。そこに 12 時間の承認が残っていると
-  // 引き継がれるので、無効化行の承認はまとめて落とす。active = 0 のあいだ承認は
-  // authenticateAdmin に弾かれて既に死んでいるので、消して失うものは無い。
-  const dropDisabledGrants = (): D1PreparedStatement[] =>
-    disabledRows.length === 0
-      ? []
-      : [
-          db
-            .prepare(
-              `DELETE FROM admin_customer_gate_challenges
-               WHERE admin_user_id IN (${disabledRows.map(() => "?").join(", ")})`
-            )
-            .bind(...disabledRows.map((row) => row.id))
-        ];
-
   if (!canonicalRow) {
-    return { caseLabel: "A", writes: [...dropDisabledGrants(), emailWrite()] };
+    return { caseLabel: "A", writes: [emailWrite()] };
   }
   if (canonicalRow.email.toLowerCase() === request.email.toLowerCase()) {
     return {
       caseLabel: "B",
       writes: [
-        ...dropDisabledGrants(),
-        // 顧客タブの承認 (spec 008) は admin_user_id だけで引くので、役割を入れ替えても
-        // 12 時間の承認が残る。この経路も admin_users.role を書き換えるので、
-        // updateAdminStaff 側 (settings-staff.ts) と同じ掃除を入れる。sentinel 行だけを触るとは
-        // 限らず、classifyCandidateSet は sentinel の系譜が無いときに個人の行を canonical に
-        // 採るため、実在の staff の行がここに来る。UPDATE より前に置くのは、比較する role が
-        // 変更前の値である必要があるから。settings-staff 側にある `OR active = 0` はここには
-        // 不要 — canonicalRow は activeRows[0] 由来で必ず active = 1 なので発火しない。
-        db
-          .prepare(
-            `DELETE FROM admin_customer_gate_challenges
-             WHERE admin_user_id IN (
-               SELECT id FROM admin_users WHERE id = ? AND role <> ?
-             )`
-          )
-          .bind(canonicalRow.id, request.role),
         db
           .prepare(`UPDATE admin_users SET role = ?, active = 1, updated_at = ? WHERE id = ?`)
           .bind(request.role, nowIso, canonicalRow.id)
@@ -593,14 +561,6 @@ const buildCaseWrites = (input: {
   return {
     caseLabel: "C",
     writes: [
-      ...dropDisabledGrants(),
-      // Case C はこれから canonical を無効化する。dropDisabledGrants が見るのは呼び出し時点で
-      // 既に無効な行だけなので、この行はそこに入っていない。他の経路 (次の upsert・
-      // updateAdminStaff の復帰時の掃除) が結果的に拾ってはいるが、3 ファイルにまたがる暗黙の
-      // 分担になるので、ここで自己完結させる。
-      db
-        .prepare(`DELETE FROM admin_customer_gate_challenges WHERE admin_user_id = ?`)
-        .bind(canonicalRow.id),
       db
         .prepare(`UPDATE admin_users SET active = 0, updated_at = ? WHERE id = ?`)
         .bind(nowIso, canonicalRow.id),

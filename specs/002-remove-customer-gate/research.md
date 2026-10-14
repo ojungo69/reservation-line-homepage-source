@@ -19,6 +19,12 @@ Base: `main` at `d2307b0`. Line numbers refer to that commit.
   `gate_email_failed`, `invalid_code`, `not_applicable`, `owner_email_unset`.
   **Rationale**: no other producer or consumer in `src/`, `admin-app/src`, `test/` or `scripts/`;
   the drift test only checks one direction, so leftovers would not fail CI.
+- **Decision**: record the first staff customer-list view per JST day as `customer.list_view`
+  with id `customer_list_view:<admin id>:<JST date>` and `INSERT OR IGNORE`.
+  **Rationale**: owner-approved replacement trace; the derived id makes concurrent page loads
+  write one row without an index lookup; metadata carries only the staff store. Failures are
+  reported and never block the list. **Alternatives**: per-request rows (noise), reads of every
+  detail route (out of scope), a rate limit on reads (not requested).
 - **Decision**: add a per-route matrix test for the former gated routes asserting in-scope staff
   succeed without a grant and out-of-scope staff are refused. **Rationale**: SC-002; it is the
   direct regression test for "the gate was the only protection".

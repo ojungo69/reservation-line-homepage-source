@@ -37,9 +37,17 @@ customer to belong to the staff member's store.
 Out-of-scope requests keep today's responses (for example `403 {"ok":false,"reason":"forbidden"}`
 for another store's customer or a staff member without a store).
 
+## Staff customer-list views
+
+`GET /customers?mode=list` (any page, including the archived view) by a staff member writes one
+activity row per staff member per JST day: action `customer.list_view`, target `admin_user`/the
+staff id, metadata `{"adminStoreId": "<store>"}`. Owners and system administrators are not
+recorded; `?q=` search is not recorded. A failed write is reported and the list is still returned.
+
 ## Admin SPA
 
 - No approval card on the customer list, customer detail or reservation detail.
 - No calls to the removed endpoints.
 - Activity-log labels for `customer_gate_code_requested`, `customer_gate_verified` and
   `customer_gate_verify_failed` remain, because historical audit rows keep those actions.
+- `customer.list_view` is shown as 顧客一覧を表示.
