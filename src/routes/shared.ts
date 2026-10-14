@@ -379,7 +379,11 @@ export const guardConflictAction = async (
     };
   }
   const idempotencyKey = getString(body, "idempotencyKey", 256);
-  if (!idempotencyKey) {
+  // getString treats an overlong reason like an omitted one. Reject it so the operator's
+  // explanation cannot silently disappear from the audit log (all-day approval nests it).
+  const overlongReason = (value: unknown) =>
+    isObject(value) && typeof value.reason === "string" && value.reason.length > 500;
+  if (!idempotencyKey || overlongReason(body) || overlongReason(body.closureScope)) {
     return {
       ok: false,
       response: c.json({ ok: false, reason: "invalid_request" }, 400, ADMIN_PRIVATE_HEADERS)

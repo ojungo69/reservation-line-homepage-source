@@ -233,6 +233,7 @@ export type ReservationDetailResponse = {
 export type ExternalBlocksResponse = {
   ok: true;
   externalBlocks: ExternalBlock[];
+  truncated: boolean;
 };
 
 export type ReservationAction =

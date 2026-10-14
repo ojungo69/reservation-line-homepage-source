@@ -15,7 +15,7 @@ export function useExternalBlocks(dateKey: string) {
   return useQuery({
     queryKey: [...EXTERNAL_BLOCKS_KEY, dateKey],
     queryFn: () =>
-      api.get<ExternalBlocksResponse & { truncated: boolean }>(`/api/admin/external-blocks?${params}`),
+      api.get<ExternalBlocksResponse>(`/api/admin/external-blocks?${params}`),
     staleTime: 30_000,
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,

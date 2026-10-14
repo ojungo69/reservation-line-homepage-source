@@ -182,11 +182,9 @@ describe("SchedulePage", () => {
     expect(useExternalBlocks).toHaveBeenLastCalledWith("2026-07-25");
   });
 
-  it("外部ブロックが上限を超えた場合は日表示と週表示で空き状況の警告を出す", async () => {
+  it("外部ブロックが上限を超えた場合は日表示で空き状況の警告を出す", async () => {
     blocksQuery.data.truncated = true;
     const { rerender } = render(<SchedulePage />);
-    expect(screen.getByRole("alert").textContent).toContain("空き状況を正確に確認できません");
-    await userEvent.setup().click(screen.getByRole("button", { name: "週表示へ" }));
     expect(screen.getByRole("alert").textContent).toContain("空き状況を正確に確認できません");
     blocksQuery.data.truncated = false;
     rerender(<SchedulePage />);

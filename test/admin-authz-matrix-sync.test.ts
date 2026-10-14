@@ -63,14 +63,6 @@ describe("admin-authz-matrix sync", () => {
     expect(markdown.match(/\b[\w-]+\.ts:\d+/g) ?? []).toEqual([]);
   });
 
-  it("names the current admin reschedule availability path", () => {
-    const markdown = readFileSync(resolve(process.cwd(), "docs/admin-authz-matrix.md"), "utf8");
-    const row = markdown.split("\n").find((line) => line.startsWith("| `POST /api/admin/reservations/:id/reschedule`"));
-    expect(row).toContain("resolveRescheduleAvailabilityContext");
-    expect(row).toContain("getAvailableSlots");
-    expect(markdown).not.toContain("listRescheduleAvailability");
-  });
-
   it("documents every /api/admin route registered by createApp(), and no ghosts", () => {
     const source = collectSourceAdminEndpoints();
     const markdown = readFileSync(

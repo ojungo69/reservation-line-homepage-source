@@ -109,18 +109,11 @@ export default function SchedulePage() {
     );
   }, [reservationsData, selectedStoreId]);
 
+  // The query already asks the server for the day's active blocks only.
   const filteredBlocks = useMemo(() => {
     const externalBlocks = blocksData?.ok ? blocksData.externalBlocks : [];
-    const dayStartMs = Date.parse(`${dateKey}T00:00:00+09:00`);
-    const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
-    return externalBlocks.filter((b) => {
-      if (b.status !== "active") return false;
-      if (selectedStoreId && b.storeId !== selectedStoreId) return false;
-      const blockStartMs = Date.parse(b.startAt);
-      const blockEndMs = Date.parse(b.endAt);
-      return blockStartMs < dayEndMs && blockEndMs > dayStartMs;
-    });
-  }, [blocksData, selectedStoreId, dateKey]);
+    return externalBlocks.filter((b) => !selectedStoreId || b.storeId === selectedStoreId);
+  }, [blocksData, selectedStoreId]);
 
   const counts = useMemo(() => {
     const pendingList = pendingData?.ok ? pendingData.reservations : [];
@@ -289,7 +282,7 @@ export default function SchedulePage() {
           onSelect={handleReservationClick}
         />
         {/* 週の各日の予約失敗は WeekView 内で表示する。 */}
-        {(settingsError || blocksError || blocksData?.truncated) && renderDataStatus()}
+        {(settingsError || blocksError) && renderDataStatus()}
         <WeekView
           date={date}
           storeId={selectedStoreId}
