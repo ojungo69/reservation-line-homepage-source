@@ -67,10 +67,6 @@ export type ApiErrorCode =
   | "invalid_display_name_kana"
   | "invalid_phone"
   | "rate_limited"
-  | "customer_gate_required"
-  | "gate_email_failed"
-  | "owner_email_unset"
-  | "invalid_code"
   | "conflict"
   | "bulk_in_progress";
 
@@ -81,10 +77,6 @@ export type ApiErrorCode =
  */
 const ERROR_MESSAGES = {
   invalid_request: "入力内容に誤りがあります",
-  customer_gate_required: "顧客情報を開くには、オーナーに届く確認コードの入力が必要です",
-  gate_email_failed: "確認コードのメールを送信できませんでした。時間をおいてもう一度お試しください",
-  owner_email_unset: "オーナーの通知先メールアドレスが設定されていないため、確認コードを発行できません",
-  invalid_code: "確認コードが正しくないか、有効期限が切れています",
   forbidden: "権限がありません",
   not_found: "対象が見つかりません",
   invalid_transition: "この操作は現在の状態では実行できません",

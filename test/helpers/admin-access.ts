@@ -132,31 +132,3 @@ export const insertAdminUser = (db: SqliteD1Database, options: InsertAdminUserOp
       options.updatedAt ?? "2026-05-19T00:00:00.000Z"
     );
 };
-
-/**
- * Give a staff admin the customer-tab approval (spec 008) so a test can exercise
- * the customer routes without walking the code-request / code-verify flow. The
- * verified challenge row IS the grant, so this writes the same shape
- * `verifyCustomerGateCode` writes. `code_hash` is a throwaway 64-char value: the
- * row is already verified, so nothing ever compares against it.
- */
-export const grantCustomerTabGate = (
-  db: SqliteD1Database,
-  adminUserId: string,
-  grantedUntil = "2099-01-01T00:00:00.000Z"
-): void => {
-  db.sqlite
-    .prepare(
-      `INSERT INTO admin_customer_gate_challenges
-        (id, admin_user_id, code_hash, expires_at, attempts, verified_at, granted_until)
-       VALUES (?, ?, ?, ?, 1, ?, ?)`
-    )
-    .run(
-      `gate_${adminUserId}`,
-      adminUserId,
-      "0".repeat(64),
-      "2026-01-01T00:00:00.000Z",
-      "2026-01-01T00:00:00.000Z",
-      grantedUntil
-    );
-};

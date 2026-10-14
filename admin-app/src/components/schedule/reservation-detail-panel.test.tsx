@@ -12,7 +12,6 @@ const updateCancellationFee = vi.fn();
 let reservation: ReservationDetail;
 let privileged = true;
 let feePending = false;
-let gateFailureReason: unknown;
 
 vi.mock("@/hooks/use-reservations", () => ({
   useReservationDetail: () => ({
@@ -33,16 +32,6 @@ vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ isPrivileged: privileged }),
 }));
 
-vi.mock("@/hooks/use-customers", () => ({
-  useCustomerDetail: () => ({
-    data: gateFailureReason ? undefined : { ok: true },
-    isFetching: !!gateFailureReason,
-    isError: false,
-    error: null,
-    failureReason: gateFailureReason,
-  }),
-}));
-
 vi.mock("./reservation-reschedule-dialog", () => ({
   ReservationRescheduleDialog: () => null,
 }));
@@ -61,7 +50,6 @@ beforeEach(() => {
   updateCancellationFee.mockReset();
   privileged = true;
   feePending = false;
-  gateFailureReason = undefined;
   reservation = {
     id: "reservation-1",
     status: "no_show",
@@ -290,22 +278,28 @@ describe("ReservationDetailPanel", () => {
 });
 
 describe("ReservationDetailPanel の施術メモの取り違え防止", () => {
-  it.each([
-    [403, "customer_gate_required", true],
-    [403, "forbidden", false],
-    [500, "internal", false],
-  ] as const)("再試行中の %s %s でも承認が必要な場合だけ確認カードを表示する", async (status, reason, needsApproval) => {
+  it("スタッフは承認カードなしで施術メモを編集・保存できる", async () => {
     privileged = false;
-    gateFailureReason = new ApiError(status, { reason });
     const user = userEvent.setup();
     render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />, {
       wrapper: createQueryWrapper(createTestQueryClient()),
     });
     await user.click(screen.getByRole("button", { name: "編集" }));
-    await user.type(screen.getByRole("textbox", { name: "施術メモ" }), "・下書き");
-    expect(!!screen.queryByRole("button", { name: "確認コードを送る" })).toBe(needsApproval);
-    expect((screen.getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("textbox", { name: "施術メモ" }) as HTMLTextAreaElement).value).toBe("施術済み・下書き");
+    await user.type(screen.getByRole("textbox", { name: "施術メモ" }), "・スタッフの追記");
+    expect(screen.queryByRole("button", { name: "確認コードを送る" })).toBeNull();
+    expect(screen.queryByText("顧客情報の閲覧にはオーナーの確認が必要です")).toBeNull();
+    expect(screen.getByRole("button", { name: "保存" })).toHaveProperty("disabled", false);
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(saveNotes).toHaveBeenCalledWith({
+      customerId: "customer-1",
+      visitId: "visit-1",
+      treatmentNotes: "施術済み・スタッフの追記",
+      expectedTreatmentNotes: "施術済み",
+    }, expect.anything());
+    reservation = { ...reservation, visits: [{ ...reservation.visits[0], treatmentNotes: "施術済み・スタッフの追記" }] };
+    await act(async () => { saveNotes.mock.calls.at(-1)?.[1]?.onSuccess?.(); });
+    expect(screen.getByText("施術済み・スタッフの追記")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
   });
 
   it("完了後のメモ入力から編集へ切り替えても下書きを引き継ぐ", async () => {

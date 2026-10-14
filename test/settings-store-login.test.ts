@@ -12,7 +12,6 @@ import {
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 import {
   insertAdminUser as insertAdminUserHelper,
-  grantCustomerTabGate,
   type AdminRole,
   type InsertAdminUserOptions
 } from "./helpers/admin-access";
@@ -597,108 +596,6 @@ describe("upsertStoreLogin", () => {
     expect(row?.active).toBe(1);
     // no new row
     expect(countAdminUsers(db)).toBe(2);
-  });
-
-  it("Case B drops the customer tab grant on a role change, and keeps it on a role-keep", async () => {
-    // 顧客タブの承認 (spec 008) は admin_user_id だけで引くので、role を往復させると
-    // 12 時間の承認が生き残ってコード無しで顧客タブが開く。updateAdminStaff 側と同じ
-    // 掃除がこの経路にも要る。seed している staff_member_id は storeLoginStaffId("osaka")
-    // そのもの = sentinel 行なので、ここが固定しているのは sentinel 分岐。DELETE は
-    // canonicalRow.id を直接 bind するので legacy 分岐でも同じ動きになる。
-    const grantRows = (db: SqliteD1Database) =>
-      (
-        db.sqlite
-          .prepare(`SELECT COUNT(*) AS n FROM admin_customer_gate_challenges WHERE admin_user_id = ?`)
-          .get("au_osaka") as { n: number }
-      ).n;
-
-    const seed = () => {
-      const db = createMigratedSqliteD1();
-      insertAdminUserHelper(db, { id: OWNER.id, email: OWNER.email, accessSubject: OWNER.id, role: OWNER.role });
-      insertStaffMember(db, { id: "staff_login_osaka", storeId: "osaka" });
-      insertAdminUser(db, {
-        id: "au_osaka",
-        email: "umeda@example.com",
-        accessSubject: "real-bound-subject",
-        role: "staff",
-        staffMemberId: "staff_login_osaka"
-      });
-      grantCustomerTabGate(db, "au_osaka");
-      expect(grantRows(db)).toBe(1);
-      return db;
-    };
-
-    const changed = seed();
-    const toOwner = parseStoreLoginUpsertRequest({
-      storeId: "osaka",
-      email: "umeda@example.com",
-      role: "owner",
-      idempotencyKey: "key-gate-changed"
-    })!;
-    expect(await upsertStoreLogin({ db: asD1(changed), admin: OWNER, request: toOwner, now: NOW })).toEqual({
-      ok: true,
-      storeId: "osaka",
-      replayed: false
-    });
-    expect(readAdminUser(changed, "au_osaka")?.role).toBe("owner");
-    expect(grantRows(changed)).toBe(0);
-
-    const kept = seed();
-    const sameRole = parseStoreLoginUpsertRequest({
-      storeId: "osaka",
-      email: "umeda@example.com",
-      role: "staff",
-      idempotencyKey: "key-gate-kept"
-    })!;
-    expect(await upsertStoreLogin({ db: asD1(kept), admin: OWNER, request: sameRole, now: NOW })).toEqual({
-      ok: true,
-      storeId: "osaka",
-      replayed: false
-    });
-    expect(readAdminUser(kept, "au_osaka")?.role).toBe("staff");
-    // 役割が変わらないなら承認を落とす理由が無い。毎回落とすとオーナーが
-    // 店舗ログインを触るたびにスタッフが再申請することになる。
-    expect(grantRows(kept)).toBe(1);
-  });
-
-  it("Case C drops the customer tab grant of the login it retires", async () => {
-    // メール差し替え (Case C) は canonical 行をその場で無効化する。dropDisabledGrants が見るのは
-    // 「呼び出し時点で既に無効な行」だけなので、この行はそこに入らない。他の経路が結果的に
-    // 拾ってはいるが 3 ファイルにまたがる暗黙の分担になるため、Case C 自身で落とす。
-    const db = createMigratedSqliteD1();
-    insertAdminUserHelper(db, { id: OWNER.id, email: OWNER.email, accessSubject: OWNER.id, role: OWNER.role });
-    try {
-      insertStaffMember(db, { id: "staff_login_osaka", storeId: "osaka" });
-      insertAdminUser(db, {
-        id: "au_osaka",
-        email: "old@example.com",
-        accessSubject: "real-bound-subject",
-        role: "staff",
-        staffMemberId: "staff_login_osaka"
-      });
-      grantCustomerTabGate(db, "au_osaka");
-
-      const rotated = parseStoreLoginUpsertRequest({
-        storeId: "osaka",
-        email: "new@example.com",
-        role: "staff",
-        idempotencyKey: "key-gate-caseC"
-      })!;
-      expect(await upsertStoreLogin({ db: asD1(db), admin: OWNER, request: rotated, now: NOW })).toEqual({
-        ok: true,
-        storeId: "osaka",
-        replayed: false
-      });
-
-      expect(readAdminUser(db, "au_osaka")?.active).toBe(0);
-      expect(
-        db.sqlite
-          .prepare(`SELECT COUNT(*) AS n FROM admin_customer_gate_challenges WHERE admin_user_id = ?`)
-          .get("au_osaka")
-      ).toEqual({ n: 0 });
-    } finally {
-      db.sqlite.close();
-    }
   });
 
   it("rejects a staff actor (forbidden)", async () => {

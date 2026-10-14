@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 // オーナー宛の通知メール。顧客向けのメール予備連絡先は 2026-08-31 に撤去したので、
-// この経路 (ワンタイムコード・日次サマリー・LINE 枠アラート) だけが残っている。
+// この経路 (日次サマリー・LINE 枠アラート) だけが残っている。
 describe("sendOperationsNotificationEmail", () => {
   it("escapes the body it embeds in the HTML part", async () => {
     const email = createMockSendEmail();

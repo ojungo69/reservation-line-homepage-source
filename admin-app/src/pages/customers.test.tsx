@@ -2,7 +2,6 @@ import type { KeyboardEvent } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CustomerListItem, CustomerSearchItem } from "@/types/api";
-import { ApiError } from "@/lib/api-client";
 import {
   CustomerListTable,
   default as CustomersPage,
@@ -24,12 +23,6 @@ const authState = vi.hoisted(() => ({ isPrivileged: true, storeId: null as strin
 // 非空にする。空のままだと `groups.length === 0 → null` で owner でも消えるので、
 // 「staff には出ない」という assert が role と無関係に通ってしまう。
 const mergeState = vi.hoisted(() => ({ groups: [] as Array<{ groupId: string; customers: unknown[] }> }));
-// 顧客一覧が返すエラー。既定は null (=承認済み)。顧客タブのゲート (specs/008) を見る
-// テストだけが 403 customer_gate_required を入れる。
-const gateState = vi.hoisted(() => ({ error: null as unknown, failureReason: null as unknown }));
-// useCustomerList に渡った引数の記録。承認失効のポーリングが止まっていないかを見る。
-const listCalls = vi.hoisted(() => ({ pausePolling: [] as boolean[] }));
-
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ isPrivileged: authState.isPrivileged, user: { storeId: authState.storeId } }),
 }));
@@ -44,8 +37,7 @@ vi.mock("@/hooks/use-stores", () => ({
 }));
 
 vi.mock("@/hooks/use-customers", () => ({
-  useCustomerList: (offset: number, archivedOnly: boolean, _storeId: string | null, pausePolling = false) => {
-    listCalls.pausePolling.push(pausePolling);
+  useCustomerList: (offset: number, archivedOnly: boolean, _storeId: string | null) => {
     return {
     data: {
       customers: archivedOnly
@@ -84,10 +76,6 @@ vi.mock("@/hooks/use-customers", () => ({
     },
     isPending: false,
     isError: false,
-    error: gateState.error,
-    // 本番の QueryClient は `retry: 1`。1 回目の失敗はここにしか入らず `error` は
-    // null のままなので、モックも両方を持つ。
-    failureReason: gateState.failureReason,
     };
   },
   useCustomerSearch: (query: string) => ({
@@ -120,48 +108,12 @@ vi.mock("@/components/customers/add-customer-dialog", () => ({
   AddCustomerDialog: () => null,
 }));
 
-const gateMutations = vi.hoisted(() => ({
-  request: vi.fn(),
-  verify: vi.fn(),
-}));
-
-// mutate の第2引数の onSuccess だけがカードを「送信済み」に進める。mock 側で data を
-// 返して初めから開いた状態にすると、発行の成否で表示が変わることを一度も通らない。
-vi.mock("@/hooks/use-customer-gate", () => ({
-  useCustomerGateRequest: () => ({ mutate: gateMutations.request, isPending: false }),
-  useCustomerGateVerify: () => ({ mutate: gateMutations.verify, isPending: false }),
-}));
-
-// verify の失敗を、hook の onError ではなく呼び出し側に渡した onError で再現する
-// (画面が入力回数を数えているのはそちら)。
-const verifyFails = (status: number) => {
-  const onError = gateMutations.verify.mock.calls.at(-1)?.[1]?.onError;
-  act(() => onError?.(new ApiError(status, { ok: false, reason: status === 429 ? "rate_limited" : "invalid_code" })));
-};
-
-// サーバーまで届かなかった失敗 (通信断・5xx・認証エラー)。verifyCustomerGateCode を
-// 通っていないので D1 の attempts は増えていない。
-const verifyErrorsBeforeServer = () => {
-  const onError = gateMutations.verify.mock.calls.at(-1)?.[1]?.onError;
-  act(() => onError?.(new ApiError(500, { ok: false, reason: "internal_error" })));
-};
-
-const sendSucceeds = (challengeId: string) => {
-  const onSuccess = gateMutations.request.mock.calls.at(-1)?.[1]?.onSuccess;
-  expect(onSuccess).toBeTypeOf("function");
-  act(() => onSuccess({ ok: true, challengeId, expiresAt: "2026-08-30T01:10:00.000Z" }));
-};
-
 afterEach(() => {
   customerState.params = new URLSearchParams();
   customerState.setParams.mockClear();
   authState.isPrivileged = true;
   authState.storeId = null;
   mergeState.groups = [];
-  gateState.error = null;
-  gateState.failureReason = null;
-  gateMutations.request.mockClear();
-  gateMutations.verify.mockClear();
   vi.useRealTimers();
 });
 
@@ -323,21 +275,6 @@ describe("CustomersPage", () => {
     expect(screen.queryByRole("button", { name: "顧客を追加" })).toBeNull();
   });
 
-  // 5 分ごとの再取得は、12 時間の承認がセッション中に切れたことに画面が気付く唯一の
-  // 経路 (/me は起動時に 1 回しか引かない)。詳細を開いている間だけ止めると、パネルを
-  // 開いたままにするだけで失効に気付かない時間をいくらでも延ばせる (#651 の P1)。
-  // 書きかけのメモが消える件 (#652-3) は、承認が切れている以上その保存はサーバー側でも
-  // 弾かれるので、こちらを止める理由にはしない。
-  it("顧客詳細を開いても承認失効のポーリングは止めない", () => {
-    listCalls.pausePolling.length = 0;
-    render(<CustomersPage />);
-
-    expect(listCalls.pausePolling.at(-1)).toBe(false);
-
-    fireEvent.click(screen.getByLabelText("山田 花子の顧客詳細を開く"));
-    expect(listCalls.pausePolling.at(-1)).toBe(false);
-  });
-
   it("ページを移動して選んだ顧客の詳細を開く", () => {
     render(<CustomersPage />);
 
@@ -421,247 +358,7 @@ describe("CustomersPage", () => {
     expect(screen.getByText("山田 花子")).toBeTruthy();
   });
 
-  it("有効な customerId URL パラメータから顧客詳細を開く", () => {
-    customerState.params = new URLSearchParams("customerId=customer_42");
-
-    render(<CustomersPage />);
-
-    expect(screen.getByText("顧客詳細: customer_42")).toBeTruthy();
-  });
-});
-
-describe("顧客タブのオーナー承認ゲート", () => {
-  const gateError = () =>
-    new ApiError(403, { ok: false, reason: "customer_gate_required" });
-
-  it("承認が無いときは顧客データを一切描画せず、コード入力の案内だけを出す", () => {
-    authState.isPrivileged = false;
-    authState.storeId = "kyoto";
-    gateState.error = gateError();
-
-    render(<CustomersPage />);
-
-    expect(screen.getByText("顧客情報の閲覧にはオーナーの確認が必要です")).not.toBeNull();
-    // 一覧のモックは顧客を返しているので、これが出たらゲートが描画を止めていない。
-    expect(screen.queryByText("山田 花子")).toBeNull();
-    expect(screen.queryByText("090-****-1234")).toBeNull();
-    expect(screen.queryByRole("table")).toBeNull();
-  });
-
-  // 本番の QueryClient は `retry: 1` なので、1 回目の 403 は `error` ではなく
-  // `failureReason` に入る。`error` だけを見ていると、リトライが済むまで理由の無い
-  // スケルトンが出る。さらに React Query は networkMode の既定でリトライを
-  // `fetchStatus: "paused"` にして待つため、オンライン判定が false のあいだは
-  // `error` が永久に埋まらずカードが一度も出ない (staging の実機で観測)。
-  // 既存のテストは `retry: false` の QueryClient を使うのでこの経路を通らない。
-  it("リトライ前で error がまだ null でも、1回目の403で案内を出す", () => {
-    authState.isPrivileged = false;
-    authState.storeId = "kyoto";
-    gateState.error = null;
-    gateState.failureReason = gateError();
-
-    render(<CustomersPage />);
-
-    expect(screen.getByText("顧客情報の閲覧にはオーナーの確認が必要です")).not.toBeNull();
-    expect(screen.queryByText("山田 花子")).toBeNull();
-    expect(screen.queryByRole("table")).toBeNull();
-  });
-
-  // 同じ 403 でも理由が違えばカードを出してはいけない。店舗に紐付いていない staff は
-  // `staffHasStore` で `forbidden` の 403 を受ける (src/routes/admin-api.ts)。ここで
-  // 案内を出すと、コードを入れても永久に開かない画面をスタッフに見せることになる。
-  it("同じ403でも理由が customer_gate_required でなければ案内を出さない", () => {
-    authState.isPrivileged = false;
-    authState.storeId = "kyoto";
-    gateState.error = null;
-    gateState.failureReason = new ApiError(403, { ok: false, reason: "forbidden" });
-
-    render(<CustomersPage />);
-
-    expect(screen.queryByText("顧客情報の閲覧にはオーナーの確認が必要です")).toBeNull();
-  });
-
-  it("ゲート以外のエラーでも案内を出さない", () => {
-    authState.isPrivileged = false;
-    authState.storeId = "kyoto";
-    gateState.error = null;
-    gateState.failureReason = new ApiError(500, { ok: false, reason: "internal" });
-
-    render(<CustomersPage />);
-
-    expect(screen.queryByText("顧客情報の閲覧にはオーナーの確認が必要です")).toBeNull();
-  });
-
-  it("コードを送ってから6桁を入力すると検証に進む", () => {
-    authState.isPrivileged = false;
-    authState.storeId = "kyoto";
-    gateState.error = gateError();
-
-    render(<CustomersPage />);
-    // 送る前は入力欄を出さない。
-    expect(screen.queryByLabelText("確認コード")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "確認コードを送る" }));
-    expect(gateMutations.request).toHaveBeenCalledTimes(1);
-    sendSucceeds("challenge-1");
-
-    const input = screen.getByLabelText("確認コード");
-    // 数字以外は落ちる。
-    fireEvent.change(input, { target: { value: "12a34b56789" } });
-    expect((input as HTMLInputElement).value).toBe("123456");
-
-    fireEvent.click(screen.getByRole("button", { name: "顧客情報を開く" }));
-    expect(gateMutations.verify).toHaveBeenCalledWith(
-      { challengeId: "challenge-1", code: "123456" },
-      expect.anything(),
-    );
-  });
-
-  it("再送が失敗しても入力欄と手元のコードが残る", () => {
-    // 60 秒のクールダウン中に再送を押すと 429 で終わる。この 429 は発行経路の掃除より手前で
-    // 返るので最初のコードはまだ生きている。ここで入力欄が消えると、オーナーから聞いた
-    // 有効なコードを入れる場所が無くなり、待って送り直して 2 通目を出すしかなくなる。
-    authState.isPrivileged = false;
-    authState.storeId = "kyoto";
-    gateState.error = gateError();
-
-    render(<CustomersPage />);
-    fireEvent.click(screen.getByRole("button", { name: "確認コードを送る" }));
-    sendSucceeds("challenge-1");
-    expect(screen.getByLabelText("確認コード")).not.toBeNull();
-
-    // 再送 → 失敗 (onSuccess は呼ばれない)。
-    fireEvent.click(screen.getByRole("button", { name: "確認コードを再送する" }));
-    expect(gateMutations.request).toHaveBeenCalledTimes(2);
-
-    fireEvent.change(screen.getByLabelText("確認コード"), { target: { value: "123456" } });
-    fireEvent.click(screen.getByRole("button", { name: "顧客情報を開く" }));
-    expect(gateMutations.verify).toHaveBeenCalledWith(
-      { challengeId: "challenge-1", code: "123456" },
-      expect.anything(),
-    );
-  });
-
-  // 5 回外すとサーバー側の試行枠を使い切り、そのあとは正しいコードを入れても同じ
-  // 「正しくないか期限切れ」しか返らない。何も言わないと、正しいコードを何度も
-  // 入れ直す (そのたびに監査行だけ増える) ことになる。
-  it("入力を5回間違えたら再送を促し、それ以上送信させない", () => {
-    authState.isPrivileged = false;
-    authState.storeId = "kyoto";
-    gateState.error = gateError();
-
-    render(<CustomersPage />);
-    fireEvent.click(screen.getByRole("button", { name: "確認コードを送る" }));
-    sendSucceeds("challenge-1");
-    fireEvent.change(screen.getByLabelText("確認コード"), { target: { value: "123456" } });
-
-    for (let i = 0; i < 5; i += 1) {
-      fireEvent.click(screen.getByRole("button", { name: "顧客情報を開く" }));
-      verifyFails(400);
-    }
-
-    expect(screen.getByText(/入力の回数が上限に達したため/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "顧客情報を開く" })).toHaveProperty("disabled", true);
-
-    // 再送が通れば数え直す。
-    fireEvent.click(screen.getByRole("button", { name: "確認コードを再送する" }));
-    sendSucceeds("challenge-2");
-    expect(screen.queryByText(/入力の回数が上限に達したため/)).toBeNull();
-  });
-
-  // verify の応答が返る前に再送が成功すると、遅れて届いた**前の**チャレンジの
-  // invalid_code が新しいチャレンジの回数を潰す。5 回残っている画面が先に
-  // 「再送しかない」と言い出し、オーナーにコード送信をもう 1 通強いることになる。
-  it("再送のあとに届いた前のチャレンジの失敗は数えない", () => {
-    authState.isPrivileged = false;
-    authState.storeId = "kyoto";
-    gateState.error = gateError();
-
-    render(<CustomersPage />);
-    fireEvent.click(screen.getByRole("button", { name: "確認コードを送る" }));
-    sendSucceeds("challenge-1");
-    fireEvent.change(screen.getByLabelText("確認コード"), { target: { value: "123456" } });
-
-    // challenge-1 の verify を送信した状態で、応答が返る前に再送が成功する。
-    fireEvent.click(screen.getByRole("button", { name: "顧客情報を開く" }));
-    const staleOnError = gateMutations.verify.mock.calls.at(-1)?.[1]?.onError;
-    fireEvent.click(screen.getByRole("button", { name: "確認コードを再送する" }));
-    sendSucceeds("challenge-2");
-
-    // ここで challenge-1 の invalid_code が遅れて届く。数えてしまうと challenge-2 の
-    // 残り回数が 1 つ減る。
-    act(() => staleOnError?.(new ApiError(400, { ok: false, reason: "invalid_code" })));
-
-    // challenge-2 で 4 回外す。数え違いが無ければ 5 回目がまだ残っている。
-    fireEvent.change(screen.getByLabelText("確認コード"), { target: { value: "654321" } });
-    for (let i = 0; i < 4; i += 1) {
-      fireEvent.click(screen.getByRole("button", { name: "顧客情報を開く" }));
-      verifyFails(400);
-    }
-
-    expect(screen.queryByText(/入力の回数が上限に達したため/)).toBeNull();
-    expect(screen.getByRole("button", { name: "顧客情報を開く" })).toHaveProperty("disabled", false);
-  });
-
-  // 429 はサーバー側の試行を消費しないので、上限の数にも入れない。
-  it("レート制限で弾かれた回は入力回数に数えない", () => {
-    authState.isPrivileged = false;
-    authState.storeId = "kyoto";
-    gateState.error = gateError();
-
-    render(<CustomersPage />);
-    fireEvent.click(screen.getByRole("button", { name: "確認コードを送る" }));
-    sendSucceeds("challenge-1");
-    fireEvent.change(screen.getByLabelText("確認コード"), { target: { value: "123456" } });
-
-    for (let i = 0; i < 6; i += 1) {
-      fireEvent.click(screen.getByRole("button", { name: "顧客情報を開く" }));
-      verifyFails(429);
-    }
-
-    expect(screen.queryByText(/入力の回数が上限に達したため/)).toBeNull();
-  });
-
-  // サーバーまで届かなかった失敗も同じ。数えてしまうと、まだ試行が残っている
-  // チャレンジを画面が先に閉じ、オーナーへのコード送信をもう 1 通強いることになる。
-  it("サーバーに届かなかった失敗は入力回数に数えない", () => {
-    authState.isPrivileged = false;
-    authState.storeId = "kyoto";
-    gateState.error = gateError();
-
-    render(<CustomersPage />);
-    fireEvent.click(screen.getByRole("button", { name: "確認コードを送る" }));
-    sendSucceeds("challenge-1");
-    fireEvent.change(screen.getByLabelText("確認コード"), { target: { value: "123456" } });
-
-    for (let i = 0; i < 6; i += 1) {
-      fireEvent.click(screen.getByRole("button", { name: "顧客情報を開く" }));
-      verifyErrorsBeforeServer();
-    }
-
-    expect(screen.queryByText(/入力の回数が上限に達したため/)).toBeNull();
-    expect(screen.getByRole("button", { name: "顧客情報を開く" })).toHaveProperty("disabled", false);
-  });
-
-  it("再送が成功したときは入力済みのコードを消す", () => {
-    // 再送が成功した時点で前のコードは失効する (理由は customer-gate-card.tsx の onSend)。
-    authState.isPrivileged = false;
-    authState.storeId = "kyoto";
-    gateState.error = gateError();
-
-    render(<CustomersPage />);
-    fireEvent.click(screen.getByRole("button", { name: "確認コードを送る" }));
-    sendSucceeds("challenge-1");
-    fireEvent.change(screen.getByLabelText("確認コード"), { target: { value: "123456" } });
-    expect((screen.getByLabelText("確認コード") as HTMLInputElement).value).toBe("123456");
-
-    fireEvent.click(screen.getByRole("button", { name: "確認コードを再送する" }));
-    sendSucceeds("challenge-2");
-
-    expect((screen.getByLabelText("確認コード") as HTMLInputElement).value).toBe("");
-    expect(screen.getByRole("button", { name: "顧客情報を開く" }).hasAttribute("disabled")).toBe(true);
-  });
-
-  it("承認済み (エラー無し) のときは通常どおり一覧を描画する", () => {
+  it("スタッフはコード入力なしで顧客一覧を開く", () => {
     authState.isPrivileged = false;
     authState.storeId = "kyoto";
 
@@ -669,5 +366,13 @@ describe("顧客タブのオーナー承認ゲート", () => {
 
     expect(screen.getByText("山田 花子")).not.toBeNull();
     expect(screen.queryByText("顧客情報の閲覧にはオーナーの確認が必要です")).toBeNull();
+  });
+
+  it("有効な customerId URL パラメータから顧客詳細を開く", () => {
+    customerState.params = new URLSearchParams("customerId=customer_42");
+
+    render(<CustomersPage />);
+
+    expect(screen.getByText("顧客詳細: customer_42")).toBeTruthy();
   });
 });

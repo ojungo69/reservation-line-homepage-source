@@ -7,7 +7,6 @@ import { displayServiceName } from "@/lib/service-pricing";
 import { reservationOriginLabel, reservationSourceLabel } from "@/lib/reservation-origin";
 import { ArrowLeft, CalendarDays, Phone, Users, TriangleAlert, ChevronDown } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { CustomerGateCard } from "./customer-gate-card";
 import { ReservationDetailPanel } from "@/components/schedule/reservation-detail-panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -60,7 +59,6 @@ import { PendingConfirmDialog } from "@/components/ui/pending-confirm-dialog";
 type Props = {
   customerId: string | null;
   onClose: () => void;
-  suspended?: boolean;
   originReservationId?: string | null;
 };
 
@@ -164,7 +162,7 @@ function CustomerAdminActions({
   );
 }
 
-export function CustomerDetailPanel({ customerId, onClose, suspended = false, originReservationId = null }: Readonly<Props>) {
+export function CustomerDetailPanel({ customerId, onClose, originReservationId = null }: Readonly<Props>) {
   const { isPrivileged } = useAuth();
   const navigate = useNavigate();
   const detailQuery = useCustomerDetail(customerId);
@@ -183,7 +181,6 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
   const consentsPageMutation = useCustomerConsentsPage();
   const reservationsPageMutation = useCustomerReservationsPage();
   const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);
-  const [gateRequired, setGateRequired] = useState(false);
   const { stores } = useStores();
 
   const todayKey = formatJstDate(new Date());
@@ -246,9 +243,7 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
   });
 
   const customer = data?.ok ? data.customer : null;
-  const gateBlocked = suspended || gateRequired || [detailQuery.error, detailQuery.failureReason].some(isCustomerGateRequired);
   const handleWriteError = (error: unknown, conflict?: () => void) => {
-    if (isCustomerGateRequired(error)) setGateRequired(true);
     if (isStaleSnapshot(error)) conflict?.();
   };
 
@@ -459,7 +454,6 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
     setDiscardDraftNext(null);
     setHistoryTab("visits");
     setVisitsPageError(false);
-    setGateRequired(false);
     setSelectedReservationId(null);
     setEditingDateId(null);
     setDateValue("");
@@ -508,7 +502,7 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
   }, [isArchived]);
 
   const onEscape = useEffectEvent((event: KeyboardEvent) => {
-    if (event.key !== "Escape" || event.defaultPrevented || !customerId || gateBlocked ||
+    if (event.key !== "Escape" || event.defaultPrevented || !customerId ||
         document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
     if (hasUnsavedDraft()) setDiscardDraftNext("close"); else onClose();
   });
@@ -1089,10 +1083,7 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
   return (
     <>
       {!!customerId && <section aria-label="顧客カルテ" className="min-w-0">
-        {gateBlocked && !suspended && <CustomerGateCard onVerified={() => {
-          void detailQuery.refetch().then((result) => { if (result.data?.ok && !result.error) setGateRequired(false); });
-        }} />}
-        <div hidden={gateBlocked}>
+        <div>
           <div className="mb-5 flex flex-wrap items-center gap-3">
             <Button variant="outline" onClick={() => { if (hasUnsavedDraft()) setDiscardDraftNext("close"); else closePanel(); }}>
               <ArrowLeft aria-hidden="true" /> 顧客一覧に戻る
@@ -1374,10 +1365,10 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
           )}
         </div>
       </section>}
-      <ReservationDetailPanel onOpenChart={() => setSelectedReservationId(null)} reservationId={selectedReservationId} onClose={() => setSelectedReservationId(null)} suspended={gateBlocked} />
+      <ReservationDetailPanel onOpenChart={() => setSelectedReservationId(null)} reservationId={selectedReservationId} onClose={() => setSelectedReservationId(null)} />
 
       <PendingConfirmDialog
-        open={!!blockConfirm && !gateBlocked}
+        open={!!blockConfirm}
         pending={blockMutation.isPending}
         title={blockDialog.title}
         description={blockDialog.description}
@@ -1387,7 +1378,7 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
       />
 
       <PendingConfirmDialog
-        open={!!archiveConfirm && !gateBlocked}
+        open={!!archiveConfirm}
         pending={archiveMutation.isPending}
         title={archiveDialog.title}
         description={archiveDialog.description}
@@ -1396,7 +1387,7 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
         onConfirm={handleArchiveAction}
       />
 
-      <AlertDialog open={deleteOpen && !gateBlocked} onOpenChange={(open) => {
+      <AlertDialog open={deleteOpen} onOpenChange={(open) => {
         if (!open && deleteMutation.isPending) return;
         if (!open) { setDeleteOpen(false); setDeleteConfirmText(""); }
       }}>
@@ -1439,7 +1430,7 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
       </AlertDialog>
 
       <PendingConfirmDialog
-        open={clearNoteVisitId !== null && !gateBlocked}
+        open={clearNoteVisitId !== null}
         pending={notesMutation.isPending}
         title="施術メモを消しますか？"
         description="この来店に記録されている施術メモが消えます。この操作は取り消せません。"
@@ -1452,7 +1443,7 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
       />
 
       <PendingConfirmDialog
-        open={discardDraftNext !== null && !gateBlocked}
+        open={discardDraftNext !== null}
         pending={false}
         title="書きかけの入力があります"
         description="保存していない内容は失われます。閉じてよろしいですか？"
@@ -1464,7 +1455,7 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
       />
 
       <PendingConfirmDialog
-        open={deleteVisitId !== null && !gateBlocked}
+        open={deleteVisitId !== null}
         pending={deleteVisitMutation.isPending}
         title="来店履歴を削除"
         description="この来店記録を削除します。来店回数・最終来店日に反映されます。この操作は取り消せません。"
@@ -1478,7 +1469,7 @@ export function CustomerDetailPanel({ customerId, onClose, suspended = false, or
       {/* key で顧客毎に remount → 前回の検索語が次の顧客へ持ち越されない。 */}
       <LinkLineFromCardDialog
         key={`link-line-${linkLineOpen ? customer?.id ?? "open" : "closed"}`}
-        customer={linkLineOpen && customer && !gateBlocked ? { id: customer.id, displayName: customer.displayName } : null}
+        customer={linkLineOpen && customer ? { id: customer.id, displayName: customer.displayName } : null}
         onClose={() => setLinkLineOpen(false)}
       />
     </>
@@ -1524,11 +1515,6 @@ function DetailSkeleton() {
 function isStaleSnapshot(error: unknown) {
   return error instanceof ApiError && error.status === 409 &&
     (error.body as { reason?: string } | null)?.reason === "stale_snapshot";
-}
-
-function isCustomerGateRequired(error: unknown) {
-  return error instanceof ApiError && error.status === 403 &&
-    (error.body as { reason?: string } | null)?.reason === "customer_gate_required";
 }
 
 function chartServiceName(name: string | null | undefined, source: "snapshot" | "current" | "unrecorded" | undefined) {

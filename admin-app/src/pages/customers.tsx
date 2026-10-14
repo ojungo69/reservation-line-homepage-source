@@ -34,8 +34,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { CustomerDetailPanel } from "@/components/customers/customer-detail-panel";
 import { AddCustomerDialog } from "@/components/customers/add-customer-dialog";
-import { CustomerGateCard } from "@/components/customers/customer-gate-card";
-import { ApiError } from "@/lib/api-client";
 import {
   useCustomerList,
   useCustomerSearch,
@@ -51,11 +49,6 @@ import type {
   MergeCandidateCustomer,
   MergeCandidateGroup,
 } from "@/types/api";
-
-const isCustomerGateRequired = (error: unknown): boolean =>
-  error instanceof ApiError &&
-  error.status === 403 &&
-  (error.body as { reason?: string } | null)?.reason === "customer_gate_required";
 
 function pickBestMergeTarget(
   customers: MergeCandidateCustomer[],
@@ -159,24 +152,10 @@ export default function CustomersPage() {
     [searchData],
   );
 
-  // 承認を持たない staff には顧客データを一切描画せず、コード入力の案内だけを出す
-  // (FR-011)。承認の有無を /me ではなく一覧の 403 から取るのは、/me が起動時に 1 回しか
-  // 引かれないため: そこに載せると 12 時間の承認がセッション中に切れても画面が気付けない。
-  // すべての hook を呼び終えたあとの早期 return なので hooks 規則は満たしている。
-  // `failureReason` も見る。QueryClient は `retry: 1` なので、403 は 1 回目の失敗では
-  // `error` に入らず `failureReason` にしか入らない。`error` だけを見ると、リトライが
-  // 済むまでスタッフには理由の無いスケルトンが出る。さらに React Query は
-  // networkMode の既定 (`online`) でリトライを `fetchStatus: "paused"` にして待つので、
-  // オンライン判定が false のあいだは `error` が永久に埋まらず、カードが一度も
-  // 出ないまま固まる (staging の実機で観測)。承認の要否は 1 回目の 403 で確定する
-  // 情報なので、リトライの都合とは切り離す。
-  const gateRequired = isCustomerGateRequired(listQuery.error) || isCustomerGateRequired(listQuery.failureReason);
-
   return (
     <div className="space-y-4 p-4 sm:p-6">
-      {gateRequired && <CustomerGateCard />}
       <div className="space-y-4">
-      {!gateRequired && selectedCustomerId === null && <>
+      {selectedCustomerId === null && <>
       {isPrivileged && <MergeCandidatesSection />}
 
       <div className="flex flex-wrap items-center gap-3">
@@ -305,7 +284,6 @@ export default function CustomersPage() {
       <CustomerDetailPanel
         key={`${user.email}:${user.storeId ?? ""}:${user.role}:${selectedCustomerId ?? ""}`}
         customerId={selectedCustomerId}
-        suspended={gateRequired}
         originReservationId={originReservationId}
         onClose={() => { setSelectedCustomerId(null); setOriginReservationId(null); }}
       />
@@ -313,7 +291,7 @@ export default function CustomersPage() {
       {/* 顧客の手動追加は全 role。スタッフが登録した顧客は自店舗の顧客として
           記録されるので、追加直後に詳細を開いても 403 にならない。 */}
       <AddCustomerDialog
-        open={addOpen && !gateRequired}
+        open={addOpen}
         onClose={() => setAddOpen(false)}
         // 追加後は新規顧客の詳細パネルを開く (一覧/検索は invalidate 済み)。
         onCreated={(id) => setSelectedCustomerId(id)}

@@ -1,7 +1,9 @@
+import { safeCaptureException } from "../sentry-helpers";
 import {
   VISITED_AT_JST_ORDER_KEY,
   escapeLikePattern,
   exceedsLikePatternBudget,
+  jstDayKey,
   phoneExactSearchVariants
 } from "./shared";
 
@@ -161,11 +163,6 @@ export async function searchAdminCustomers(input: {
   // Staff see only the last-4 masked phone (matches the list view + customer/
   // reservation detail); owner / system_admin receive the raw phone_normalized.
   isStaff?: boolean;
-  // Customer-tab gate (spec 008): a staff member without the owner's approval still
-  // needs name search — the reservation-create picker and the LINE friend-link dialog
-  // both call this route — but must not read memos through it. Decided server-side
-  // from the grant, never from a client-supplied parameter.
-  redactMemo?: boolean;
 }): Promise<AdminCustomerSearchResult> {
   const normalized = normalizeCustomerSearchQuery(input.query);
   if (isFailure(normalized)) {
@@ -256,7 +253,7 @@ export async function searchAdminCustomers(input: {
       displayNameKana: r.display_name_kana,
       phoneNormalized: input.isStaff && r.phone_normalized ? maskPhoneTail(r.phone_normalized) : r.phone_normalized,
       blockStatus: r.block_status,
-      memo: input.redactMemo ? null : r.memo
+      memo: r.memo
     }))
   };
 }
@@ -276,6 +273,30 @@ export type CustomerListRow = {
   lastVisitAt: string | null;
   nextReservationAt: string | null;
   memo: string | null;
+};
+
+// The staff approval code was removed (specs/002); this is the owner-approved
+// replacement trace: one activity-log row per staff member per JST day that they
+// opened the customer list, with no customer data. The id is derived from the day,
+// so concurrent page loads cannot write two rows. The target is the actor because the
+// row records the staff member's own action and audit_logs requires a target. A failed
+// write never blocks the list (staff work must not stop), but it is reported.
+export const recordStaffCustomerListView = async (
+  db: D1Database,
+  admin: { id: string; store_id: string | null }
+): Promise<void> => {
+  const jstDay = jstDayKey(Date.now());
+  try {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO audit_logs (id, actor_type, actor_id, action, target_type, target_id, metadata_json)
+         VALUES (?, 'staff', ?, 'customer.list_view', 'admin_user', ?, ?)`
+      )
+      .bind(`customer_list_view:${admin.id}:${jstDay}`, admin.id, admin.id, JSON.stringify({ adminStoreId: admin.store_id }))
+      .run();
+  } catch (error) {
+    safeCaptureException(error, { tags: { component: "admin-customer-list", outcome: "list_view_audit_failed" } });
+  }
 };
 
 export const listAllCustomers = async (

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 import type { AdminCustomerDetail } from "../src/admin/operations";
-import { createAccessJwtFixture, createAccessJwksFetchMock, grantCustomerTabGate, insertAdminUser } from "./helpers/admin-access";
+import { createAccessJwtFixture, createAccessJwksFetchMock, insertAdminUser } from "./helpers/admin-access";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 
 const team = "https://chart.example.cloudflareaccess.com";
@@ -71,13 +71,9 @@ describe("customer chart HTTP contract", () => {
     expect((await detail()).referrerName).toBeNull();
   });
 
-  it("requires Access authentication and the staff owner grant", async () => {
+  it("requires Access authentication and keeps staff within their store", async () => {
     expect((await createApp().request("/api/admin/customers/chart_customer/referrer", { method: "PUT", body: "{}" }, { DB: db, ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: audience })).status).toBe(403);
     db.sqlite.exec("UPDATE admin_users SET role = 'staff', staff_member_id = 'staff_owner_kyoto' WHERE id = 'chart_admin'");
-    const blocked = await request("/referrer", "PUT", { referrerName: "紹介者", expectedReferrerName: null });
-    expect(blocked.status).toBe(403);
-    expect(await blocked.json()).toEqual({ ok: false, reason: "customer_gate_required" });
-    grantCustomerTabGate(db, "chart_admin");
     expect((await request("/referrer", "PUT", { referrerName: "紹介者", expectedReferrerName: null })).status).toBe(200);
     db.sqlite.exec("UPDATE customers SET created_store_id = 'osaka' WHERE id = 'chart_customer'");
     expect((await request("/referrer", "PUT", { referrerName: "他店", expectedReferrerName: "紹介者" })).status).toBe(403);
@@ -162,7 +158,6 @@ describe("customer chart HTTP contract", () => {
     reservation("chart_other_store", "2026-10-02T01:00:00.000Z", "osaka", "confirmed");
     db.sqlite.prepare("UPDATE reservations SET source = 'phone_admin', reservation_origin = 'minimo', created_at = ? WHERE id = 'chart_provenance'").run(stored);
     db.sqlite.exec("UPDATE admin_users SET role = 'staff', staff_member_id = 'staff_owner_kyoto' WHERE id = 'chart_admin'");
-    grantCustomerTabGate(db, "chart_admin");
     const expectedBooking = { id: "chart_provenance", source: "phone_admin", reservationOrigin: "minimo", createdAt: expected };
     expect((await detail()).reservations).toEqual([expect.objectContaining(expectedBooking)]);
     const response = await request("/reservations?offset=0");
@@ -187,7 +182,6 @@ describe("customer chart HTTP contract", () => {
   ]))("rolls back when $revoked is revoked before $suffix writes", async (mutation) => {
     seedVisit();
     db.sqlite.exec("UPDATE admin_users SET role = 'staff', staff_member_id = 'staff_owner_kyoto' WHERE id = 'chart_admin'");
-    grantCustomerTabGate(db, "chart_admin");
     const response = await request(mutation.suffix, "PUT", mutation.body, beforeWrite(mutation.sql));
     expect(response.status).toBe(403);
     expect(db.sqlite.prepare(`SELECT ${mutation.column} AS value FROM ${mutation.table} WHERE id = ?`).get(mutation.id)).toEqual({ value: null });
@@ -249,8 +243,6 @@ describe("customer chart HTTP contract", () => {
       VALUES ('other_visit', 'chart_customer', 'osaka', '2026-03-01', 'manual_import', 'valid', 'chart_admin');
       UPDATE admin_users SET role = 'staff', staff_member_id = 'staff_owner_kyoto' WHERE id = 'chart_admin';
       UPDATE customers SET archived_at = '2026-04-01' WHERE id = 'chart_customer';`);
-    expect((await request("/reservations?offset=50")).status).toBe(403);
-    grantCustomerTabGate(db, "chart_admin");
     const customer = await detail();
     expect(customer.reservations).toHaveLength(50);
     expect(customer.reservations.every(r => r.storeId === "kyoto")).toBe(true);

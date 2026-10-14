@@ -1,11 +1,9 @@
 import { generateVAPIDKeys } from "web-push-neo";
-import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { AdminUser } from "../src/admin/access";
 import { createAdminExternalBlock, cancelAdminExternalBlock } from "../src/admin/external-blocks";
 import { savePushSubscription, deletePushSubscription, sendAdminPushTest } from "../src/notifications/admin-push";
 import { autoCompleteReservations } from "../src/reservations/auto-complete";
-import { requestCustomerGateCode, verifyCustomerGateCode } from "../src/admin/customer-gate";
 import { commitAdminRecurring } from "../src/admin/recurring-commit";
 import { linkLineFriend, syncLineFriendDirectory } from "../src/admin/line-friends";
 import { approveAllDayAsClosure, rejectAllDayConflict, approveReservationDeleteAsCancel, rejectReservationDeleteConflict } from "../src/admin/conflict-resolutions";
@@ -59,21 +57,12 @@ const friendSetup = (db: SqliteD1Database) => {
   db.sqlite.prepare("INSERT INTO line_friend_directory(channel_id,line_user_id,profile_status,display_name) VALUES ('channel',?,'fetched','Friend')").run(lineUserId);
 };
 const recurringRequest = { idempotencyKey:"remaining_recurring",storeId:"kyoto",resourceId:"resource_kyoto_calendar",rrule:"RRULE:FREQ=DAILY;COUNT=3",dtstart:"2099-07-01T01:00:00.000Z",windowEnd:"2099-07-04T00:00:00.000Z",durationMinutes:30 };
-const staffAdmin = { ...admin, role: "staff" as const };
-const gateStaffSetup = (db: SqliteD1Database) => db.sqlite.exec("UPDATE admin_users SET role='staff' WHERE id='remaining_actor'");
-const codeSetup = (db: SqliteD1Database) => {
-  gateStaffSetup(db);
-  db.sqlite.prepare("INSERT INTO admin_customer_gate_challenges(id,admin_user_id,code_hash,expires_at) VALUES ('challenge','remaining_actor',?,'2099-01-01T00:00:00.000Z')")
-    .run(createHash("sha256").update("challenge:123456").digest("hex"));
-};
 const subscription = {endpoint:"https://web.push.apple.com/remaining",p256dh:"synthetic",auth:"synthetic"};
 const subscriptionSetup=(db:SqliteD1Database)=>db.sqlite.prepare("INSERT INTO admin_push_subscriptions(endpoint,admin_user_id,p256dh,auth) VALUES (?,?,?,?)").run(subscription.endpoint,admin.id,subscription.p256dh,subscription.auth);
 const mutations: Mutation[] = [
   { name:"push subscription", run:db=>savePushSubscription(db,admin,subscription) },
   { name:"push unsubscribe", setup:subscriptionSetup,run:db=>deletePushSubscription(db,admin,subscription.endpoint) },
   { name: "admin auto complete", setup: reservationSetup, run: db => autoCompleteReservations({db,admin,now}) },
-  { name: "customer gate request", setup: gateStaffSetup, run: db => requestCustomerGateCode({db,admin:staffAdmin,env:{PENDING_APPROVAL_OWNER_EMAIL:"owner@example.test",EMAIL:{send:async()=>{}}} as never}) },
-  { name: "customer gate verify", setup: codeSetup, run: db => verifyCustomerGateCode({db,admin:staffAdmin,challengeId:"challenge",code:"123456"}) },
   { name: "recurring commit", run: db => commitAdminRecurring({db,admin,request:recurringRequest,now}) },
   { name: "LINE friend link", setup: friendSetup, run: db => linkLineFriend({ db, admin, channelId: "channel", lineUserId, request: { mode: "existing", customerId: "remaining_customer", storeId: "kyoto" }, now }) },
   { name: "LINE directory sync", run: db => syncLineFriendDirectory({ db, admin, channelId: "channel", token: "synthetic", now, fetcher: async url => String(url).includes("followers/ids") ? Response.json({userIds:[lineUserId]}) : Response.json({displayName:"Friend",userId:lineUserId}) }) },
@@ -163,19 +152,6 @@ it("recurring revocation preserves completed children and permits a later author
   } finally {db.sqlite.close();}
 });
 
-it("gate revocation between committed issuance and email prevents sending and removes only its new challenge", async () => {
-  const db=seed(); const send=vi.fn(async()=>{});
-  try {
-    gateStaffSetup(db);
-    const batch=db.batch.bind(db);let calls=0;
-    db.batch=async statements=>{if(++calls===2) db.sqlite.exec("UPDATE admin_users SET active=0 WHERE id='remaining_actor'");return batch(statements);};
-    expect(await requestCustomerGateCode({db:db as unknown as D1Database,admin:staffAdmin,env:{PENDING_APPROVAL_OWNER_EMAIL:"owner@example.test",EMAIL:{send}} as never})).toEqual({ok:false,reason:"forbidden"});
-    expect(send).not.toHaveBeenCalled();
-    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM admin_customer_gate_challenges").get()).toEqual({n:0});
-    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_logs WHERE action='customer_gate_code_requested'").get()).toEqual({n:1});
-  } finally {db.sqlite.close();}
-});
-
 it("push test stops before provider POST when actor is revoked during encryption",async()=>{
   const db=seed(); const fetcher=vi.fn(async()=>new Response(null,{status:201}));
   try {
@@ -248,25 +224,6 @@ it("recurring finalization rejects a revoked actor without an orphan summary aud
     expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_logs WHERE action='settings.recurring.commit'").get()).toEqual({n:0});
     expect(db.sqlite.prepare("SELECT status FROM idempotency_keys WHERE idempotency_key='remaining_recurring'").get()).toEqual({status:"failed"});
   } finally {db.sqlite.close();}
-});
-
-it("gate refuses to send when its final authorization checkpoint cannot read D1", async () => {
-  const db = seed();
-  const send = vi.fn(async () => {});
-  try {
-    gateStaffSetup(db);
-    const batch = db.batch.bind(db);
-    let calls = 0;
-    db.batch = async statements => {
-      if (++calls === 2) throw new Error("synthetic D1 unavailable");
-      return batch(statements);
-    };
-    await expect(requestCustomerGateCode({ db: db as unknown as D1Database, admin: staffAdmin,
-      env: { PENDING_APPROVAL_OWNER_EMAIL: "owner@example.test", EMAIL: { send } } as never
-    })).rejects.toThrow("synthetic D1 unavailable");
-    expect(send).not.toHaveBeenCalled();
-    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM admin_customer_gate_challenges").get()).toEqual({ n: 0 });
-  } finally { db.sqlite.close(); }
 });
 
 it("push test propagates an authorization database failure and never posts", async () => {

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 import { normalizePhone } from "../src/admin/shared";
 import { sha256Hex } from "../src/admin/settings-common";
-import { createAccessJwtFixture, createAccessJwksFetchMock, grantCustomerTabGate } from "./helpers/admin-access";
+import { createAccessJwtFixture, createAccessJwksFetchMock } from "./helpers/admin-access";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 
 // Task 6: staff may manage ONLY their own store's customers. These are the
@@ -32,9 +32,6 @@ const insertAdmin = (db: SqliteD1Database, role: "owner" | "staff", staffMemberI
        VALUES ('admin_scope_http', ?, ?, ?, ?, 1, '2026-05-22T00:00:00.000Z')`
     )
     .run(ADMIN_EMAIL, ADMIN_SUBJECT, role, staffMemberId);
-  // spec 008 の顧客タブゲートは staff にだけ効く。このファイルが見ているのは店舗スコープ
-  // なので、承認済みの状態から始める (ゲート自体は test/admin-customer-gate.test.ts)。
-  if (role === "staff") grantCustomerTabGate(db, "admin_scope_http");
 };
 
 const endPlusHour = (startAt: string) => new Date(new Date(startAt).getTime() + 3_600_000).toISOString();
