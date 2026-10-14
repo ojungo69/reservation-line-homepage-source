@@ -88,7 +88,7 @@ function formatActorName(
   staffMap: Map<string, string>,
 ): string {
   if (log.actorType === "staff" && log.actorId) {
-    return staffMap.get(log.actorId) ?? "スタッフ";
+    return log.actorName ?? staffMap.get(log.actorId) ?? "スタッフ";
   }
   return ACTOR_TYPE_LABELS[log.actorType] ?? log.actorType;
 }

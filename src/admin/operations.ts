@@ -1961,7 +1961,10 @@ export async function listAdminAuditLogs(input: {
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const sql = `
-        SELECT id, actor_type, actor_id, action, target_type, target_id, metadata_json, created_at
+        SELECT id, actor_type, actor_id, action, target_type, target_id, metadata_json, created_at,
+          -- actor_id is admin_users.id; the activity page shows the staff member's name.
+          (SELECT sm.display_name FROM admin_users au JOIN staff_members sm ON sm.id = au.staff_member_id
+            WHERE au.id = audit_logs.actor_id) AS actor_name
         FROM audit_logs
         ${whereClause}
         ORDER BY created_at DESC
@@ -1980,6 +1983,7 @@ export async function listAdminAuditLogs(input: {
       target_id: string;
       metadata_json: string | null;
       created_at: string;
+      actor_name: string | null;
     }>();
 
   return {
@@ -1988,6 +1992,7 @@ export async function listAdminAuditLogs(input: {
       id: row.id,
       actorType: row.actor_type,
       actorId: row.actor_id,
+      actorName: row.actor_name,
       action: row.action,
       targetType: row.target_type,
       targetId: row.target_id,

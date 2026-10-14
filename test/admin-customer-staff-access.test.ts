@@ -256,6 +256,33 @@ describe("staff customer access within their store", () => {
     ]);
   });
 
+  it.each(["cross-site", "same-site"])("does not let a %s request claim the day's view record", async (site) => {
+    const forged = await createApp().request(`${ADMIN_ORIGIN}/api/admin/customers?mode=list`, {
+      headers: { "Cf-Access-Jwt-Assertion": token, "Sec-Fetch-Site": site }
+    }, { DB: db, ACCESS_TEAM_DOMAIN: TEAM_DOMAIN, ACCESS_AUD });
+    expect(forged.status).toBe(200);
+    expect(listViewRows()).toEqual([]);
+    expect((await request("/api/admin/customers?mode=list")).status).toBe(200);
+    expect(listViewRows()).toHaveLength(1);
+  });
+
+  it.each([undefined, "none"])("records a list view with Sec-Fetch-Site %s", async (site) => {
+    const response = await createApp().request(`${ADMIN_ORIGIN}/api/admin/customers?mode=list`, {
+      headers: { "Cf-Access-Jwt-Assertion": token, ...(site ? { "Sec-Fetch-Site": site } : {}) }
+    }, { DB: db, ACCESS_TEAM_DOMAIN: TEAM_DOMAIN, ACCESS_AUD });
+    expect(response.status).toBe(200);
+    expect(listViewRows()).toHaveLength(1);
+  });
+
+  it("shows the staff member's name for the view record in the activity log", async () => {
+    expect((await request("/api/admin/customers?mode=list")).status).toBe(200);
+    db.sqlite.prepare("UPDATE admin_users SET role = 'owner' WHERE id = ?").run(ADMIN_ID);
+    const response = await request("/api/admin/audit-logs");
+    const body = await response.json() as { auditLogs: Array<{ action: string; actorName: string | null }> };
+    expect(response.status).toBe(200);
+    expect(body.auditLogs.find((log) => log.action === "customer.list_view")?.actorName).toBe("Example Staff A");
+  });
+
   it.each(["owner", "system_admin"])("does not record %s customer-list views", async (role) => {
     db.sqlite.prepare("UPDATE admin_users SET role = ?, staff_member_id = NULL WHERE id = ?").run(role, ADMIN_ID);
     expect((await request("/api/admin/customers?mode=list")).status).toBe(200);
