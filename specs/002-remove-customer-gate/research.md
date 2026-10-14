@@ -32,7 +32,7 @@ No former call site depended on the gate as its only staff protection.
 | `GET /customers?mode=list` (incl. archived) | `staffHasStore` 403, then list with `storeScope = admin.store_id` |
 | `GET /customers?q=` | `staffHasStore` 403, store-scoped search, staff exact phone match, masked phone |
 | `GET /customers/:id`, `/visits`, `/reservations`, `/consents` | store-scope checks in the detail and history access functions |
-| `POST /customers/:id/block` / `unblock`, `archive` / `unarchive` | existing role rules plus `assertStaffCustomerStoreScope` and write-time actor checks |
+| `POST /customers/:id/block` / `unblock`, `archive` / `unarchive` | existing role rules plus `staffMayActOnCustomer` (store membership including archived customers) carried into the write, and write-time actor checks |
 | `PUT /customers/:id/memo`, `/referrer`, `PATCH /customers/:id/profile` | `prepareCustomerMutation` keeps `assertStaffCustomerStoreScope` |
 | `PUT /customers/:id/visits/:visitId/notes` | `assertStaffCustomerStoreScope` |
 | `POST /customers` | staff store stamped from the authenticated identity, never the body |
@@ -72,6 +72,7 @@ the customer detail; search now returns the same value for customers in their sc
 | `admin-app/src/components/customers/customer-chart-gate.test.tsx`, `admin-app/src/components/schedule/reservation-detail-gate.test.tsx` | delete |
 | `admin-app/src/components/schedule/reservation-detail-panel.test.tsx`, `admin-app/src/pages/customers.test.tsx` | remove gate mocks and cases; staff save works without a card |
 | `admin-app/src/lib/audit-format.test.ts` | keep label assertions; reword titles as history |
+| `test/operations-email.test.ts` | drop the removed code from the comment listing owner-mail callers |
 | new route-matrix test | in-scope staff succeed without a grant; out-of-scope refused; removed endpoints answer the generic not-found |
 
 `test/admin-authz-matrix-sync.test.ts` fails unless the two removed routes leave
