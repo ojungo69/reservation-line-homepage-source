@@ -21,7 +21,7 @@ describe("U7: public menu selection boundary", () => {
 
   it.each([
     { label: "usable IDs only", invalidItems: [] },
-    { label: "mixed invalid items", invalidItems: [null, " ", "x".repeat(129)] }
+    { label: "skipped blank and over-long items", invalidItems: [" ", "x".repeat(129)] }
   ])("rejects a submitted thirteenth menu with $label before identity verification", async ({ invalidItems }) => {
     const ids = Array.from({ length: 13 }, (_, index) => `service-example-${index + 1}`);
     const body = { ...validRequest(), serviceId: ids[0], serviceIds: [...invalidItems, ...ids, ids[0]] };

@@ -835,7 +835,7 @@ const updateServicesSummary = () => {
     // Selected menus stay enabled so the customer can free a place by deselecting.
     checkbox.disabled = atLimit && !checkbox.checked;
   }
-  servicesLimitStatus.textContent = atLimit ? "メニューは12件まで選択できます" : "";
+  servicesLimitStatus.textContent = atLimit ? `メニューは${MAX_SERVICE_SELECTIONS}件まで選択できます` : "";
 
   if (elements.servicesTrigger) {
     const noMenus = storeServices.length === 0;
@@ -2775,7 +2775,6 @@ const startTurnstileRender = async () => {
   } catch {
     state.turnstileUnavailable = true;
     const message = "セキュリティ確認を読み込めませんでした。再試行してください。解決しない場合は、ページを再読み込みしてください。";
-    turnstileStatus.textContent = "";
     turnstileStatus.textContent = message;
     turnstileRetry.hidden = false;
   } finally {
@@ -2810,7 +2809,6 @@ const loadInitialOptions = async () => {
     // the manual button intact.
     void verifyLineGate({ interactive: false }).catch(() => {});
   } catch {
-    setStatus("");
     setStatus("予約画面を初期化できませんでした。再試行してください。解決しない場合は、ページを再読み込みしてください。", "danger");
     initRetry.hidden = false;
     elements.submit.disabled = true;
