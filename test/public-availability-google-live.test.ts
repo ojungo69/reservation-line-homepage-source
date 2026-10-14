@@ -77,6 +77,18 @@ const createMockFetcher = (
 
 const mockAccessTokenProvider = async (_env: Partial<WorkerBindings>) => "test_access_token";
 
+const stubSharedCache = () => {
+  const entries = new Map<string, Response>();
+  const cache = {
+    match: vi.fn(async (key: string) => entries.get(key)?.clone()),
+    put: vi.fn(async (key: string, response: Response) => {
+      entries.set(key, response.clone());
+    })
+  };
+  vi.stubGlobal("caches", { default: cache });
+  return { ...cache, entries };
+};
+
 describe("public availability with Google live check", () => {
   let d1: SqliteD1Database;
 
@@ -89,6 +101,7 @@ describe("public availability with Google live check", () => {
     d1.sqlite.close();
     _resetCacheForTesting();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("checks later events pages before displaying a slot containing a transparent system event", async () => {
@@ -131,7 +144,127 @@ describe("public availability with Google live check", () => {
     now: () => NOW_MS
   });
 
+  it.each([false, true])("shares successful Google results across isolates (busy: %s)", async (busy) => {
+    const sharedCache = stubSharedCache();
+    const accessTokenProvider = vi.fn(mockAccessTokenProvider);
+    const fetcher = createMockFetcher(makeEventsListResponse([]), makeFreebusyResponse("calendar-a@example.invalid", busy
+      ? [{ start: "2026-06-01T01:00:00Z", end: "2026-06-01T02:00:00Z" }]
+      : []));
+    const input = { ...googleInput(), fetcher, accessTokenProvider };
+    const expected = { ok: true, busyIntervals: busy
+      ? [{ startUtc: "2026-06-01T01:00:00Z", endUtc: "2026-06-01T02:00:00Z", classification: "freebusy_union" }]
+      : [] };
+
+    await expect(fetchGoogleBusyIntervals(input)).resolves.toEqual(expected);
+    // Clearing only the isolate's Map models another isolate in the same colo.
+    _resetCacheForTesting();
+    await expect(fetchGoogleBusyIntervals(input)).resolves.toEqual(expected);
+
+    // One provider lookup consists of events.list and FreeBusy, once each.
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(accessTokenProvider).toHaveBeenCalledTimes(1);
+    expect(sharedCache.put).toHaveBeenCalledTimes(1);
+    expect(sharedCache.match).toHaveBeenCalledTimes(2);
+    expect(new URL(sharedCache.put.mock.calls[0][0]).protocol).toBe("https:");
+    expect(sharedCache.put.mock.calls[0][1].headers.get("Cache-Control")).toBe("public, max-age=30");
+  });
+
+  it("expires shared results after the original 30 seconds even after warming another isolate", async () => {
+    stubSharedCache();
+    let nowMs = NOW_MS;
+    const fetcher = createMockFetcher(makeEventsListResponse([]), makeFreebusyResponse("calendar-a@example.invalid", []));
+    const input = { ...googleInput(), fetcher, now: () => nowMs };
+
+    await expect(fetchGoogleBusyIntervals(input)).resolves.toEqual({ ok: true, busyIntervals: [] });
+    _resetCacheForTesting();
+    nowMs += 29_000;
+    await expect(fetchGoogleBusyIntervals(input)).resolves.toEqual({ ok: true, busyIntervals: [] });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    // The fake deliberately retains expired responses to also exercise the stored expiry.
+    nowMs += 1_000;
+    await expect(fetchGoogleBusyIntervals(input)).resolves.toEqual({ ok: true, busyIntervals: [] });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([
+    { storeId: "other-store" },
+    { calendarId: "calendar-b@example.invalid" },
+    { rangeStartUtc: "2026-05-31T16:00:00.000Z" },
+    { rangeEndUtc: "2026-06-01T16:00:00.000Z" }
+  ])("keeps shared results separate for a different store, calendar or range: %j", async (overrides) => {
+    const sharedCache = stubSharedCache();
+    await fetchGoogleBusyIntervals({
+      ...googleInput(), fetcher: createMockFetcher(makeEventsListResponse([]), makeFreebusyResponse("calendar-a@example.invalid", []))
+    });
+    _resetCacheForTesting();
+    const input = { ...googleInput(), ...overrides };
+    const fetcher = createMockFetcher(makeEventsListResponse([]), makeFreebusyResponse(input.calendarId, []));
+
+    await expect(fetchGoogleBusyIntervals({ ...input, fetcher })).resolves.toEqual({ ok: true, busyIntervals: [] });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(sharedCache.entries.size).toBe(2);
+  });
+
+  it.each(["missing", "no-op", "match", "put", "parse", "invalid"])("treats a %s shared cache as a miss", async (mode) => {
+    const sharedCache = stubSharedCache();
+    if (mode === "missing") vi.stubGlobal("caches", undefined);
+    if (mode === "no-op") sharedCache.put.mockResolvedValue(undefined);
+    if (mode === "match") sharedCache.match.mockRejectedValue(new Error("cache read failed"));
+    if (mode === "put") sharedCache.put.mockRejectedValue(new Error("cache write failed"));
+    if (mode === "parse") sharedCache.match.mockImplementation(async () => new Response("{"));
+    if (mode === "invalid") sharedCache.match.mockImplementation(async () => Response.json({
+      expiresAt: NOW_MS + 30_000, busyIntervals: [{ startUtc: "invalid", endUtc: "invalid", classification: "opaque" }]
+    }));
+    const fetcher = createMockFetcher(makeEventsListResponse([]), makeFreebusyResponse("calendar-a@example.invalid", []));
+    const input = { ...googleInput(), fetcher };
+
+    await expect(fetchGoogleBusyIntervals(input)).resolves.toEqual({ ok: true, busyIntervals: [] });
+    _resetCacheForTesting();
+    await expect(fetchGoogleBusyIntervals(input)).resolves.toEqual({ ok: true, busyIntervals: [] });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it.each(["match", "body", "put"])("preserves caller cancellation during a stalled shared cache %s", async (stage) => {
+    const sharedCache = stubSharedCache();
+    const controller = new AbortController();
+    let notifyStarted = () => {};
+    const started = new Promise<void>((resolve) => { notifyStarted = resolve; });
+    if (stage === "match") sharedCache.match.mockImplementation(() => {
+      notifyStarted();
+      return new Promise(() => {});
+    });
+    if (stage === "body") sharedCache.match.mockImplementation(async () => new Response(new ReadableStream({
+      start() { notifyStarted(); }
+    })));
+    if (stage === "put") sharedCache.put.mockImplementation(() => {
+      notifyStarted();
+      return new Promise(() => {});
+    });
+    const fetcher = createMockFetcher(makeEventsListResponse([]), makeFreebusyResponse("calendar-a@example.invalid", []));
+
+    const result = fetchGoogleBusyIntervals({ ...googleInput(), fetcher, signal: controller.signal });
+    await started;
+    controller.abort();
+    await expect(result).resolves.toEqual({ ok: false, reason: "fail_closed", errorClass: "aborted" });
+    expect(fetcher).toHaveBeenCalledTimes(stage === "put" ? 2 : 0);
+  }, 500);
+
+  it.each(["match", "body", "put"])("treats a stalled shared cache %s as a miss after its timeout", async (stage) => {
+    const sharedCache = stubSharedCache();
+    const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((milliseconds) => nativeTimeout(milliseconds === 5_000 ? 20 : 1_000));
+    if (stage === "match") sharedCache.match.mockImplementation(() => new Promise(() => {}));
+    if (stage === "body") sharedCache.match.mockImplementation(async () => new Response(new ReadableStream()));
+    if (stage === "put") sharedCache.put.mockImplementation(() => new Promise(() => {}));
+    const fetcher = createMockFetcher(makeEventsListResponse([]), makeFreebusyResponse("calendar-a@example.invalid", []));
+
+    await expect(fetchGoogleBusyIntervals({ ...googleInput(), fetcher })).resolves.toEqual({ ok: true, busyIntervals: [] });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  }, 500);
+
   it("fails closed without caching when a later events page is unavailable", async () => {
+    const sharedCache = stubSharedCache();
     const partialFetcher = (async (url: RequestInfo | URL) => {
       const requestUrl = new URL(String(url));
       if (requestUrl.pathname.endsWith("/freeBusy")) return makeFreebusyResponse("calendar-a@example.invalid", []);
@@ -142,6 +275,8 @@ describe("public availability with Google live check", () => {
     await expect(fetchGoogleBusyIntervals({ ...googleInput(), fetcher: partialFetcher })).resolves.toEqual({
       ok: false, reason: "fail_closed", errorClass: "events_api_failed"
     });
+    expect(sharedCache.put).not.toHaveBeenCalled();
+    _resetCacheForTesting();
     await expect(fetchGoogleBusyIntervals({
       ...googleInput(), fetcher: createMockFetcher(makeEventsListResponse([]), makeFreebusyResponse("calendar-a@example.invalid", []))
     })).resolves.toEqual({ ok: true, busyIntervals: [] });
@@ -419,6 +554,7 @@ describe("public availability with Google live check", () => {
   });
 
   it("fails closed and does not cache when both Google responses contain malformed JSON", async () => {
+    const sharedCache = stubSharedCache();
     const malformedFetcher = createMockFetcher(
       new Response("{", { headers: { "Content-Type": "application/json" } }),
       new Response("{", { headers: { "Content-Type": "application/json" } })
@@ -439,6 +575,8 @@ describe("public availability with Google live check", () => {
       reason: "fail_closed",
       errorClass: "both_api_parse_failed"
     });
+    expect(sharedCache.put).not.toHaveBeenCalled();
+    _resetCacheForTesting();
 
     const validFetcher = createMockFetcher(
       makeEventsListResponse([]),

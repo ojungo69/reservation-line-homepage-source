@@ -59,7 +59,7 @@ type GoogleFreeBusyResponse = {
 type GoogleSourceFailure = { ok: false; errorClass: "api_failed" | "api_parse_failed" | "pagination_limit" };
 type GoogleSourceResult = { ok: true; busyIntervals: BusyInterval[] } | GoogleSourceFailure;
 
-// --- Module-level in-memory cache ---
+// --- Isolate-local and colo-shared caches ---
 
 const CACHE_TTL_MS = 30_000;
 const CACHE_MAX_ENTRIES = 256;
@@ -82,7 +82,20 @@ const evictOldestIfNeeded = () => {
 };
 
 const getCacheKey = (storeId: string, calendarId: string, rangeStartUtc: string, rangeEndUtc: string) => {
-  return `${storeId}:${calendarId}:${rangeStartUtc}:${rangeEndUtc}`;
+  return JSON.stringify([storeId, calendarId, rangeStartUtc, rangeEndUtc]);
+};
+
+const isCacheEntry = (value: unknown): value is CacheEntry => {
+  if (typeof value !== "object" || value === null ||
+    !("expiresAt" in value) || typeof value.expiresAt !== "number" || !Number.isFinite(value.expiresAt) ||
+    !("busyIntervals" in value) || !Array.isArray(value.busyIntervals)) return false;
+  return value.busyIntervals.every((interval: unknown) =>
+    typeof interval === "object" && interval !== null &&
+    "startUtc" in interval && typeof interval.startUtc === "string" &&
+    "endUtc" in interval && typeof interval.endUtc === "string" &&
+    "classification" in interval && typeof interval.classification === "string" &&
+    ["opaque", "conflict", "recurring_manual_task", "all_day_block", "freebusy_union"].includes(interval.classification) &&
+    isValidInterval({ startUtc: interval.startUtc, endUtc: interval.endUtc }));
 };
 
 /** Exported for testing only. */
@@ -101,6 +114,21 @@ const MAX_EVENT_PAGES = 10;
 const accessTokenFetcher: typeof fetch = (url, init) => withOutboundTimeout(fetch, API_TIMEOUT_MS)(url, init);
 
 // --- Helpers ---
+
+const waitWithAbort = async <T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T | undefined> => {
+  if (signal.aborted) return undefined;
+  let stopWaiting = () => {};
+  const aborted = new Promise<undefined>((resolve) => {
+    stopWaiting = () => resolve(undefined);
+    signal.addEventListener("abort", stopWaiting, { once: true });
+  });
+  try {
+    // Cache API operations cannot take a signal; stop waiting without blocking the live check.
+    return await Promise.race([operation(), aborted]);
+  } finally {
+    signal.removeEventListener("abort", stopWaiting);
+  }
+};
 
 const defaultAccessTokenProvider = async (env: Partial<WorkerBindings>): Promise<string | undefined> => {
   const email = env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
@@ -326,21 +354,39 @@ export async function fetchGoogleBusyIntervals(
     busyCache.delete(cacheKey);
   }
 
-  // Bound the entire lookup, including token acquisition and every events page.
+  // Bound the entire lookup, including caches, token acquisition and every events page.
   const deadline = AbortSignal.timeout(API_TIMEOUT_MS * (MAX_RETRIES + 1));
   const signal = input.signal ? AbortSignal.any([input.signal, deadline]) : deadline;
-  let stopTokenWait = () => {};
-  const tokenAborted = new Promise<undefined>((resolve) => {
-    stopTokenWait = () => resolve(undefined);
-    signal.addEventListener("abort", stopTokenWait, { once: true });
-  });
+  const sharedCacheKey = `https://google-availability-cache.invalid/v1/${encodeURIComponent(cacheKey)}`;
+  let sharedCache: Cache | undefined;
+  let sharedEntry: CacheEntry | undefined;
+  try {
+    const cacheStorage: (CacheStorage & { readonly default?: Cache }) | undefined =
+      typeof caches === "undefined" ? undefined : caches;
+    sharedCache = cacheStorage?.default;
+    if (sharedCache) sharedEntry = await waitWithAbort(async () => {
+      const response = await sharedCache?.match(sharedCacheKey);
+      const entry: unknown = response?.ok ? await response.json() : undefined;
+      return isCacheEntry(entry) && entry.expiresAt > (input.now ?? Date.now)() ? entry : undefined;
+    }, AbortSignal.any([signal, AbortSignal.timeout(API_TIMEOUT_MS)]));
+  } catch {
+    // Shared caching is optional; cache outages must still allow the live check.
+  }
+  if (signal.aborted) {
+    return { ok: false, reason: "fail_closed", errorClass: input.signal?.aborted ? "aborted" : "deadline_exceeded" };
+  }
+  if (sharedEntry) {
+    evictOldestIfNeeded();
+    // Preserve the original expiry so moving between isolates cannot extend freshness.
+    busyCache.set(cacheKey, sharedEntry);
+    return { ok: true, busyIntervals: sharedEntry.busyIntervals };
+  }
+
   let accessToken: string | undefined;
   try {
-    accessToken = await Promise.race([getAccessToken(input.env), tokenAborted]);
+    accessToken = await waitWithAbort(() => getAccessToken(input.env), signal);
   } catch {
     accessToken = undefined;
-  } finally {
-    signal.removeEventListener("abort", stopTokenWait);
   }
   if (signal.aborted) {
     return { ok: false, reason: "fail_closed", errorClass: input.signal?.aborted ? "aborted" : "deadline_exceeded" };
@@ -406,10 +452,23 @@ export async function fetchGoogleBusyIntervals(
 
   // Cache all successful results, including empty/free windows, to avoid repeated Google calls
   evictOldestIfNeeded();
-  busyCache.set(cacheKey, {
+  const entry: CacheEntry = {
     busyIntervals: merged,
     expiresAt: nowMs + CACHE_TTL_MS
-  });
+  };
+  busyCache.set(cacheKey, entry);
+  try {
+    if (sharedCache) await waitWithAbort(async () => sharedCache?.put(sharedCacheKey, Response.json(entry, {
+      headers: { "Cache-Control": `public, max-age=${CACHE_TTL_MS / 1_000}` }
+    })), AbortSignal.any([signal, AbortSignal.timeout(API_TIMEOUT_MS)]));
+  } catch {
+    // Cache write failures must not discard a verified Google result.
+  }
+  // Only the caller's cancellation discards the result here: our own deadline expiring while
+  // the cache write is slow must not turn a verified Google answer into "no slots".
+  if (input.signal?.aborted) {
+    return { ok: false, reason: "fail_closed", errorClass: "aborted" };
+  }
 
   return { ok: true, busyIntervals: merged };
 }
