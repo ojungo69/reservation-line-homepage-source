@@ -79,8 +79,10 @@ export const getStringArray = (body: Record<string, unknown>, key: string, maxIt
     }
     seen.add(normalized);
     items.push(normalized);
-    if (items.length >= maxItems) {
-      break;
+    if (items.length > maxItems) {
+      // Reject the whole selection: truncating changes the menus and price the
+      // customer agreed to without giving the caller a validation failure.
+      return undefined;
     }
   }
   return items.length > 0 ? items : undefined;

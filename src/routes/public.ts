@@ -32,20 +32,7 @@ const parseServiceIdsQuery = (value: string | undefined) => {
   if (!value) {
     return undefined;
   }
-  const items: string[] = [];
-  const seen = new Set<string>();
-  for (const item of value.split(",")) {
-    const normalized = item.trim();
-    if (!normalized || normalized.length > 128 || seen.has(normalized)) {
-      continue;
-    }
-    seen.add(normalized);
-    items.push(normalized);
-    if (items.length >= MAX_SERVICE_SELECTIONS) {
-      break;
-    }
-  }
-  return items.length > 0 ? items : undefined;
+  return getStringArray({ serviceIds: value.split(",") }, "serviceIds", MAX_SERVICE_SELECTIONS, 128);
 };
 
 const parseReservationGateRequest = (
@@ -100,6 +87,11 @@ const parsePublicReservationSubmitRequest = (
   const storeId = getString(body, "storeId", 64);
   const serviceId = getString(body, "serviceId", 128);
   const serviceIds = getStringArray(body, "serviceIds", MAX_SERVICE_SELECTIONS, 128);
+  // An explicitly invalid array must not fall back to the singular serviceId.
+  // Both availability and submit reject overflow before any selection is truncated.
+  if (Object.hasOwn(body, "serviceIds") && !serviceIds) {
+    return undefined;
+  }
   const resourceId = getString(body, "resourceId", 128);
   const startAt = getString(body, "startAt", 64);
   const displayName = customerObj ? getString(customerObj, "displayName", 120) : undefined;
@@ -250,12 +242,17 @@ publicRoutes.get("/reservation-options", async (c) => {
 });
 
 publicRoutes.get("/availability", async (c) => {
+  const query = c.req.query("serviceIds");
+  const serviceIds = parseServiceIdsQuery(query);
+  if (query && !serviceIds) {
+    return c.json({ ok: false, reason: "invalid_request" }, 400, PUBLIC_RESERVATION_HEADERS);
+  }
   const result = await listPublicAvailability({
     db: c.env.DB,
     env: c.env,
     storeId: c.req.query("storeId"),
     serviceId: c.req.query("serviceId"),
-    serviceIds: parseServiceIdsQuery(c.req.query("serviceIds")),
+    serviceIds,
     resourceId: c.req.query("resourceId"),
     date: c.req.query("date")
   });
@@ -295,7 +292,7 @@ publicRoutes.post("/reservations", async (c) => {
   try {
     body = await c.req.json();
   } catch {
-    return c.json({ error: "invalid_request" }, 400);
+    return c.json({ ok: false, reason: "invalid_request" }, 400, PUBLIC_RESERVATION_HEADERS);
   }
 
   const parsed = parsePublicReservationSubmitRequest(
@@ -303,7 +300,7 @@ publicRoutes.post("/reservations", async (c) => {
     c.req.header("CF-Connecting-IP") ?? undefined
   );
   if (!parsed) {
-    return c.json({ error: "invalid_request" }, 400);
+    return c.json({ ok: false, reason: "invalid_request" }, 400, PUBLIC_RESERVATION_HEADERS);
   }
 
   const gate = await evaluateReservationGate({

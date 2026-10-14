@@ -199,6 +199,7 @@ describe("consolidated required consent (FR-012, JSDOM)", () => {
     fireChange(consent);
     submitViaForm();
     expect(q("confirm-panel").hidden).toBe(false);
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     await vi.waitFor(() => {
       if (!capturedReservationBody) throw new Error("reservation not submitted yet");
@@ -220,6 +221,7 @@ describe("consolidated required consent (FR-012, JSDOM)", () => {
       fireChange(cb);
     }
     submitViaForm();
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     await vi.waitFor(() => {
       if (!capturedReservationBody) throw new Error("reservation not submitted yet");

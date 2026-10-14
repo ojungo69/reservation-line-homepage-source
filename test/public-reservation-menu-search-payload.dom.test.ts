@@ -216,6 +216,7 @@ describe("search-filtered selection reaches the POST body (FR-005 × dom-api-inv
 
     q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     expect(q("confirm-panel").hidden).toBe(false);
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     await vi.waitFor(() => {
       if (!capturedReservationBody) throw new Error("reservation not submitted yet");

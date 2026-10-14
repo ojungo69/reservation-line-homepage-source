@@ -17,6 +17,7 @@ const OPTIONS_BODY = {
   stores: [{ id: "st1", name: "本店", timezone: "Asia/Tokyo" }],
   services: [{ id: "s1", storeId: "st1", name: "カット｜カット", durationMinutes: 60 }],
   resources: [{ id: "r1", storeId: "st1", name: "枠1" }],
+  turnstile: { siteKey: "test-site-key", action: "reservation-submit" },
   consentVersions: { notice: "1", cancellationPolicy: "1", privacyPolicy: "1", minorGuardian: "1" },
   liffId: "liff-1"
 };
@@ -258,6 +259,7 @@ describe("recognized existing-customer skip mode (JSDOM)", () => {
     // must let it through even though name/phone are empty + required.
     q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     expect(q("confirm-panel").hidden).toBe(false);
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     await vi.waitFor(() => {
       if (!capturedReservationBody) throw new Error("reservation not submitted yet");
@@ -291,6 +293,7 @@ describe("recognized existing-customer skip mode (JSDOM)", () => {
     reservationResponse = { ok: false, reason: "auth_failed", authReason: "line_not_friend" };
     q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     expect(q("confirm-panel").hidden).toBe(false);
+    await vi.waitFor(() => expect((q("confirm-submit") as HTMLButtonElement).disabled).toBe(false));
     (q("confirm-submit") as HTMLButtonElement).click();
     await vi.waitFor(() => {
       if (input("display-name").value !== "") throw new Error("PII not cleared yet");
