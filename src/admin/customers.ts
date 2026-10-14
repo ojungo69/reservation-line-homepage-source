@@ -1,9 +1,9 @@
 import { safeCaptureException } from "../sentry-helpers";
-import { JST_OFFSET_MS } from "../time-utils";
 import {
   VISITED_AT_JST_ORDER_KEY,
   escapeLikePattern,
   exceedsLikePatternBudget,
+  jstDayKey,
   phoneExactSearchVariants
 } from "./shared";
 
@@ -278,13 +278,14 @@ export type CustomerListRow = {
 // The staff approval code was removed (specs/002); this is the owner-approved
 // replacement trace: one activity-log row per staff member per JST day that they
 // opened the customer list, with no customer data. The id is derived from the day,
-// so concurrent page loads cannot write two rows. A failed write never blocks the
-// list (staff work must not stop), but it is reported.
+// so concurrent page loads cannot write two rows. The target is the actor because the
+// row records the staff member's own action and audit_logs requires a target. A failed
+// write never blocks the list (staff work must not stop), but it is reported.
 export const recordStaffCustomerListView = async (
   db: D1Database,
   admin: { id: string; store_id: string | null }
 ): Promise<void> => {
-  const jstDay = new Date(Date.now() + JST_OFFSET_MS).toISOString().slice(0, 10);
+  const jstDay = jstDayKey(Date.now());
   try {
     await db
       .prepare(

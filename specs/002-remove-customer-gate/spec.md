@@ -41,8 +41,8 @@ customer detail and save a memo; all succeed. Customers that belong only to stor
 ### User Story 2 - Reservation work no longer waits for approval (Priority: P1)
 
 In the schedule's reservation detail, staff save the treatment memo for their own store's customer
-without being sent to the customer tab for a code. The customer picker used for reservation
-creation and LINE friend linking shows the customer's memo.
+without being sent to the customer tab for a code. The customer search behind the
+reservation-creation picker returns each in-scope customer's memo again instead of a blank one.
 
 **Why this priority**: The treatment memo is written during the visit; an approval detour risks
 losing the draft and delays the next customer.

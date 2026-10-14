@@ -151,7 +151,7 @@
 | Endpoint | staff | owner | system_admin | 既存ガード位置 |
 |---|---|---|---|---|
 | `GET /api/admin/store-logins` | ❌ 403 | ✅ | ✅ | route で `isAdminPrivileged(role)` 即時 403 (admin-api.ts:1612) |
-| `POST /api/admin/store-logins` (登録/更新) | ❌ | ✅ | ✅ | `upsertStoreLogin` → `isAdminPrivileged` (settings-store-login.ts:upsertStoreLogin)。email 横取り防止 (`email_in_use`→409)・自己無効化防止 (`forbidden_self_deactivation`→403)。2026-08-30 追加: Case B で role が実際に変わるときは顧客タブの承認 (spec 008) を同じ batch で落とす — `admin_users.role` を書き換えるもう 1 本の経路なので、スタッフ設定側と揃えないと staff → owner → staff の往復で承認が生き残る (2026-10-14 撤去) |
+| `POST /api/admin/store-logins` (登録/更新) | ❌ | ✅ | ✅ | `upsertStoreLogin` → `isAdminPrivileged` (settings-store-login.ts:upsertStoreLogin)。email 横取り防止 (`email_in_use`→409)・自己無効化防止 (`forbidden_self_deactivation`→403)。(2026-08-30 に追加した顧客タブ承認の削除処理は、承認コードの撤去に伴い 2026-10-14 に取り除いた) |
 | `DELETE /api/admin/store-logins/:storeId` (失効) | ❌ | ✅ | ✅ | `revokeStoreLogin` → `isAdminPrivileged` (settings-store-login.ts:680) + 自己失効防止 |
 
 ### LINE友だち紐付け (line friends) — #291-292

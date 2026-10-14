@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../src/app";
+import { safeCaptureException } from "../src/sentry-helpers";
 import {
   createAccessJwksFetchMock,
   createAccessJwtFixture,
@@ -8,6 +9,11 @@ import {
   type AccessSigningKey
 } from "./helpers/admin-access";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
+
+vi.mock("../src/sentry-helpers", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/sentry-helpers")>()),
+  safeCaptureException: vi.fn()
+}));
 
 const TEAM_DOMAIN = "https://team.example.cloudflareaccess.com";
 const ACCESS_AUD = "customer-staff-access-aud";
@@ -250,17 +256,21 @@ describe("staff customer access within their store", () => {
     ]);
   });
 
-  it("does not record owner customer-list views", async () => {
-    db.sqlite.prepare("UPDATE admin_users SET role = 'owner', staff_member_id = NULL WHERE id = ?").run(ADMIN_ID);
+  it.each(["owner", "system_admin"])("does not record %s customer-list views", async (role) => {
+    db.sqlite.prepare("UPDATE admin_users SET role = ?, staff_member_id = NULL WHERE id = ?").run(role, ADMIN_ID);
     expect((await request("/api/admin/customers?mode=list")).status).toBe(200);
     expect(listViewRows()).toEqual([]);
   });
 
-  it("still lists customers when the view record cannot be written", async () => {
+  it("still lists customers when the view record cannot be written, and reports the failure", async () => {
+    vi.mocked(safeCaptureException).mockClear();
     db.sqlite.exec("DROP TABLE audit_logs");
     const response = await request("/api/admin/customers?mode=list");
     const body = await response.json() as { customers: Array<{ id: string }> };
     expect(response.status).toBe(200);
     expect(body.customers.map((customer) => customer.id)).toContain(CUSTOMER_A);
+    expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), {
+      tags: { component: "admin-customer-list", outcome: "list_view_audit_failed" }
+    });
   });
 });

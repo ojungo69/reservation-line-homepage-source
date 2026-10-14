@@ -552,6 +552,8 @@ const buildCaseWrites = (input: {
     return {
       caseLabel: "B",
       writes: [
+        // canonicalRow は activeRows[0] 由来で必ず active = 1。sentinel の系譜が無いときは
+        // classifyCandidateSet が個人の行を canonical に採るので、実在の staff の行もここに来る。
         db
           .prepare(`UPDATE admin_users SET role = ?, active = 1, updated_at = ? WHERE id = ?`)
           .bind(request.role, nowIso, canonicalRow.id)
