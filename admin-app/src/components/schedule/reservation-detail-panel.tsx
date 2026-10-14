@@ -37,11 +37,7 @@ type ReservationDetailPanelProps = {
   onRebook?: (info: { customerId?: string | null; customerName: string; customerKana?: string | null; phone?: string | null; serviceIds: string[]; resourceId?: string; storeId?: string }) => void;
 };
 
-type ConfirmState = {
-  action: ReservationAction;
-  label: string;
-  description: string;
-} | null;
+type ConfirmState = (typeof ACTION_CONFIG)[number] | null;
 
 // 全予約承認制: 承認/却下は staff も操作できる (backend が自店舗 scope を強制する)
 // ため、これらは role による表示ゲートを持たない。例外は privilegedOnly を立てた
@@ -49,6 +45,7 @@ type ConfirmState = {
 const ACTION_CONFIG: Array<{
   action: ReservationAction;
   label: string;
+  confirmLabel: string;
   description: string;
   variant: "default" | "destructive" | "outline";
   fromStatuses: string[];
@@ -57,6 +54,7 @@ const ACTION_CONFIG: Array<{
   {
     action: "approve",
     label: "承認",
+    confirmLabel: "予約を承認する",
     description: "この予約を承認して確定しますか？",
     variant: "default",
     fromStatuses: ["pending_approval"],
@@ -64,6 +62,7 @@ const ACTION_CONFIG: Array<{
   {
     action: "reject",
     label: "却下",
+    confirmLabel: "予約を却下する",
     description: "この予約を却下しますか？お客様に通知され、この操作は取り消せません。",
     variant: "destructive",
     fromStatuses: ["pending_approval"],
@@ -71,6 +70,7 @@ const ACTION_CONFIG: Array<{
   {
     action: "complete",
     label: "完了",
+    confirmLabel: "完了にする",
     description: "この予約を完了にしますか？",
     variant: "outline",
     fromStatuses: ["confirmed", "checked_in"],
@@ -78,6 +78,7 @@ const ACTION_CONFIG: Array<{
   {
     action: "no-show",
     label: "来店なし",
+    confirmLabel: "来店なしにする",
     description: "この予約を来店なしにしますか？",
     variant: "destructive",
     fromStatuses: ["confirmed", "checked_in"],
@@ -87,6 +88,7 @@ const ACTION_CONFIG: Array<{
     // (承認前に取り消したい場合は却下ボタンを使う)。
     action: "cancel",
     label: "キャンセル",
+    confirmLabel: "予約をキャンセルする",
     description: "この予約をキャンセルしますか？取り消しできません。",
     variant: "destructive",
     fromStatuses: ["confirmed", "checked_in"],
@@ -96,6 +98,7 @@ const ACTION_CONFIG: Array<{
     // 排他になる (完了中の予約にだけ「来店なしに訂正」が出る)。
     action: "correct-no-show",
     label: "来店なしに訂正",
+    confirmLabel: "来店なしに訂正する",
     description:
       "この予約を「来店なし」に訂正しますか？来店履歴の1件が無効になり、来店回数と最終来店日から外れます。キャンセル料未納も記録されます。",
     variant: "destructive",
@@ -104,6 +107,7 @@ const ACTION_CONFIG: Array<{
   {
     action: "restore-completed",
     label: "完了に戻す",
+    confirmLabel: "完了に戻す",
     description: "この予約を「完了」に戻しますか？来店履歴の1件が有効に戻り、キャンセル料未納は解除されます。",
     variant: "outline",
     fromStatuses: ["no_show"],
@@ -160,6 +164,7 @@ export function ReservationDetailPanel({
   const { mutate: saveNotes, isPending: isSavingNotes } = useUpdateTreatmentNotes();
   const { mutate: updateCancellationFee, isPending: isUpdatingFee } = useReservationCancellationFee();
   const [confirm, setConfirm] = useState<ConfirmState>(null);
+  const [approvalFailure, setApprovalFailure] = useState("");
   const [rescheduleTarget, setRescheduleTarget] = useState<RescheduleTarget | null>(null);
   const [durationTarget, setDurationTarget] = useState<DurationTarget | null>(null);
   // 却下のみ任意の理由を添えられる (監査ログに記録し、入力時はお客様への却下通知にも本文として届く)。
@@ -184,6 +189,7 @@ export function ReservationDetailPanel({
     setRescheduleTarget(null);
     setDurationTarget(null);
     setConfirm(null);
+    setApprovalFailure("");
     setRejectReason("");
     setShowNotesPrompt(false);
     setNotesText("");
@@ -195,6 +201,9 @@ export function ReservationDetailPanel({
   }, [reservationId]);
 
   const reservation = data?.ok ? data.reservation : null;
+  const approvalReason = reservation?.status === "pending_approval" ? "" : "承認待ちではないため、承認できません。";
+  // 詳細APIは期限と予約自身の友だち状態を返していない。lineFriendStatus は
+  // 顧客の最新identityの表示値なので承認可否に使わず、承認APIの最終判定に任せる。
   // 施術メモの編集対象は有効な来店記録だけ。reservation_id は UNIQUE なので
   // 有効な行は高々1件で、無効化された行へ fallback してはいけない
   // (訂正で取り消した来店のメモを編集できてしまう)。
@@ -233,7 +242,9 @@ export function ReservationDetailPanel({
   };
 
   const handleAction = () => {
-    if (!confirm || !reservationId) return;
+    if (!confirm || !reservationId || isActioning) return;
+    if (confirm.action === "approve" && approvalReason) return;
+    setApprovalFailure("");
     // 施術メモの記録を促すのは新規の完了時だけ。訂正 (restore-completed) は
     // 過去の記録を戻す操作なので促さない。
     const isCompleting = confirm.action === "complete";
@@ -265,6 +276,14 @@ export function ReservationDetailPanel({
             setShowNotesPrompt(true);
           } else {
             onClose();
+          }
+        },
+        onError: (error) => {
+          if (confirm.action === "approve" && error instanceof ApiError &&
+            typeof error.body === "object" && error.body !== null &&
+            "reason" in error.body && error.body.reason === "invalid_transition") {
+            // hook の汎用トーストに加え、確認画面にも承認の見直し箇所を残す。
+            setApprovalFailure("承認できません。LINEの友だち状態・承認期限・予約状態を再確認してください。");
           }
         },
       },
@@ -546,8 +565,8 @@ export function ReservationDetailPanel({
                     key={cfg.action}
                     variant={cfg.variant}
                     size="sm"
-                    disabled={isActioning}
-                    onClick={() => setConfirm(cfg)}
+                    disabled={isActioning || (cfg.action === "approve" && !!approvalReason)}
+                    onClick={() => { setApprovalFailure(""); setConfirm(cfg); }}
                   >
                     {cfg.label}
                   </Button>
@@ -645,14 +664,19 @@ export function ReservationDetailPanel({
         if (!open && isActioning) return;
         if (!open) {
           setConfirm(null);
+          setApprovalFailure("");
           setRejectReason("");
         }
       }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{confirm?.label}</AlertDialogTitle>
-            <AlertDialogDescription>{confirm?.description}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {confirm?.description}
+              {confirm?.action === "approve" && approvalReason && <span className="block">{approvalReason}</span>}
+            </AlertDialogDescription>
           </AlertDialogHeader>
+          {approvalFailure && <p role="alert" className="text-sm text-destructive">{approvalFailure}</p>}
           {confirm?.action === "reject" && (
             <div className="space-y-1.5">
               <Label htmlFor="detail-reject-reason">却下理由（任意・お客様に通知されます）</Label>
@@ -671,9 +695,14 @@ export function ReservationDetailPanel({
             </div>
           )}
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isActioning}>キャンセル</AlertDialogCancel>
-            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleAction(); }} disabled={isActioning}>
-              {isActioning ? "処理中..." : "実行"}
+            <AlertDialogCancel disabled={isActioning}>戻る</AlertDialogCancel>
+            {/* 任意の却下理由を保ちつつ、PendingConfirmDialog と同じ危険操作の見た目に揃える。 */}
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleAction(); }}
+              disabled={isActioning || (confirm?.action === "approve" && !!approvalReason)}
+              className={confirm?.variant === "destructive" ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : undefined}
+            >
+              {isActioning ? "処理中..." : confirm?.confirmLabel}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

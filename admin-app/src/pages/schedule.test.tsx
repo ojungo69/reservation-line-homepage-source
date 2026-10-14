@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import type { Reservation } from "@/types/api";
 import { useSettings } from "@/hooks/use-settings";
-import { render, screen } from "@testing-library/react";
+import { useReservations } from "@/hooks/use-reservations";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +11,7 @@ vi.mock("@/components/schedule/sync-attention", () => ({ ScheduleSyncAttention: 
 let privileged = true;
 let isNarrow = false;
 let selectedStoreId: string | null = "store-1";
+let renderRealCreatePanel = false;
 // WeekView の読み込み中・失敗分岐を切り替えるため可変にする (7日分の
 // useReservations が同一オブジェクトを共有する)。
 const reservationsQuery = {
@@ -19,7 +21,14 @@ const reservationsQuery = {
   dataUpdatedAt: Date.parse("2026-07-24T01:00:00Z"),
   refetch: vi.fn(),
 };
-const settingsData = { ok: true, settings: { resources: [], businessHours: [], stores: [{ id: "store-1", name: "渋谷店" }, { id: "store-2", name: "新宿店" }] } };
+const settingsData = { ok: true, settings: {
+  resources: [
+    { id: "resource-1", storeId: "store-1", name: "担当A", active: true },
+    { id: "resource-2", storeId: "store-2", name: "担当B", active: true },
+  ],
+  services: [], businessHours: [],
+  stores: [{ id: "store-1", name: "渋谷店" }, { id: "store-2", name: "新宿店" }],
+} };
 const settingsQuery = {
   data: settingsData as typeof settingsData | undefined,
   isPending: false,
@@ -54,10 +63,16 @@ vi.mock("@/hooks/use-media-query", () => ({
 }));
 
 vi.mock("@/hooks/use-reservations", () => ({
-  useReservations: () => reservationsQuery,
+  useReservations: vi.fn(() => reservationsQuery),
   usePendingReservations: () => ({
     data: { ok: true, reservations: [] },
   }),
+  useCreateReservation: () => ({ mutate: vi.fn(), isPending: false }),
+  useAvailableSlots: () => ({ data: { ok: true, slots: [] }, isFetching: false, isError: false }),
+}));
+
+vi.mock("@/hooks/use-customers", () => ({
+  useCustomerSearch: () => ({ data: { ok: true, customers: [] }, isFetching: false, isError: false }),
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
@@ -92,13 +107,21 @@ vi.mock("@/components/schedule/schedule-header", () => ({
       {mobileView && <button onClick={() => onMobileViewChange?.("agenda")}>予定一覧へ</button>}
       {mobileView && <button onClick={() => onMobileViewChange?.("timeline")}>時間軸へ</button>}
       <button onClick={() => onDateChange(new Date("2026-07-25T01:00:00Z"))}>翌日へ</button>
+      <button onClick={() => onDateChange(new Date())}>今日</button>
     </>
   ),
 }));
 
 vi.mock("@/components/schedule/timeline-grid", () => ({
-  TimelineGrid: ({ onBlockClick, isLoading }: { onBlockClick?: (id: string) => void; isLoading: boolean }) => (
-    isLoading ? <div role="status">予定を読み込み中</div> : <button disabled={!onBlockClick} onClick={() => onBlockClick?.("block-1")}>既存ブロック</button>
+  TimelineGrid: ({ onBlockClick, onSlotClick, isLoading }: {
+    onBlockClick?: (id: string) => void;
+    onSlotClick: (resourceId: string, minutes: number) => void;
+    isLoading: boolean;
+  }) => (
+    isLoading ? <div role="status">予定を読み込み中</div> : <>
+      <button disabled={!onBlockClick} onClick={() => onBlockClick?.("block-1")}>既存ブロック</button>
+      <button onClick={() => onSlotClick("resource-2", 690)}>新宿店の空き枠</button>
+    </>
   ),
 }));
 
@@ -112,9 +135,14 @@ vi.mock("@/components/schedule/reservation-detail-panel", () => ({
   ),
 }));
 
-vi.mock("@/components/schedule/reservation-create-panel", () => ({
-  ReservationCreatePanel: () => <div>予約作成パネル<input aria-label="作成中の顧客名" /></div>,
-}));
+vi.mock("@/components/schedule/reservation-create-panel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/schedule/reservation-create-panel")>();
+  return {
+    ReservationCreatePanel: (props: Parameters<typeof actual.ReservationCreatePanel>[0]) => renderRealCreatePanel
+      ? <actual.ReservationCreatePanel {...props} />
+      : <div>予約作成パネル<input aria-label="作成中の顧客名" /></div>,
+  };
+});
 
 vi.mock("@/components/schedule/external-block-create-dialog", () => ({
   ExternalBlockCreateDialog: ({ open }: { open: boolean }) => (
@@ -152,6 +180,7 @@ beforeEach(() => {
   privileged = true;
   isNarrow = false;
   selectedStoreId = "store-1";
+  renderRealCreatePanel = false;
   reservationsQuery.isPending = false;
   reservationsQuery.data = { ok: true, reservations: [] };
   reservationsQuery.isError = false;
@@ -160,6 +189,7 @@ beforeEach(() => {
   settingsQuery.data = settingsData;
   settingsQuery.dataUpdatedAt = Date.parse("2026-07-24T01:00:00Z");
   vi.mocked(useSettings).mockClear();
+  vi.mocked(useReservations).mockClear();
   for (const query of [settingsQuery, blocksQuery]) {
     query.isPending = false;
     query.isError = false;
@@ -169,9 +199,81 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("SchedulePage", () => {
+  it("F32: 今日の予定を表示したままJSTの午前0時を越えると翌日へ進む", () => {
+    isNarrow = true;
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-07-24T14:59:50Z"));
+    render(<SchedulePage />);
+    expect(screen.getByRole("heading", { name: /7月24日.*渋谷店/ })).toBeTruthy();
+
+    act(() => { vi.advanceTimersByTime(30_000); });
+
+    expect(screen.getByRole("heading", { name: /7月25日.*渋谷店/ })).toBeTruthy();
+    expect(useReservations).toHaveBeenLastCalledWith("2026-07-25");
+  });
+
+  it("F32: 背景で複数日を越えても画面復帰時に今日へ進む", () => {
+    isNarrow = true;
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    render(<SchedulePage />);
+
+    vi.setSystemTime(new Date("2026-07-27T15:00:00Z"));
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+
+    expect(screen.getByRole("heading", { name: /7月28日.*渋谷店/ })).toBeTruthy();
+    expect(useReservations).toHaveBeenLastCalledWith("2026-07-28");
+  });
+
+  it("F32: 手動で選んだ翌日は今日になった後も保持し、今日ボタンで追従を再開する", async () => {
+    isNarrow = true;
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    render(<SchedulePage />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "翌日へ" }));
+
+    for (const now of ["2026-07-25T01:00:00Z", "2026-07-26T01:00:00Z"]) {
+      vi.setSystemTime(new Date(now));
+      act(() => { vi.advanceTimersByTime(30_000); });
+      expect(screen.getByRole("heading", { name: /7月25日.*渋谷店/ })).toBeTruthy();
+      expect(useReservations).toHaveBeenLastCalledWith("2026-07-25");
+    }
+
+    await user.click(screen.getByRole("button", { name: "今日" }));
+    vi.setSystemTime(new Date("2026-07-26T15:00:00Z"));
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(screen.getByRole("heading", { name: /7月27日.*渋谷店/ })).toBeTruthy();
+    expect(useReservations).toHaveBeenLastCalledWith("2026-07-27");
+  });
+
+  it("F32: 週表示で手動選択した日も画面復帰時に保持する", async () => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    render(<SchedulePage />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "週表示へ" }));
+    await user.click(screen.getByRole("button", { name: "2026年7月25日 (土)の日表示を開く" }));
+
+    vi.setSystemTime(new Date("2026-07-28T01:00:00Z"));
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+
+    expect(useReservations).toHaveBeenLastCalledWith("2026-07-25");
+  });
+
+  it("F5: 全店舗の空き枠から店舗とリソースを選択した予約作成を開く", async () => {
+    selectedStoreId = null;
+    renderRealCreatePanel = true;
+    render(<SchedulePage />);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "新宿店の空き枠" }));
+
+    expect(screen.getByRole("combobox", { name: "店舗" }).textContent).toBe("新宿店");
+    expect(screen.getByRole("combobox", { name: "リソース" }).textContent).toBe("担当B");
+    expect((screen.getByLabelText("時間") as HTMLInputElement).value).toBe("11:30");
+  });
+
   it("スマホでは選択日の過去・深夜の予約を読め、詳細編集中も幅変更で内容を保持する", async () => {
     const user = userEvent.setup();
     isNarrow = true;

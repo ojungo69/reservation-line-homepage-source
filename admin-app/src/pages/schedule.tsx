@@ -30,6 +30,34 @@ export default function SchedulePage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [date, setDate] = useState(() => new Date());
+  // 今日の日付を明示的に選び直したら追従へ戻す。手動で選んだ未来の日が
+  // 時間の経過で「今日」になっただけでは、勝手に追従を再開しない。
+  const followToday = useRef(true);
+  const handleDateChange = useCallback((nextDate: Date) => {
+    followToday.current = formatJstDate(nextDate) === formatJstDate(new Date());
+    setDate(nextDate);
+  }, []);
+
+  useEffect(() => {
+    let todayKey = formatJstDate(new Date());
+    const updateToday = () => {
+      const now = new Date();
+      const nextKey = formatJstDate(now);
+      if (nextKey === todayKey) return;
+      todayKey = nextKey;
+      if (followToday.current) setDate(now);
+    };
+    // 共有端末は開きっぱなしになる。復帰時も確認し、背景でタイマーが止まった日を補う。
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") updateToday();
+    };
+    const interval = window.setInterval(updateToday, 30_000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
   const [viewMode, setViewMode] = useState<"day" | "week">("day");
   const [mobileView, setMobileView] = useState<"agenda" | "timeline">("agenda");
   // スマホ幅 (Tailwind sm 未満) では週表示が横7分割で読めないため日表示に固定する。
@@ -130,9 +158,11 @@ export default function SchedulePage() {
   }, [filteredReservations, pendingData, selectedStoreId, pendingLoading, pendingError]);
 
   const handleSlotClick = useCallback((resourceId: string, minutes: number) => {
-    setCreateDefaults({ resourceId, minutes });
+    // 全店舗表示では店舗フィルターが空なので、クリックした枠の所属店舗を引き継ぐ。
+    const storeId = settings?.resources.find((resource) => resource.id === resourceId)?.storeId;
+    setCreateDefaults({ resourceId, minutes, storeId });
     setCreateOpen(true);
-  }, []);
+  }, [settings]);
 
   const handleReservationClick = useCallback((id: string) => {
     setSelectedReservationId(id);
@@ -257,7 +287,7 @@ export default function SchedulePage() {
   const header = (
     <ScheduleHeader
         date={date}
-        onDateChange={setDate}
+        onDateChange={handleDateChange}
         viewMode={effectiveViewMode}
         onViewModeChange={setViewMode}
         pendingCount={counts.pending}
@@ -287,7 +317,7 @@ export default function SchedulePage() {
           date={date}
           storeId={selectedStoreId}
           onReservationClick={handleReservationClick}
-          onDayClick={(d) => { setDate(d); setViewMode("day"); }}
+          onDayClick={(d) => { handleDateChange(d); setViewMode("day"); }}
         />
         {overlays}
       </div>
