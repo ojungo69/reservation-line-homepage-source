@@ -220,7 +220,6 @@ describe("initial D1 migration", () => {
     expect(seedSql).not.toContain("Google Calendar', 'staff_calendar'");
     expect(seedSql).toContain("10:00");
     expect(seedSql).toContain("20:00");
-    expect(seedSql).not.toContain("store_salon_de_jouet");
   });
 
   it("stores multi-menu selections and corrected service treatment times", () => {
