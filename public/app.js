@@ -1,8 +1,8 @@
 "use strict";
 
-const IDEMPOTENCY_STORAGE_KEY = "salon-de-jouet-reservation-submit-key";
-const IDEMPOTENCY_SIGNATURE_STORAGE_KEY = "salon-de-jouet-reservation-submit-signature";
-const LIFF_REAUTH_STORAGE_PREFIX = "salon-de-jouet-liff-reauth-attempted:";
+const IDEMPOTENCY_STORAGE_KEY = "reservation-submit-key";
+const IDEMPOTENCY_SIGNATURE_STORAGE_KEY = "reservation-submit-signature";
+const LIFF_REAUTH_STORAGE_PREFIX = "liff-reauth-attempted:";
 const LIFF_SCRIPT_URL = "https://static.line-scdn.net/liff/edge/2/sdk.js";
 const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 const MAX_SERVICE_SELECTIONS = 12;
