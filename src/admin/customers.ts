@@ -280,7 +280,8 @@ export type CustomerListRow = {
 // opened the customer list, with no customer data. The id is derived from the day,
 // so concurrent page loads cannot write two rows. The target is the actor because the
 // row records the staff member's own action and audit_logs requires a target. A failed
-// write never blocks the list (staff work must not stop), but it is reported.
+// write never blocks the list (staff work must not stop); it goes to error monitoring,
+// except transient D1 errors, which are only logged (safeCaptureException's default).
 export const recordStaffCustomerListView = async (
   db: D1Database,
   admin: { id: string; store_id: string | null }
