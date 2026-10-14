@@ -23,7 +23,7 @@ export default function MenuPage() {
   const { isPrivileged, user } = useAuth();
   const { stores, selectedStoreId, selectStore } = useStores();
   const { serviceList, storeNames, isPending } = useServiceList(selectedStoreId);
-  const { isError, refetch } = useSettings();
+  const { data: settingsData, isError, refetch } = useSettings();
   // 組み合わせ割引のカテゴリ候補用に全店舗のメニュー名が要る (同じ queryKey なので追加フェッチなし)。
   const { serviceList: allServices } = useServiceList(null);
 
@@ -42,7 +42,7 @@ export default function MenuPage() {
     (isStoreScopedStaff && selectedService !== null && selectedService.storeId === user.storeId);
 
   let menuContent: ReactNode;
-  if (isError) {
+  if (isError && !settingsData) {
     menuContent = <SettingsLoadError onRetry={() => { void refetch(); }} />;
   } else if (isPending) {
     menuContent = (
@@ -131,6 +131,8 @@ export default function MenuPage() {
         </div>
       </div>
 
+      {/* 再取得の失敗では一覧を残したまま知らせる。置き換えると、開いた編集ダイアログの裏で再読み込みに届かない。 */}
+      {isError && settingsData && <SettingsLoadError onRetry={() => { void refetch(); }} />}
       {menuContent}
 
       <ServiceDetailPanel

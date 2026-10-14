@@ -54,6 +54,7 @@ function renderUi(element: ReactElement, storeId: string | null = store.id) {
 beforeEach(() => {
   settingsFail = false;
   settings.settings.stores = [store];
+  settings.settings.services = [];
   vi.clearAllMocks();
   api.put.mockResolvedValue({ ok: true });
   api.get.mockImplementation(async (path: string) => {
@@ -264,6 +265,26 @@ describe("F6 設定の取得失敗", () => {
     await user.click(screen.getByRole("button", { name: "再読み込み" }));
     await waitFor(() => expect(client.getQueryState(["settings"])?.status).toBe("success"));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("メニューは再取得に失敗しても表示中の一覧を残したまま再読み込みを出す", async () => {
+    settings.settings.services = [{
+      id: "service-1", storeId: store.id, name: "サンプルカット", durationMinutes: 60, priceLabel: null,
+      priceAmount: null, comboPriceAmount: null, comboWithPrefix: null, active: true, mensMenu: false,
+    }];
+    const user = userEvent.setup();
+    const { client } = renderUi(<MenuPage />);
+    expect(await screen.findByText("サンプルカット")).toBeTruthy();
+
+    settingsFail = true;
+    await act(() => client.refetchQueries({ queryKey: ["settings"] }));
+    expect((await screen.findByRole("alert")).textContent).toContain("設定を読み込めませんでした");
+    expect(screen.getByText("サンプルカット")).toBeTruthy();
+
+    settingsFail = false;
+    await user.click(screen.getByRole("button", { name: "再読み込み" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.getByText("サンプルカット")).toBeTruthy();
   });
 
   it("店舗設定の再取得が失敗しても休業日の下書きを再読み込み後に復元する", async () => {

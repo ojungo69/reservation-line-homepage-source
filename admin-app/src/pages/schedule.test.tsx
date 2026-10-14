@@ -37,8 +37,9 @@ const settingsQuery = {
   dataUpdatedAt: Date.parse("2026-07-24T01:00:00Z"),
   refetch: vi.fn(),
 };
+const trainingBlock = { id: "block-1", storeId: "store-1", titleSnapshot: "研修", startAt: "2026-07-24T10:00:00+09:00", endAt: "2026-07-24T11:00:00+09:00", status: "active" };
 const blocksQuery = {
-  data: { ok: true, truncated: false, externalBlocks: [{ id: "block-1", storeId: "store-1", titleSnapshot: "研修", startAt: "2026-07-24T10:00:00+09:00", endAt: "2026-07-24T11:00:00+09:00", status: "active" }] },
+  data: { ok: true, truncated: false, externalBlocks: [trainingBlock] },
   isPending: false,
   isError: false,
   dataUpdatedAt: Date.parse("2026-07-24T01:00:00Z"),
@@ -114,13 +115,16 @@ vi.mock("@/components/schedule/schedule-header", () => ({
 }));
 
 vi.mock("@/components/schedule/timeline-grid", () => ({
-  TimelineGrid: ({ onBlockClick, onSlotClick, isLoading }: {
+  TimelineGrid: ({ externalBlocks, onBlockClick, onSlotClick, isLoading }: {
+    externalBlocks: Array<{ id: string }>;
     onBlockClick?: (id: string) => void;
     onSlotClick: (resourceId: string, minutes: number) => void;
     isLoading: boolean;
   }) => (
     isLoading ? <div role="status">予定を読み込み中</div> : <>
-      <button disabled={!onBlockClick} onClick={() => onBlockClick?.("block-1")}>既存ブロック</button>
+      {externalBlocks.some((block) => block.id === "block-1") && (
+        <button disabled={!onBlockClick} onClick={() => onBlockClick?.("block-1")}>既存ブロック</button>
+      )}
       <button onClick={() => onSlotClick("resource-2", 690)}>新宿店の空き枠</button>
     </>
   ),
@@ -191,7 +195,7 @@ beforeEach(() => {
   settingsQuery.dataUpdatedAt = Date.parse("2026-07-24T01:00:00Z");
   vi.mocked(useSettings).mockClear();
   vi.mocked(useExternalBlocks).mockClear();
-  blocksQuery.data.truncated = false;
+  blocksQuery.data = { ok: true, truncated: false, externalBlocks: [trainingBlock] };
   vi.mocked(useReservations).mockClear();
   for (const query of [settingsQuery, blocksQuery]) {
     query.isPending = false;
@@ -477,7 +481,9 @@ describe("SchedulePage", () => {
     expect(screen.getByText(/研修/)).toBeTruthy();
 
     // The schedule follows the new day, whose block list no longer contains block-1.
+    blocksQuery.data = { ...blocksQuery.data, externalBlocks: [] };
     act(() => { vi.advanceTimersByTime(30_000); });
+    expect(screen.queryByRole("button", { name: "既存ブロック" })).toBeNull();
 
     expect(screen.getByText(/研修/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "取消を確定" }));
