@@ -1,6 +1,6 @@
 import configuration from "../instance-config.json";
 
-const keys = new Set(["displayName", "adminHostname", "operationsEmailSender", "staffEmailDomain", "mensMenuStoreId", "stagingStoreIds"]);
+const keys = new Set(["displayName", "adminHostname", "machineOnlyHostnames", "operationsEmailSender", "staffEmailDomain", "mensMenuStoreId", "stagingStoreIds"]);
 const storeIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 function hostname(value: unknown): string {
@@ -23,7 +23,8 @@ function storeId(value: unknown): string {
 export function parseInstanceConfig(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value) ||
       Object.keys(value).length !== keys.size || Object.keys(value).some((key) => !keys.has(key)) ||
-      !("displayName" in value) || !("adminHostname" in value) || !("operationsEmailSender" in value) || !("staffEmailDomain" in value) ||
+      !("displayName" in value) || !("adminHostname" in value) || !("machineOnlyHostnames" in value) ||
+      !("operationsEmailSender" in value) || !("staffEmailDomain" in value) ||
       !("mensMenuStoreId" in value) || !("stagingStoreIds" in value)) {
     throw new Error("Invalid instance configuration fields");
   }
@@ -42,9 +43,18 @@ export function parseInstanceConfig(value: unknown) {
   }
   const stagingStoreIds = value.stagingStoreIds.map((id: unknown) => storeId(id));
   if (new Set(stagingStoreIds).size !== stagingStoreIds.length) throw new Error("Duplicate instance staging store");
+  const adminHostname = hostname(value.adminHostname);
+  if (!Array.isArray(value.machineOnlyHostnames) || value.machineOnlyHostnames.length > 10) {
+    throw new Error("Invalid instance machine-only hostnames");
+  }
+  const machineOnlyHostnames = value.machineOnlyHostnames.map((host: unknown) => hostname(host));
+  if (new Set(machineOnlyHostnames).size !== machineOnlyHostnames.length || machineOnlyHostnames.includes(adminHostname)) {
+    throw new Error("Invalid instance machine-only hostnames");
+  }
   return Object.freeze({
     displayName: value.displayName,
-    adminHostname: hostname(value.adminHostname),
+    adminHostname,
+    machineOnlyHostnames: Object.freeze(machineOnlyHostnames),
     operationsEmailSender: value.operationsEmailSender,
     mensMenuStoreId: storeId(value.mensMenuStoreId),
     stagingStoreIds: Object.freeze(stagingStoreIds),

@@ -68,7 +68,7 @@ set -eu
 
 公開先では `wrangler.jsonc` の `vars.ENVIRONMENT` を `production` に変更してください。`local` は開発用の管理画面表示を含むため、外部公開には使いません。まず `npm run cf:check` で設定と bundle を確認し、公開する commit と対応するソースを揃えます。
 
-公開予約と管理画面に使うホストを決め、両方を自分の Worker にルーティングします。管理ホストは [Cloudflare Access](https://developers.cloudflare.com/workers/configuration/cloudflare-access/) の self-hosted application で保護し、公開ホスト全体はその保護対象に含めません。`instance-config.json` の `adminHostname`、表示名、`operationsEmailSender`、`staffEmailDomain` を自分の値に合わせます。`kyoto` は地名表示ではなく互換性用の技術 ID です。この1店舗手順ではその ID と `mensMenuStoreId` / `stagingStoreIds` の整合を保ち、店舗の表示名を変更してください。
+公開予約と管理画面に使うホストを決め、両方を自分の Worker にルーティングします。管理ホストは [Cloudflare Access](https://developers.cloudflare.com/workers/configuration/cloudflare-access/) の self-hosted application で保護し、公開ホスト全体はその保護対象に含めません。`instance-config.json` の `adminHostname`、表示名、`operationsEmailSender`、`staffEmailDomain` を自分の値に合わせます。公開ホストのボット対策を通れない仕組み（稼働監視、LINE と Google の Webhook）のために別のホスト（例: `*.workers.dev`）を残す場合は、そのホスト名を `machineOnlyHostnames` に書きます。本番ではそのホストがヘルスチェック、予約設定の読み取り、LINE と Google の Webhook だけに応答し、予約ページや空き枠などの公開 API は 404 を返します。使わない場合は空の配列にします。`kyoto` は地名表示ではなく互換性用の技術 ID です。この1店舗手順ではその ID と `mensMenuStoreId` / `stagingStoreIds` の整合を保ち、店舗の表示名を変更してください。
 
 Access の team domain と application AUD を `ACCESS_TEAM_DOMAIN` / `ACCESS_AUD` に設定し、`Cf-Access-Jwt-Assertion` を実アプリが検証できることを確認します。[JWT 検証の公式説明](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)も参照してください。
 

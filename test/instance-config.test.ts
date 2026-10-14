@@ -4,6 +4,7 @@ import { parseInstanceConfig } from "../src/instance-config";
 const example = {
   displayName: "Example Studio",
   adminHostname: "admin.example.invalid",
+  machineOnlyHostnames: ["machine.example.invalid"],
   operationsEmailSender: "noreply@example.invalid",
   staffEmailDomain: "example.invalid",
   mensMenuStoreId: "sample-a",
@@ -36,6 +37,11 @@ describe("instance configuration boundary", () => {
     { ...example, mensMenuStoreId: "" },
     { ...example, stagingStoreIds: ["sample-a", "sample-a"] },
     { ...example, stagingStoreIds: [1] },
+    { ...example, machineOnlyHostnames: "machine.example.invalid" },
+    { ...example, machineOnlyHostnames: ["machine.example.invalid/path"] },
+    { ...example, machineOnlyHostnames: ["machine.example.invalid", "machine.example.invalid"] },
+    { ...example, machineOnlyHostnames: ["admin.example.invalid"] },
+    { ...example, machineOnlyHostnames: Array.from({ length: 11 }, (_, index) => `m${index}.example.invalid`) },
     null,
   ])("rejects invalid instance settings", (value) => {
     expect(() => parseInstanceConfig(value)).toThrow();

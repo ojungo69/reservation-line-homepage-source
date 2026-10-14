@@ -31,13 +31,23 @@ export const isAdminPrivatePath = (path: string) => {
     path === "/api/admin" || path.startsWith("/api/admin/");
 };
 
-export const isAdminHost = (host: string | null | undefined): boolean => {
-  if (typeof host !== "string") return false;
+const hostnameOf = (host: string | null | undefined): string | null => {
+  if (typeof host !== "string") return null;
   const lower = host.toLowerCase();
   const colonIdx = lower.indexOf(":");
-  const hostnameOnly = colonIdx >= 0 ? lower.slice(0, colonIdx) : lower;
-  return hostnameOnly === ADMIN_HOSTNAME;
+  return colonIdx >= 0 ? lower.slice(0, colonIdx) : lower;
 };
+
+export const isAdminHost = (host: string | null | undefined): boolean => hostnameOf(host) === ADMIN_HOSTNAME;
+
+// A machine-only host is kept for callers that the public host's bot protection would challenge:
+// uptime and deploy probes, and the signed LINE and Google webhooks. It serves only these paths.
+const MACHINE_ONLY_HOSTNAMES = new Set(INSTANCE_CONFIG.machineOnlyHostnames);
+const MACHINE_ONLY_PATHS = new Set(["/api/health", "/api/public/reservation-options", "/api/line/webhook", "/api/google/calendar/webhook"]);
+
+export const isMachineOnlyHost = (host: string | null | undefined): boolean => MACHINE_ONLY_HOSTNAMES.has(hostnameOf(host) ?? "");
+
+export const isMachineOnlyPath = (path: string) => MACHINE_ONLY_PATHS.has(path);
 
 const isPublicReservationPrivatePath = (path: string) => {
   return (
