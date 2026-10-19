@@ -28,7 +28,7 @@
     "check": "npm run typecheck && npm test && npm run audit:root && npm run audit:admin"
   },
   "dependencies": {
-    "@sentry/cloudflare": "^10.70.0",
+    "@sentry/cloudflare": "^11.5.0",
     "hono": "^4.13.7",
     "web-push-neo": "0.1.2"
   },
