@@ -20,7 +20,7 @@ import { OWNER_EMAIL_RECIPIENT_ID } from "../notifications/operations-email";
 import { normalizePhone } from "../admin/shared";
 import { sha256Hex } from "../crypto-utils";
 import { toIso, addMinutes } from "../time-utils";
-import { captureBatchWriteFailure } from "../sentry-helpers";
+import { safeCaptureException } from "../sentry-helpers";
 import { classifyReservationWriteError } from "./write-error";
 
 export type PublicReservationRequest = {
@@ -1382,10 +1382,16 @@ export async function createPublicReservation(input: {
   } catch (error) {
     const failure = mapBatchError(error);
     if (failure.reason === "write_failed") {
-      captureBatchWriteFailure(error, {
-        component: "public-submit",
-        op: "batch_write_failed",
-        helper: "createPublicReservation"
+      // The customer gets a 500 and nothing retries the booking, so this is a
+      // request-boundary failure: keep D1 infra errors (export lock, "Network
+      // connection lost") at error level instead of dropping or grouping them.
+      safeCaptureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: {
+          component: "public-submit",
+          op: "batch_write_failed",
+          helper: "createPublicReservation"
+        },
+        captureTransientD1: true
       });
     }
     return failure;
