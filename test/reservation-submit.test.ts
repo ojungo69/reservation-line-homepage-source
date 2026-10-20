@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/sentry-helpers", () => ({
-  captureBatchWriteFailure: vi.fn()
+  captureBatchWriteFailure: vi.fn(),
+  safeCaptureException: vi.fn()
 }));
 
 import type { WorkerBindings } from "../src/bindings";
@@ -12,7 +13,7 @@ import {
 } from "../src/reservations/public-submit";
 import { _resetCacheForTesting } from "../src/google/availability-live-check";
 import { statusForPublicReservationResult } from "../src/routes/shared";
-import { captureBatchWriteFailure } from "../src/sentry-helpers";
+import { captureBatchWriteFailure, safeCaptureException } from "../src/sentry-helpers";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 
 describe("public reservation submit", () => {
@@ -21,6 +22,7 @@ describe("public reservation submit", () => {
   beforeEach(() => {
     d1 = createMigratedSqliteD1();
     vi.mocked(captureBatchWriteFailure).mockClear();
+    vi.mocked(safeCaptureException).mockClear();
   });
 
   afterEach(() => {
@@ -1255,12 +1257,19 @@ describe("public reservation submit", () => {
     });
     expect(count("SELECT COUNT(*) AS count FROM reservations")).toBe(0);
     expect(count("SELECT COUNT(*) AS count FROM customers")).toBe(0);
-    expect(captureBatchWriteFailure).not.toHaveBeenCalled();
+    expect(safeCaptureException).not.toHaveBeenCalled();
   });
 
-  it("captures an unclassified public-submit batch failure", async () => {
+  // A failed booking is a customer-visible 500 that nothing retries, so the capture opts
+  // in to the request-boundary treatment: D1 infra errors (export lock, "Network
+  // connection lost") stay error-level events instead of being dropped or grouped as
+  // warnings.
+  it.each([
+    ["an unclassified failure", "simulated unexpected batch failure"],
+    ["a Cloudflare-retryable D1 error", "D1_ERROR: Network connection lost."]
+  ])("captures %s on the booking batch at error level", async (_label, message) => {
     const db = d1 as unknown as D1Database;
-    const batchError = new Error("simulated unexpected batch failure");
+    const batchError = new Error(message);
     vi.spyOn(db, "batch").mockRejectedValueOnce(batchError);
 
     const result = await createPublicReservation({
@@ -1271,11 +1280,15 @@ describe("public reservation submit", () => {
     });
 
     expect(result).toEqual({ ok: false, reason: "write_failed" });
-    expect(captureBatchWriteFailure).toHaveBeenCalledTimes(1);
-    expect(captureBatchWriteFailure).toHaveBeenCalledWith(batchError, {
-      component: "public-submit",
-      op: "batch_write_failed",
-      helper: "createPublicReservation"
+    expect(captureBatchWriteFailure).not.toHaveBeenCalled();
+    expect(safeCaptureException).toHaveBeenCalledTimes(1);
+    expect(safeCaptureException).toHaveBeenCalledWith(batchError, {
+      tags: {
+        component: "public-submit",
+        op: "batch_write_failed",
+        helper: "createPublicReservation"
+      },
+      captureTransientD1: true
     });
   });
 
@@ -1305,7 +1318,7 @@ describe("public reservation submit", () => {
 
     expect(result).toEqual({ ok: false, reason: "store_closed" });
     expect(count("SELECT COUNT(*) AS count FROM reservations")).toBe(0);
-    expect(captureBatchWriteFailure).not.toHaveBeenCalled();
+    expect(safeCaptureException).not.toHaveBeenCalled();
   });
 
   it("rejects closed weekdays and past start times before writing reservation rows", async () => {
