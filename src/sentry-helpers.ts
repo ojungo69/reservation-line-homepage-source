@@ -7,14 +7,15 @@
  * error is silently swallowed and business logic continues unchanged.
  */
 import * as Sentry from "@sentry/cloudflare";
-import { isTransientD1Error } from "./outbound-timeout";
+import { isRetryableD1Error, isTransientD1Error, readErrorMessage } from "./outbound-timeout";
 
 export function safeCaptureException(
   error: unknown,
   context: {
     tags?: Record<string, string>;
     contexts?: Record<string, Record<string, unknown>>;
-    // Opt OUT of the transient-D1-export suppression below. Set by the request
+    // Opt OUT of the transient-D1-export suppression (and the retryable-D1 warning
+    // downgrade) below. Set by the request
     // boundary (app.onError) where an export-lock surfaces as a RAW 500 to a
     // customer: suppressing it there would hide a user-facing failure twice over
     // (broken response AND no telemetry). Background/handled callsites omit it —
@@ -43,8 +44,33 @@ export function safeCaptureException(
     });
     return;
   }
+  // The other Cloudflare-retryable D1 infra errors ("Network connection lost", storage
+  // reset, ...) get the cron fan-out's transient_d1 treatment: the work re-runs on its
+  // own, so keep it visible as ONE warning per callsite (grouped by the caller's tags)
+  // instead of an error issue per stack trace. D1_ERROR proves D1 origin — a Google /
+  // LINE fetch can throw the same text and must stay an error.
+  // Sentry RESERVATION-LINE-HOMEPAGE-12/13/16/17/K/Q.
+  const retryableD1 =
+    !captureTransientD1 && readErrorMessage(error).includes("D1_ERROR") && isRetryableD1Error(error);
   try {
-    Sentry.captureException(error, sentryContext);
+    if (retryableD1) {
+      // Capture a wrapper, not `error`: the SDK marks a captured object and drops every
+      // later capture of it, so capturing `error` here would leave a request boundary
+      // that catches the same rethrown error (app.onError, error level) with only this
+      // warning. The original stays attached as `cause`, stack included.
+      Sentry.captureException(new Error(readErrorMessage(error), { cause: error }), {
+        ...sentryContext,
+        level: "warning",
+        fingerprint: [
+          "d1-retryable",
+          ...Object.entries(sentryContext.tags ?? {})
+            .map(([key, value]) => `${key}=${value}`)
+            .sort((a, b) => a.localeCompare(b))
+        ]
+      });
+    } else {
+      Sentry.captureException(error, sentryContext);
+    }
   } catch {
     // Sentry SDK failure must never break the original control flow.
   }
