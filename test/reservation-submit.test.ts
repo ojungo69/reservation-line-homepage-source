@@ -1292,6 +1292,25 @@ describe("public reservation submit", () => {
     });
   });
 
+  it("wraps a non-Error batch rejection before capturing it", async () => {
+    const db = d1 as unknown as D1Database;
+    vi.spyOn(db, "batch").mockRejectedValueOnce("socket hang up");
+
+    const result = await createPublicReservation({
+      db,
+      request: createRequest({ idempotencyKey: "public_submit_non_error_batch" }),
+      line: lineContext,
+      now: () => Date.parse("2026-05-09T23:00:00.000Z")
+    });
+
+    expect(result).toEqual({ ok: false, reason: "write_failed" });
+    expect(safeCaptureException).toHaveBeenCalledTimes(1);
+    const [captured, context] = vi.mocked(safeCaptureException).mock.calls[0];
+    expect(captured).toBeInstanceOf(Error);
+    expect((captured as Error).message).toBe("socket hang up");
+    expect(context).toEqual(expect.objectContaining({ captureTransientD1: true }));
+  });
+
   it("returns store_closed when a closure is committed after the availability precheck", async () => {
     const originalBatch = d1.batch.bind(d1);
     let injected = false;
