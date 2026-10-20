@@ -63,7 +63,9 @@ export function safeCaptureException(
         level: "warning",
         fingerprint: [
           "d1-retryable",
-          ...Object.entries(sentryContext.tags ?? {}).map(([key, value]) => `${key}=${value}`)
+          ...Object.entries(sentryContext.tags ?? {})
+            .map(([key, value]) => `${key}=${value}`)
+            .sort()
         ]
       });
     } else {

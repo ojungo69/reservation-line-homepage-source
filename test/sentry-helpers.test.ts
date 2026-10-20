@@ -67,6 +67,8 @@ describe("safeCaptureException", () => {
         fingerprint: ["d1-retryable", "google_module=import-sync", "operation=process_claimed_job"]
       }
     );
+    // Only the warning: no second, error-level capture of the original.
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1);
     // Identity, not equality: toEqual treats two Errors with the same message as equal.
     expect(vi.mocked(Sentry.captureException).mock.calls[0][0]).not.toBe(err);
   });
@@ -77,9 +79,11 @@ describe("safeCaptureException", () => {
       "D1_ERROR: Internal error in D1 DB storage caused object to be reset.",
       "D1_ERROR: D1 DB reset because its code was updated."
     ]) {
+      vi.mocked(Sentry.captureException).mockClear();
       const err = new Error(message);
       safeCaptureException(err, { tags: { component: "line-quota", op: "snapshot_write" } });
-      expect(Sentry.captureException).toHaveBeenLastCalledWith(
+      expect(Sentry.captureException).toHaveBeenCalledTimes(1);
+      expect(Sentry.captureException).toHaveBeenCalledWith(
         expect.objectContaining({ message, cause: err }),
         {
           tags: { component: "line-quota", op: "snapshot_write" },
@@ -93,9 +97,21 @@ describe("safeCaptureException", () => {
   it("groups an untagged retryable D1 error under the bare fingerprint", () => {
     const err = new Error("D1_ERROR: Network connection lost.");
     safeCaptureException(err, {});
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1);
     expect(Sentry.captureException).toHaveBeenCalledWith(
       expect.objectContaining({ message: "D1_ERROR: Network connection lost.", cause: err }),
       { level: "warning", fingerprint: ["d1-retryable"] }
+    );
+  });
+
+  it("builds the same fingerprint whatever order the callsite lists its tags in", () => {
+    const err = new Error("D1_ERROR: Network connection lost.");
+    safeCaptureException(err, { tags: { op: "snapshot_write", component: "line-quota" } });
+    expect(Sentry.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ cause: err }),
+      expect.objectContaining({
+        fingerprint: ["d1-retryable", "component=line-quota", "op=snapshot_write"]
+      })
     );
   });
 
@@ -122,6 +138,7 @@ describe("safeCaptureException", () => {
   it("keeps a retryable D1 error at error level when the caller opts in (request boundary)", () => {
     const err = new Error("D1_ERROR: Network connection lost.");
     safeCaptureException(err, { tags: { method: "POST" }, captureTransientD1: true });
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1);
     expect(Sentry.captureException).toHaveBeenCalledWith(err, { tags: { method: "POST" } });
   });
 
@@ -129,12 +146,14 @@ describe("safeCaptureException", () => {
     // A Google / LINE fetch can throw the same text; only D1_ERROR proves D1 origin.
     const err = new TypeError("Network connection lost.");
     safeCaptureException(err, { tags: { component: "google-fetch" } });
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1);
     expect(Sentry.captureException).toHaveBeenCalledWith(err, { tags: { component: "google-fetch" } });
   });
 
   it("keeps a non-retryable D1 error at error level", () => {
     const err = new Error("D1_ERROR: no such table: reservations: SQLITE_ERROR");
     safeCaptureException(err, { tags: { component: "x" } });
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1);
     expect(Sentry.captureException).toHaveBeenCalledWith(err, { tags: { component: "x" } });
   });
 
