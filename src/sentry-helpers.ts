@@ -65,7 +65,7 @@ export function safeCaptureException(
           "d1-retryable",
           ...Object.entries(sentryContext.tags ?? {})
             .map(([key, value]) => `${key}=${value}`)
-            .sort()
+            .sort((a, b) => a.localeCompare(b))
         ]
       });
     } else {
