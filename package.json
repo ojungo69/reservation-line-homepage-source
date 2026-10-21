@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "@sentry/cloudflare": "^10.70.0",
-    "hono": "^4.13.7",
+    "hono": "^4.13.11",
     "web-push-neo": "0.1.2"
   },
   "devDependencies": {
