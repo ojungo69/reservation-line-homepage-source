@@ -223,6 +223,8 @@ jobs:
             # declared type, and dependabot.yml groups only version updates,
             # in one directory.
             re_prefix='^([^[:space:]]+:[[:space:]]+)?[Bb]ump[[:space:]]+'
+            # dependabot-core appends " in /<directory>" to an ungrouped update outside "/".
+            re_dir='([[:space:]]+in[[:space:]]+/[A-Za-z0-9._/-]*)?'
             re_audit='([[:space:]]+\(via[[:space:]]+audit[[:space:]]+fix\))?'
             # A whole version token, not a numeric prefix of one: "1evil" and a
             # full-width digit in "1０.0.0" must not read as major 1. The suffix
@@ -230,7 +232,7 @@ jobs:
             # 1.0.0-alpha-beta parse as well.
             re_version='v?[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.+-]+)?'
             # Group indices: 2 = old version token, 5 = new one.
-            bump_re="${re_prefix}[^[:space:]]+[[:space:]]+from[[:space:]]+(${re_version})[[:space:]]+to[[:space:]]+(${re_version})${re_audit}$"
+            bump_re="${re_prefix}[^[:space:]]+[[:space:]]+from[[:space:]]+(${re_version})[[:space:]]+to[[:space:]]+(${re_version})${re_dir}${re_audit}$"
 
             if [[ ! "$subject" =~ $bump_re ]]; then
               echo "Skip: #$pr_number holds for manual review — one untyped dependency, and its subject is not one readable version pair"
