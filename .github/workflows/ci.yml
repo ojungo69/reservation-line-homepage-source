@@ -32,6 +32,7 @@ jobs:
       - run: npm run knip
       - run: npm run test:unit -- --coverage
       - run: npm run test:worker
+      - run: node --test .github/scripts/*.test.mjs
       - run: npm run admin:typecheck
       - run: npm run admin:build
       - run: npm run coverage:admin

@@ -29,6 +29,11 @@ updates:
       timezone: Asia/Tokyo
     open-pull-requests-limit: 10
     groups:
+      # Match major updates first so they cannot join a minor/patch stack.
+      npm-major:
+        applies-to: version-updates
+        update-types:
+          - "major"
       # Keep the runner, coverage provider and Workers pool compatible in one PR.
       vitest-stack:
         applies-to: version-updates
@@ -55,6 +60,11 @@ updates:
       timezone: Asia/Tokyo
     open-pull-requests-limit: 10
     groups:
+      # Match major updates first so they cannot join a minor/patch stack.
+      npm-major:
+        applies-to: version-updates
+        update-types:
+          - "major"
       minor-and-patch:
         applies-to: version-updates
         update-types:
