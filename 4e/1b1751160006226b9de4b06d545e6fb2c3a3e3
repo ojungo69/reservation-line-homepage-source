@@ -1,0 +1,31 @@
+.github/scripts/dependency-stall.mjs
+  s_bc235e18382b0e::t_63c5c58310308e 1-108
+.github/workflows/dependabot-auto-merge.yml
+  s_bc235e18382b0e::t_63c5c58310308e 1-395
+.github/workflows/dependency-stall.yml
+  s_bc235e18382b0e::t_63c5c58310308e 1-39
+.github/scripts/dependabot-diverged.test.mjs
+  s_bc235e18382b0e::t_63c5c58310308e 1-67
+.github/dependabot.yml
+  s_bc235e18382b0e::t_63c5c58310308e 32-36,63-67
+.github/scripts/dependabot-diverged.jq
+  s_bc235e18382b0e::t_63c5c58310308e 1-27
+.github/scripts/dependency-stall.test.mjs
+  s_bc235e18382b0e::t_63c5c58310308e 1-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4e1b1751160006226b9de4b06d545e6fb2c3a3e3",
+  "prompts": {},
+  "sessions": {
+    "s_bc235e18382b0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b453-2f2c-7da2-bd38-1805622cc140",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
