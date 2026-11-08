@@ -23,6 +23,11 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@vitest/coverage-v8"
         update-types: ["version-update:semver-major"]
+      # @sentry/cloudflare 11 replaces sendDefaultPii with dataCollection (wider defaults) and makes
+      # beforeSendTransaction a no-op under span streaming, which would silently drop the trace
+      # scrubbing in src/index.ts. Stay on 10.x until a planned migration keeps the same collection.
+      - dependency-name: "@sentry/cloudflare"
+        update-types: ["version-update:semver-major"]
     schedule:
       interval: weekly
       day: monday
