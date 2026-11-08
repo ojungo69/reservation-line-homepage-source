@@ -1,0 +1,19 @@
+test/sentry-traces-sampler-path-normalize.test.ts
+  s_8f66517ef73b49::t_fa51002930972b 549,555
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a80e0dd6e47d19da0e9fa5b68f312c55bffb7726",
+  "prompts": {},
+  "sessions": {
+    "s_8f66517ef73b49": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b947-9d08-7f20-a86c-a8a45cbdab73",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
