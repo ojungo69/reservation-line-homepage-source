@@ -546,12 +546,13 @@ describe("LINE credentials on transaction requests", () => {
         const child = withActiveSpan(parent, () => instrumentFetchRequest({
           startTimestamp: Date.now(), fetchData: { method: "GET", url }, args: [url]
         }, () => true, () => false, {}, "auto.http.fetch"));
-        expect(spanToJSON(child!).data?.["http.query"]).toContain("syntheticSecret");
+        expect(spanToJSON(child!).data?.["http.query"]).toContain("syncToken");
         child!.end();
         const result = normalizeTransactionEvent({ type: "transaction", spans: [spanToJSON(child!)] });
         const query = new URLSearchParams(result.spans![0].data!["http.query"] as string);
         expect(query.get("syncToken")).toBe("[REDACTED]");
         expect(query.get("maxResults")).toBe("250");
+        expect(JSON.stringify(result)).not.toContain("syntheticSecret");
       } finally {
         parent.end();
         client.dispose();
