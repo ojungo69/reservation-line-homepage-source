@@ -161,7 +161,7 @@ describe("line friend helper queries", () => {
   it.each(["0", "09", "(+0) 9", "-"])("gates short phone input in LINE customer lookup: %s", (query) => {
     const { result } = renderHook(() => useCustomerSearch(query), { wrapper: createWrapper(createClient()) });
     expect(mocks.api.get).not.toHaveBeenCalled();
-    expect(result.current).toEqual({ results: [], isPending: false });
+    expect(result.current).toMatchObject({ results: [], isPending: false, isError: false, truncated: false });
   });
   it("gates blank customer searches and preserves the raw query in key and URL", async () => {
     const disabledClient = createClient();
@@ -170,7 +170,7 @@ describe("line friend helper queries", () => {
       { wrapper: createWrapper(disabledClient) },
     );
     expect(mocks.api.get).not.toHaveBeenCalled();
-    expect(disabled.current).toEqual({ results: [], isPending: false });
+    expect(disabled.current).toMatchObject({ results: [], isPending: false, isError: false, truncated: false });
     expect(
       disabledClient.getQueryState(["customer-search", "   "])
         ?.fetchStatus,

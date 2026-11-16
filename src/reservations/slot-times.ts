@@ -115,6 +115,28 @@ export const resolveTotalTreatmentDuration = (
 
 export type BookingService = { id: string; name: string; durationMinutes: number };
 
+export const isBookingCatalogGuardError = (error: unknown): boolean =>
+  /CHECK constraint failed:.*scope IN/s.test(String(error));
+
+// The invalid scope CHECK rolls back the whole booking if an item was disabled after preflight.
+export const bookingCatalogGuard = (input: {
+  db: D1Database;
+  storeId: string;
+  resourceId: string;
+  serviceIds: string[];
+  nowIso: string;
+}): D1PreparedStatement => input.db.prepare(`
+  INSERT INTO idempotency_keys (id, scope, idempotency_key, status, expires_at)
+  SELECT ?, 'booking_catalog_unavailable', 'booking_catalog_guard', 'started', ?
+  WHERE NOT EXISTS (
+    SELECT 1 FROM store_resources WHERE id = ? AND store_id = ? AND active = 1
+  ) OR (
+    SELECT COUNT(*) FROM services
+    WHERE id IN (${input.serviceIds.map(() => "?").join(", ")}) AND store_id = ? AND active = 1
+  ) <> ?
+`).bind(crypto.randomUUID(), input.nowIso, input.resourceId, input.storeId,
+  ...input.serviceIds, input.storeId, input.serviceIds.length);
+
 // Fetch and validate the active services for a booking: every requested id must
 // exist, be active, belong to `storeId`, and carry a positive duration aligned to
 // the slot-lock interval; the combined treatment must also stay within the

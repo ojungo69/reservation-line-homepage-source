@@ -51,6 +51,42 @@ describe("Google Calendar watch channel lifecycle", () => {
     d1.sqlite.close();
   });
 
+  it("reuses the default fetcher's token across sweeps and keeps credential changes isolated", async () => {
+    const keyPair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
+    const pkcs8 = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+    const privateKey = `-----BEGIN PRIVATE KEY-----\n${Buffer.from(pkcs8).toString("base64")}\n-----END PRIVATE KEY-----`;
+    let tokenRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (requestUrl(input) === "https://oauth2.googleapis.com/token") {
+        tokenRequests++;
+        return Response.json({ access_token: `token_${tokenRequests}`, expires_in: 3600 });
+      }
+      const body = JSON.parse(requestBodyText(init?.body)) as { id: string };
+      return Response.json({ id: body.id, resourceId: "cache-resource", expiration: 1_800_604_800_000 });
+    });
+    const env = { GOOGLE_CALENDAR_WEBHOOK_URL: WEBHOOK_URL,
+      GOOGLE_SERVICE_ACCOUNT_EMAIL: "watch-cache@example.iam.gserviceaccount.com",
+      GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: privateKey };
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const first = await ensureGoogleCalendarWatchChannels({ db: d1 as unknown as D1Database, env, now: () => 1_800_000_000_000 });
+      expect(first.created).toBe(1);
+      d1.sqlite.prepare("INSERT INTO stores (id, name, google_calendar_id) VALUES ('cache-second', 'Cache second', 'cache-second-calendar')").run();
+      const second = await ensureGoogleCalendarWatchChannels({ db: d1 as unknown as D1Database, env, now: () => 1_800_000_060_000 });
+      expect(second.created).toBe(1);
+      expect(tokenRequests).toBe(1);
+
+      d1.sqlite.prepare("INSERT INTO stores (id, name, google_calendar_id) VALUES ('cache-third', 'Cache third', 'cache-third-calendar')").run();
+      const third = await ensureGoogleCalendarWatchChannels({ db: d1 as unknown as D1Database,
+        env: { ...env, GOOGLE_SERVICE_ACCOUNT_EMAIL: "watch-other@example.iam.gserviceaccount.com" }, now: () => 1_800_000_120_000 });
+      expect(third.created).toBe(1);
+      expect(tokenRequests).toBe(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("creates a watch channel for each store calendar without storing the plaintext channel token", async () => {
     let requestToken = "";
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

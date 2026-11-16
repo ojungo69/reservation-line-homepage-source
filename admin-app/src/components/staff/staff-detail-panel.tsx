@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -167,7 +167,7 @@ export function StaffDetailPanel({ staff, stores, onClose }: Readonly<Props>) {
   return (
     <>
       <Sheet open={!!staff} onOpenChange={(open) => !open && onClose()}>
-        <SheetContent side="right" className="w-full sm:max-w-lg">
+        <SheetContent side="right" className="w-full sm:max-w-lg" aria-describedby={undefined}>
           {!staff ? (
             <div className="space-y-4 pt-6">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -178,7 +178,7 @@ export function StaffDetailPanel({ staff, stores, onClose }: Readonly<Props>) {
             <div className="space-y-6 pt-6">
               {/* pr-8: 44px Close (右端 52px 占有) に長い氏名が潜らないため。 */}
               <div className="pr-8">
-                <h2 className="text-lg font-semibold">{staff.displayName}</h2>
+                <SheetTitle asChild><h2 className="text-lg font-semibold">{staff.displayName}</h2></SheetTitle>
                 <div className="mt-1 flex items-center gap-2">
                   <Badge variant={staff.active ? "default" : "secondary"}>
                     {staff.active ? "有効" : "無効"}

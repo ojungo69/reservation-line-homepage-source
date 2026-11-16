@@ -91,7 +91,7 @@ const defaultHours = [
 describe("admin settings — business hours endpoints", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("GET returns 7 weekday rows with defaults when none seeded", async () => {
+  it("GET reports unconfigured closed days without writing a schedule when none is seeded", async () => {
     const db = createMigratedSqliteD1();
     try {
       insertAdminUser(db, "owner");
@@ -108,17 +108,20 @@ describe("admin settings — business hours endpoints", () => {
       expect(response.status).toBe(200);
       const body = await readJson(response);
       expect(body.ok).toBe(true);
+      expect(body.configured).toBe(false);
       const hours = body.businessHours as Array<Record<string, unknown>>;
       expect(hours).toHaveLength(7);
-      // Default values for all weekdays
+      // Times are only a draft template; no weekday is open until explicitly saved.
       for (let i = 0; i < 7; i++) {
         expect(hours[i]).toMatchObject({
           weekday: i,
           opensAt: "10:00",
           closesAt: "19:00",
-          closed: false
+          closed: true
         });
       }
+      expect(db.sqlite.prepare("SELECT count(*) AS n FROM store_business_hours WHERE store_id = ?").get("store_test"))
+        .toMatchObject({ n: 0 });
     } finally {
       db.sqlite.close();
     }
@@ -150,6 +153,9 @@ describe("admin settings — business hours endpoints", () => {
       seedStore(db);
       const access = createBizHoursAccessFixture();
       vi.stubGlobal("fetch", createFetchMock(access.jwk));
+
+      const initial = await adminRequest(db, access.token, "GET", "/api/admin/settings/business-hours/store_test");
+      expect(await readJson(initial)).toMatchObject({ ok: true, configured: false });
 
       const putResponse = await adminRequest(
         db,
@@ -189,6 +195,7 @@ describe("admin settings — business hours endpoints", () => {
       expect(getResponse.status).toBe(200);
       const getBody = await readJson(getResponse);
       expect(getBody.ok).toBe(true);
+      expect(getBody.configured).toBe(true);
       const getHours = getBody.businessHours as Array<Record<string, unknown>>;
       expect(getHours).toHaveLength(7);
       const getWed = getHours.find((h) => h.weekday === 3);
@@ -196,6 +203,66 @@ describe("admin settings — business hours endpoints", () => {
     } finally {
       db.sqlite.close();
     }
+  });
+
+  it("preserves partial stored hours and treats missing weekdays as closed without filling them", async () => {
+    const db = createMigratedSqliteD1();
+    try {
+      insertAdminUser(db);
+      seedStore(db);
+      db.sqlite.exec(`
+        INSERT INTO store_business_hours (id, store_id, weekday, opens_at, closes_at, active)
+          VALUES ('hours_mon', 'store_test', 1, '09:10', '18:20', 1),
+                 ('hours_wed', 'store_test', 3, '10:00', '19:00', 0);
+      `);
+      const access = createBizHoursAccessFixture();
+      vi.stubGlobal("fetch", createFetchMock(access.jwk));
+      const response = await adminRequest(db, access.token, "GET", "/api/admin/settings/business-hours/store_test");
+      const body = await readJson(response);
+      expect(body.configured).toBe(true);
+      const hours = body.businessHours as typeof defaultHours;
+      expect(hours.find((row) => row.weekday === 1)).toEqual({ weekday: 1, opensAt: "09:10", closesAt: "18:20", closed: false });
+      expect(hours.filter((row) => !row.closed)).toHaveLength(1);
+      expect(hours.find((row) => row.weekday === 3)).toEqual({ weekday: 3, opensAt: "10:00", closesAt: "19:00", closed: true });
+      expect(db.sqlite.prepare("SELECT count(*) AS n FROM store_business_hours WHERE store_id = ?").get("store_test"))
+        .toMatchObject({ n: 2 });
+      const saved = await adminRequest(db, access.token, "PUT", "/api/admin/settings/business-hours/store_test", { hours });
+      expect(saved.status).toBe(200);
+      const reloaded = await adminRequest(db, access.token, "GET", "/api/admin/settings/business-hours/store_test");
+      expect(await readJson(reloaded)).toEqual({ ok: true, configured: true, businessHours: hours });
+    } finally { db.sqlite.close(); }
+  });
+
+  it("distinguishes an explicitly saved all-closed schedule from unconfigured hours", async () => {
+    const db = createMigratedSqliteD1();
+    try {
+      insertAdminUser(db);
+      seedStore(db);
+      const access = createBizHoursAccessFixture();
+      vi.stubGlobal("fetch", createFetchMock(access.jwk));
+      const hours = defaultHours.map((row) => ({ ...row, closed: true }));
+      const saved = await adminRequest(db, access.token, "PUT", "/api/admin/settings/business-hours/store_test", { hours });
+      expect(saved.status).toBe(200);
+      const response = await adminRequest(db, access.token, "GET", "/api/admin/settings/business-hours/store_test");
+      expect(await readJson(response)).toEqual({ ok: true, configured: true, businessHours: hours });
+    } finally { db.sqlite.close(); }
+  });
+
+  it("lets staff read their unconfigured store but does not expose another store's configuration", async () => {
+    const db = createMigratedSqliteD1();
+    try {
+      seedStore(db);
+      seedStore(db, "store_other");
+      insertStaffAdminLinkedToStore(db, "store_test");
+      const access = createBizHoursAccessFixture();
+      vi.stubGlobal("fetch", createFetchMock(access.jwk));
+      const own = await adminRequest(db, access.token, "GET", "/api/admin/settings/business-hours/store_test");
+      expect(own.status).toBe(200);
+      expect(await readJson(own)).toMatchObject({ ok: true, configured: false });
+      const other = await adminRequest(db, access.token, "GET", "/api/admin/settings/business-hours/store_other");
+      expect(other.status).toBe(403);
+      expect(await readJson(other)).toEqual({ ok: false, reason: "forbidden" });
+    } finally { db.sqlite.close(); }
   });
 
   it("PUT returns 403 for staff with no store link", async () => {

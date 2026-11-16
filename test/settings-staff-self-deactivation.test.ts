@@ -323,6 +323,8 @@ describe("F-3.2: staff self-deactivation lockout guard (DELETE)", () => {
 });
 
 describe("F-3.3: system_admin role escalation guard", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("keeps a newly promoted system_admin active when an owner's delete loses the race", async () => {
     const db = createMigratedSqliteD1();
     try {
@@ -366,7 +368,6 @@ describe("F-3.3: system_admin role escalation guard", () => {
     }
   });
 
-  afterEach(() => vi.unstubAllGlobals());
 
   it("refuses owner creating system_admin with 403 forbidden_role_escalation", async () => {
     const db = createMigratedSqliteD1();

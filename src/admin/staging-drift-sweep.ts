@@ -9,6 +9,7 @@ import {
 import { sendQueueKick } from "../queue/queue-kick";
 import { processDueLineNotificationJobs } from "../line/notifications";
 import type { WorkerBindings } from "../bindings";
+import { isObject } from "../routes/shared";
 
 const PRIVATE_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store",
@@ -114,11 +115,14 @@ export async function driftSweepHandler(
     return c.json({ ok: false, reason: "missing_database" }, 500, PRIVATE_HEADERS);
   }
 
-  let body: Record<string, unknown>;
+  let body: unknown;
   try {
-    body = (await c.req.json()) as Record<string, unknown>;
+    body = await c.req.json();
   } catch {
     return c.json({ ok: false, reason: "invalid_json" }, 400, PRIVATE_HEADERS);
+  }
+  if (!isObject(body) || Array.isArray(body)) {
+    return c.json({ ok: false, reason: "invalid_request" }, 400, PRIVATE_HEADERS);
   }
 
   const parsed = parseDriftSweepRequest(body);

@@ -5,11 +5,16 @@ import { logGoogleEvent } from "../logging";
 import type { GoogleErrorClass } from "../logging";
 import { parseDateJstToUtcIso } from "../date-parse";
 import { safeCaptureException } from "../sentry-helpers";
-import { isTransientAbortError, isTransientD1Error, withOutboundTimeout } from "../outbound-timeout";
+import { defaultOutboundFetcher, isTransientAbortError, isTransientD1Error } from "../outbound-timeout";
 import { generateSlotTimesForRange } from "../reservations/slot-times";
 import { CUSTOMER_TIME_LOCK_PHONE_HASH_SQL } from "../reservations/transitions";
 import { WEEKDAY_MAP } from "../time-utils";
 import { mapConcurrent } from "../concurrency";
+import {
+  GOOGLE_IMPORT_CLAIM_EXISTS_SQL as importJobClaimExistsSql,
+  GoogleImportClaimLostError,
+  withGoogleImportBatchGuard
+} from "./import-claim";
 import {
   MAX_DEDUPE_KEY_LENGTH as _MAX_DEDUPE_KEY_LENGTH,
   stableHash as _stableHash,
@@ -71,6 +76,7 @@ type ImportJobClaim = {
 type GoogleCalendarChannelRow = {
   id: string;
   sync_token: string | null;
+  sync_query_version: number | null;
 };
 
 type StoreResourceRow = {
@@ -99,6 +105,7 @@ type GoogleEvent = {
 };
 
 type GoogleEventsListResponse = {
+  kind?: unknown;
   items?: unknown;
   nextPageToken?: unknown;
   nextSyncToken?: unknown;
@@ -182,6 +189,7 @@ type ImportJobRunResult =
     };
 
 const GOOGLE_CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
+const SYNC_QUERY_VERSION = 1;
 export const LOCK_TTL_MS = 5 * 60 * 1000;
 const FULL_RECONCILE_DELAY_MS = 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -193,12 +201,6 @@ const MAX_EVENTS_LIST_PAGES = 10;
 // claim budget. At Google's 2500 max, an 826-event calendar is ONE page and
 // neither mechanism can ever engage.
 const FULL_WALK_PAGE_SIZE = 150;
-// Page size for NON-resumable syncToken-less walks (initial sync of a fresh
-// channel via push/cron_incremental/manual). These cannot checkpoint across
-// the MAX_EVENTS_LIST_PAGES cap, so the small reconcile page size would
-// shrink their reachable calendar size from 25 000 to 1 500 events; keep
-// Google's maximum here.
-const INITIAL_WALK_PAGE_SIZE = 2500;
 // Cooperative deadline for full_reconcile: once an attempt has spent this much
 // wall time, it checkpoints and yields instead of running into the 270s
 // CLAIM_TASK_TIMEOUT_MS axe (which kills the whole import task and starves the
@@ -235,8 +237,8 @@ const FULL_RECONCILE_QUIET_SPREAD_MINUTES = 40; // window = [16:20, 17:00) UTC
 const DRIFT_ALERT_THRESHOLD = _DRIFT_ALERT_THRESHOLD;
 
 // Orphan sweep cutoff: a row last seen >ORPHAN_GRACE_SECONDS ago is treated
-// as deleted from Google's perspective (the row fell out of the events.list
-// 90-day window). 60 minutes is wide enough that an in-flight push-import
+// as no longer seen by a completed full walk (timeMin=now-30d, no timeMax).
+// 60 minutes is wide enough that an in-flight push-import
 // path with a stale last_seen_at value will either complete (writing a
 // current timestamp) or fail before the orphan sweep evaluates its WHERE.
 const ORPHAN_GRACE_SECONDS = 60 * 60;
@@ -353,15 +355,6 @@ const hasChangedRows = (result: D1Result) => {
   return Number(result.meta?.changes ?? 0) > 0;
 };
 
-const importJobClaimExistsSql = `
-  SELECT 1
-  FROM google_calendar_import_jobs
-  WHERE id = ?
-    AND status = 'processing'
-    AND locked_until = ?
-    AND attempt_count = ?
-`;
-
 const importJobClaimBindings = (job: ImportJobRow, claim: ImportJobClaim): BoundValue[] => [
   job.job_id,
   claim.lockedUntil,
@@ -376,8 +369,34 @@ const importJobClaimExists = async (db: D1Database, job: ImportJobRow, claim: Im
   return Boolean(row);
 };
 
+// A checkpointed walk keeps calendar ownership through yield/backoff; later imports
+// must not apply newer edits before an older page of that walk resumes.
+const otherCalendarImportInProgressSql = `
+  SELECT 1
+  FROM google_calendar_import_jobs AS other
+  WHERE other.calendar_id = google_calendar_import_jobs.calendar_id
+    AND other.id != google_calendar_import_jobs.id
+    AND other.status IN ('queued', 'retryable', 'processing')
+    AND (
+      (other.status = 'processing' AND other.locked_until >= ?)
+      OR (
+        other.reason = 'full_reconcile'
+        AND other.resume_page_token IS NOT NULL
+        AND (
+          google_calendar_import_jobs.reason != 'full_reconcile'
+          OR google_calendar_import_jobs.resume_page_token IS NULL
+          OR other.created_at < google_calendar_import_jobs.created_at
+          OR (
+            other.created_at = google_calendar_import_jobs.created_at
+            AND other.id < google_calendar_import_jobs.id
+          )
+        )
+      )
+    )
+`;
+
 const fetchNextImportJob = async (db: D1Database, nowIso: string) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT
@@ -397,6 +416,7 @@ const fetchNextImportJob = async (db: D1Database, nowIso: string) => {
           OR
           (status = 'processing' AND locked_until < ? AND attempt_count < ?)
         )
+          AND NOT EXISTS (${otherCalendarImportInProgressSql})
         ORDER BY
           CASE WHEN reason = 'full_reconcile' THEN 1 ELSE 0 END ASC,
           next_run_at ASC,
@@ -404,7 +424,7 @@ const fetchNextImportJob = async (db: D1Database, nowIso: string) => {
         LIMIT 1
       `
     )
-    .bind(nowIso, nowIso, MAX_ATTEMPTS)
+    .bind(nowIso, nowIso, MAX_ATTEMPTS, nowIso)
     .first<ImportJobRow>();
 };
 
@@ -448,10 +468,10 @@ const insertImportJob = (input: {
 };
 
 const fetchLatestChannel = async (db: D1Database, job: ImportJobRow) => {
-  return db
+  return await db
     .prepare(
       `
-        SELECT id, sync_token
+        SELECT id, sync_token, sync_query_version
         FROM google_calendar_channels
         WHERE store_id = ?
           AND calendar_id = ?
@@ -468,7 +488,7 @@ const fetchLatestChannel = async (db: D1Database, job: ImportJobRow) => {
 };
 
 const fetchStoreResource = async (db: D1Database, storeId: string, calendarId: string) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT id
@@ -525,7 +545,7 @@ const markStaleImportClaimsExhausted = async (db: D1Database, nowMs: number) => 
 const markJobProcessing = async (db: D1Database, row: ImportJobRow, nowMs: number) => {
   const nowIso = toIso(nowMs);
   const lockedUntil = toIso(nowMs + LOCK_TTL_MS);
-  const result = await db
+  const statement = db
     .prepare(
       `
         UPDATE google_calendar_import_jobs
@@ -539,10 +559,21 @@ const markJobProcessing = async (db: D1Database, row: ImportJobRow, nowMs: numbe
             OR
             (status = 'processing' AND locked_until < ? AND attempt_count < ?)
           )
+          AND NOT EXISTS (${otherCalendarImportInProgressSql})
       `
     )
-    .bind(lockedUntil, nowIso, row.job_id, nowIso, nowIso, MAX_ATTEMPTS)
-    .run();
+    .bind(lockedUntil, nowIso, row.job_id, nowIso, nowIso, MAX_ATTEMPTS, nowIso);
+  const [result] = await db.batch([
+    statement,
+    db.prepare(`
+      UPDATE google_calendar_import_jobs
+      SET status = 'retryable', locked_until = NULL, next_run_at = ?, updated_at = ?
+      WHERE calendar_id = ? AND id != ?
+        AND status = 'processing' AND locked_until < ?
+        AND changes() > 0
+        AND EXISTS (${importJobClaimExistsSql})
+    `).bind(nowIso, nowIso, row.calendar_id, row.job_id, nowIso, row.job_id, lockedUntil, row.attempt_count + 1)
+  ]);
   if (!hasChangedRows(result)) {
     return undefined;
   }
@@ -765,17 +796,15 @@ const buildEventsListUrl = (input: {
   syncToken: string | null;
   pageToken: string | null;
   timeMinIso: string | null;
-  // Page size for syncToken-less walks: FULL_WALK_PAGE_SIZE for the resumable
-  // full_reconcile, INITIAL_WALK_PAGE_SIZE for non-resumable initial syncs.
-  pageSize: number | null;
 }) => {
   const url = new URL(`${GOOGLE_CALENDAR_API_BASE}/calendars/${encodeURIComponent(input.calendarId)}/events`);
+  // Keep every sync-compatible parameter identical to the full walk that minted the token.
+  url.searchParams.set("showDeleted", "true");
+  url.searchParams.set("singleEvents", "true");
+  url.searchParams.set("maxResults", String(FULL_WALK_PAGE_SIZE));
   if (input.syncToken) {
     url.searchParams.set("syncToken", input.syncToken);
   } else {
-    url.searchParams.set("showDeleted", "true");
-    url.searchParams.set("singleEvents", "true");
-    url.searchParams.set("maxResults", String(input.pageSize ?? INITIAL_WALK_PAGE_SIZE));
     if (input.timeMinIso) {
       url.searchParams.set("timeMin", input.timeMinIso);
     }
@@ -786,12 +815,29 @@ const buildEventsListUrl = (input: {
   return url.toString();
 };
 
+const parseEventsListResponse = (value: unknown): Extract<EventsListPage, { ok: true }> | undefined => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const body = value as GoogleEventsListResponse;
+  if (body.kind !== undefined && body.kind !== "calendar#events") return undefined;
+  const items = body.items === undefined ? [] : body.items;
+  if (!Array.isArray(items) || !items.every((item): item is GoogleEvent =>
+    typeof item === "object" && item !== null && !Array.isArray(item) && isValidGoogleEventId(item))) {
+    return undefined;
+  }
+  if (body.nextPageToken !== undefined) {
+    if (typeof body.nextPageToken !== "string" || body.nextPageToken.trim().length === 0 ||
+      body.nextSyncToken !== undefined) return undefined;
+    return { ok: true, items, nextPageToken: body.nextPageToken, nextSyncToken: null };
+  }
+  if (typeof body.nextSyncToken !== "string" || body.nextSyncToken.trim().length === 0) return undefined;
+  return { ok: true, items, nextPageToken: null, nextSyncToken: body.nextSyncToken };
+};
+
 const fetchEventsListPage = async (input: {
   calendarId: string;
   syncToken: string | null;
   pageToken: string | null;
   timeMinIso: string | null;
-  pageSize: number | null;
   accessToken: string;
   fetcher: typeof fetch;
 }): Promise<EventsListPage> => {
@@ -801,8 +847,7 @@ const fetchEventsListPage = async (input: {
         calendarId: input.calendarId,
         syncToken: input.syncToken,
         pageToken: input.pageToken,
-        timeMinIso: input.timeMinIso,
-        pageSize: input.pageSize
+        timeMinIso: input.timeMinIso
       }),
       {
         method: "GET",
@@ -838,15 +883,10 @@ const fetchEventsListPage = async (input: {
     // `response.json()` is INSIDE the try on purpose: `withOutboundTimeout` keeps the
     // 30s AbortSignal armed through the body read, so an upstream that returns headers
     // then stalls while streaming the body aborts here, not at the fetch await above.
-    const body: GoogleEventsListResponse = await response.json();
-    const items = Array.isArray(body.items)
-      ? body.items.filter((item): item is GoogleEvent => typeof item === "object" && item !== null)
-      : [];
-    return {
-      ok: true,
-      items,
-      nextPageToken: typeof body.nextPageToken === "string" ? body.nextPageToken : null,
-      nextSyncToken: typeof body.nextSyncToken === "string" ? body.nextSyncToken : null
+    return parseEventsListResponse(await response.json()) ?? {
+      ok: false,
+      reason: "google-events-list-invalid-response",
+      syncTokenExpired: false
     };
   } catch (err) {
     // A transient outbound abort (30s `withOutboundTimeout` firing → name "TimeoutError",
@@ -968,7 +1008,7 @@ const getReservationMarker = (event: GoogleEvent) => {
 };
 
 const fetchReservationMarker = async (db: D1Database, reservationId: string) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT id
@@ -986,7 +1026,7 @@ const fetchReservationByGoogleEvent = async (input: {
   job: ImportJobRow;
   googleEventId: string;
 }) => {
-  return input.db
+  return await input.db
     .prepare(
       `
         SELECT reservations.id
@@ -1032,7 +1072,7 @@ const fetchReservationForGoogleMove = async (input: {
   reservationId: string;
   googleEventId: string;
 }) => {
-  return input.db
+  return await input.db
     .prepare(
       `
         SELECT
@@ -1339,7 +1379,7 @@ const upsertGoogleEvent = (input: {
 };
 
 const fetchExternalBlock = async (db: D1Database, storeId: string, googleEventId: string) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT id, source, google_event_etag
@@ -2048,7 +2088,7 @@ const cancelExternalBlock = async (input: {
       googleEtag,
       googleUpdatedAt,
       sourceType: existing ? "external_block" : "unknown",
-      status: "deleted",
+      status: input.safeSnapshot.status === "cancelled" ? "deleted" : "ignored",
       externalBlockId: existing?.id ?? null,
       safeSnapshot: input.safeSnapshot,
       nowIso: input.nowIso
@@ -3538,6 +3578,40 @@ const recordReservationTombstoneOrMarkerMismatch = async (input: {
   });
 };
 
+const processTransparentGoogleEvent = async (input: {
+  db: D1Database;
+  job: ImportJobRow;
+  event: GoogleEvent;
+  safeSnapshot: SafeGoogleSnapshot;
+  nowIso: string;
+}) => {
+  const { safeSnapshot } = input;
+  const existing = await fetchExternalBlock(input.db, input.job.store_id, safeSnapshot.google_event_id);
+  if (!existing) {
+    await recordIgnoredGoogleEvent({ ...input, status: "ignored" });
+    return;
+  }
+  if (existing.source !== "google_calendar") {
+    await handleNonGoogleExternalBlockEdit({
+      ...input,
+      externalBlockId: existing.id,
+      googleEventId: safeSnapshot.google_event_id,
+      outboundGoogleEtag: existing.google_event_etag
+    });
+    return;
+  }
+  if (!safeSnapshot.start_at || !safeSnapshot.end_at || safeSnapshot.start_at >= safeSnapshot.end_at) {
+    await recordGoogleEventConflict({
+      ...input,
+      conflictType: "external_block_invalid_time",
+      sourceType: "external_block",
+      externalBlockId: existing.id
+    });
+    return;
+  }
+  await cancelExternalBlock(input);
+};
+
 const processGoogleEvent = async (input: {
   db: D1Database;
   job: ImportJobRow;
@@ -3623,12 +3697,12 @@ const processGoogleEvent = async (input: {
   }
 
   if (safeSnapshot.transparency === "transparent") {
-    await recordIgnoredGoogleEvent({
+    await processTransparentGoogleEvent({
       db: input.db,
       job: input.job,
       event: input.event,
       safeSnapshot,
-      status: "ignored"
+      nowIso
     });
     return undefined;
   }
@@ -3673,6 +3747,7 @@ const updateChannelSyncToken = async (input: {
       `
         UPDATE google_calendar_channels
         SET sync_token = ?,
+            sync_query_version = CASE WHEN ? = 'full_reconcile' THEN ? ELSE sync_query_version END,
             last_incremental_sync_at = CASE
               WHEN ? = 'full_reconcile' THEN last_incremental_sync_at
               ELSE ?
@@ -3688,6 +3763,8 @@ const updateChannelSyncToken = async (input: {
     )
     .bind(
       input.syncToken,
+      input.reason,
+      SYNC_QUERY_VERSION,
       input.reason,
       toIso(input.nowMs),
       input.reason,
@@ -3706,6 +3783,7 @@ const queueFullReconcile = async (input: {
   claim: ImportJobClaim;
   channelId: string | null;
   nowMs: number;
+  preserveSyncToken?: boolean;
 }) => {
   if (!(await importJobClaimExists(input.db, input.job, input.claim))) {
     return false;
@@ -3770,7 +3848,7 @@ const queueFullReconcile = async (input: {
         .prepare(
           `
             UPDATE google_calendar_channels
-            SET sync_token = NULL,
+            SET sync_token = CASE WHEN sync_query_version = ? AND ? = 0 THEN NULL ELSE sync_token END,
                 updated_at = ?
             WHERE id = ?
               AND EXISTS (${importJobClaimExistsSql})
@@ -3785,6 +3863,8 @@ const queueFullReconcile = async (input: {
           `
         )
         .bind(
+          SYNC_QUERY_VERSION,
+          input.preserveSyncToken ? 1 : 0,
           nowIso,
           input.channelId,
           ...importJobClaimBindings(input.job, input.claim),
@@ -3812,35 +3892,34 @@ const queueFullReconcile = async (input: {
   return Boolean(runnableFullReconcileJob);
 };
 
-// Reroute a broken/absent sync_token to the bounded, checkpoint-capable
-// full_reconcile recovery instead of walking events inline. Shared by the 410
-// sync-token-EXPIRED path (handleEventsListFailure) and the pre-request
-// sync-token-MISSING guard in runImportJob — both want the identical recovery
-// (queue one full_reconcile under the shared dedupe key, then report whether
-// the claim survived and the queue is runnable). errorClass is the only thing
-// that differs so logs/alerts can tell the two triggers apart.
+// Recover missing/invalid tokens or an incremental walk beyond the page budget
+// through one bounded, checkpoint-capable full walk.
 const rerouteToFullReconcile = async (input: {
   db: D1Database;
   job: ImportJobRow;
   claim: ImportJobClaim;
   channelId: string | null;
   nowMs: number;
-  errorClass: GoogleErrorClass;
+  errorClass?: GoogleErrorClass;
+  preserveSyncToken?: boolean;
 }): Promise<ImportJobRunResult> => {
-  logGoogleEvent({
-    event_type: "import_sync_token_invalid",
-    outcome: "failure",
-    calendar_id: input.job.calendar_id,
-    store_id: input.job.store_id,
-    error_class: input.errorClass
-  });
+  if (input.errorClass) {
+    logGoogleEvent({
+      event_type: "import_sync_token_invalid",
+      outcome: "failure",
+      calendar_id: input.job.calendar_id,
+      store_id: input.job.store_id,
+      error_class: input.errorClass
+    });
+  }
 
   const fullReconcileQueued = await queueFullReconcile({
     db: input.db,
     job: input.job,
     claim: input.claim,
     channelId: input.channelId,
-    nowMs: input.nowMs
+    nowMs: input.nowMs,
+    preserveSyncToken: input.preserveSyncToken
   });
   if (!(await importJobClaimExists(input.db, input.job, input.claim))) {
     return {
@@ -4057,7 +4136,7 @@ const runImportEventPages = async (input: {
   timeMinIso: string | null;
   sweepStartSeconds: number | null;
 }): Promise<ImportJobRunResult> => {
-  // Only the scheduled full reconcile is resumable: it is the one walk big
+  // The full reconcile is resumable: it is the one walk big
   // enough to outgrow a single claim budget, and its sweep anchor semantics
   // are designed for cross-attempt continuation.
   const isResumableWalk = input.job.reason === "full_reconcile";
@@ -4070,10 +4149,6 @@ const runImportEventPages = async (input: {
   let nextSyncToken: string | null = null;
   let pagesCompletedThisAttempt = 0;
   const claimStartMs = input.nowMs;
-  // Small pages only where the checkpoint/yield machinery can use the page
-  // boundaries; a non-resumable initial sync keeps Google's max so its
-  // reachable calendar size is not shrunk by the page cap.
-  const pageSize = isResumableWalk ? FULL_WALK_PAGE_SIZE : INITIAL_WALK_PAGE_SIZE;
 
   for (let page = 0; page < MAX_EVENTS_LIST_PAGES; page += 1) {
     const eventsPage = await fetchEventsListPage({
@@ -4081,7 +4156,6 @@ const runImportEventPages = async (input: {
       syncToken: input.syncToken,
       pageToken,
       timeMinIso: input.timeMinIso,
-      pageSize,
       accessToken: input.accessToken,
       fetcher: input.fetcher
     });
@@ -4089,6 +4163,8 @@ const runImportEventPages = async (input: {
     if (!eventsPage.ok) {
       return handleEventsPageFailure(input, eventsPage);
     }
+
+    await input.db.batch([]);
 
     const failure = await processEventsListItems({
       db: input.db,
@@ -4150,11 +4226,14 @@ const runImportEventPages = async (input: {
     });
   }
 
-  return {
-    ok: false,
-    reason: "google-events-pagination-incomplete",
-    fullSyncQueued: false
-  };
+  return rerouteToFullReconcile({
+    db: input.db,
+    job: input.job,
+    claim: input.claim,
+    channelId: input.channelId,
+    nowMs: input.nowMs,
+    preserveSyncToken: true
+  });
 };
 
 // Step 3 — drift threshold alert logic extracted to
@@ -4203,8 +4282,8 @@ const resolveFullReconcileSweepAnchor = async (input: {
 
 // Post-walk full_reconcile bookkeeping: drift threshold evaluation then orphan
 // sweep. Extracted from runImportJob to bound its cognitive complexity
-// (SonarCloud S3776). Every failure here is logged and swallowed — neither
-// step fails the import attempt.
+// (SonarCloud S3776). Ordinary failures are captured without failing the import;
+// claim loss aborts the remaining work so a stale attempt cannot keep writing.
 const runFullReconcilePostWalk = async (input: {
   db: D1Database;
   env: GoogleCalendarImportEnv;
@@ -4232,6 +4311,7 @@ const runFullReconcilePostWalk = async (input: {
         googleSweepCount: input.processedEventCount,
         sweepStartSeconds: input.sweepStartSeconds
       });
+      await input.db.batch([]);
       // Step 3: evaluate drift against threshold and conditionally
       // enqueue LINE notifications (feature-flagged).
       await evaluateDriftThreshold({
@@ -4245,6 +4325,7 @@ const runFullReconcilePostWalk = async (input: {
         nowMs: input.nowMs
       });
     } catch (error) {
+      if (error instanceof GoogleImportClaimLostError) throw error;
       safeCaptureException(error, {
         tags: { google_module: "import-sync", operation: "drift_check" },
         contexts: { d1_query: { calendar_id: input.job.calendar_id, store_id: input.job.store_id } }
@@ -4263,7 +4344,7 @@ const runFullReconcilePostWalk = async (input: {
   // After the full_reconcile page walk completes, transition any
   // google_calendar_events rows last seen >ORPHAN_GRACE_SECONDS ago to
   // status='deleted'. These rows fell outside the events.list window
-  // (Google's ~90 day cutoff) and would otherwise occupy `active` row
+  // (timeMin=now-30d, no timeMax) and would otherwise occupy `active` row
   // scans forever. We do NOT hard-delete — audit history must survive.
   //
   // Race safety: the grace period (60 minutes) is wide enough that any
@@ -4297,7 +4378,7 @@ const runFullReconcilePostWalk = async (input: {
       // compare last_seen_at as a raw string (e.g. drift counting) would
       // see the freshly-swept rows mis-ordered if we stamped them with
       // toISOString(). Keeping the production format wins both ways.
-      const sweepResult = await input.db
+      const [sweepResult] = await input.db.batch([input.db
         .prepare(
           `UPDATE google_calendar_events
              SET status = 'deleted', last_seen_at = CURRENT_TIMESTAMP
@@ -4306,8 +4387,7 @@ const runFullReconcilePostWalk = async (input: {
                AND status != 'deleted'
                AND datetime(last_seen_at) < datetime(?, 'unixepoch')`
         )
-        .bind(input.job.store_id, input.job.calendar_id, orphanCutoffSeconds)
-        .run();
+        .bind(input.job.store_id, input.job.calendar_id, orphanCutoffSeconds)]);
       const sweptCount = Number(sweepResult.meta?.changes ?? 0);
       if (sweptCount > 0) {
         logGoogleEvent({
@@ -4323,6 +4403,7 @@ const runFullReconcilePostWalk = async (input: {
         });
       }
     } catch (error) {
+      if (error instanceof GoogleImportClaimLostError) throw error;
       safeCaptureException(error, {
         tags: { google_module: "import-sync", operation: "orphan_sweep" },
         contexts: { d1_query: { calendar_id: input.job.calendar_id, store_id: input.job.store_id } }
@@ -4373,12 +4454,9 @@ const runImportJob = async (input: {
   const isFullReconcile = input.job.reason === "full_reconcile";
   const syncToken = isFullReconcile ? null : channel?.sync_token ?? null;
 
-  // A non-full_reconcile job (cron_incremental/push/manual) with no usable
-  // sync_token (NULL or empty) must NOT fall into a syncToken-LESS INITIAL_WALK
-  // run INLINE: up to MAX_EVENTS_LIST_PAGES x INITIAL_WALK_PAGE_SIZE (=25 000)
-  // events in a SINGLE claim with no checkpoint and no soft-deadline yield — the
-  // exact shape of the 2026-06-18 cron CPU runaway.
-  if (!isFullReconcile && !syncToken) {
+  // Missing tokens and legacy tokens with unknown query provenance must use the
+  // resumable full walk before an incremental request can safely reuse them.
+  if (!isFullReconcile && (!syncToken || channel?.sync_query_version !== SYNC_QUERY_VERSION)) {
     if (!channel) {
       // No channel row at all: incremental sync can never converge (there is
       // nowhere to persist a sync_token), so a full_reconcile here would just
@@ -4398,18 +4476,15 @@ const runImportJob = async (input: {
         fullSyncQueued: false
       };
     }
-    // Channel exists but its sync_token is absent (a fresh channel's first sync,
-    // or a prior recovery that NULLed it). Reroute to the bounded, resumable
-    // full_reconcile recovery (the same path a 410 sync-token-expired takes)
-    // BEFORE touching events.list, so the heavy walk runs off-spike with
-    // checkpoints instead of racing the 270s claim axe.
+    // Legacy tokens stay in D1 until the validated terminal full-page token and
+    // its query version commit together; queuing recovery must not erase them.
     return rerouteToFullReconcile({
       db: input.db,
       job: input.job,
       claim: input.claim,
       channelId: channel.id,
       nowMs: input.nowMs,
-      errorClass: "sync_token_missing"
+      errorClass: syncToken ? "sync_token_invalid" : "sync_token_missing"
     });
   }
 
@@ -4524,7 +4599,7 @@ const processClaimedImportJob = async (input: {
     }
 
     const importResult = await runImportJob({
-      db: input.db,
+      db: withGoogleImportBatchGuard(input.db, { jobId: input.row.job_id, ...input.claim }),
       env: input.env,
       job: input.row,
       claim: input.claim,
@@ -4562,6 +4637,7 @@ const processClaimedImportJob = async (input: {
       fullSyncQueued: importResult.fullSyncQueued
     };
   } catch (error) {
+    if (error instanceof GoogleImportClaimLostError) return { ok: false as const };
     if (isTransientD1Error(error)) {
       // A long-running D1 export (the backup-verify workflow's `wrangler d1
       // export`) briefly rejects every D1 write on this database. Don't capture
@@ -4659,7 +4735,7 @@ export async function processDueGoogleCalendarImportJobs(input: {
   maxJobs?: number;
 } & DriftDeps): Promise<GoogleCalendarImportResult> {
   const result = createEmptyResult();
-  const fetcher = input.fetcher ?? withOutboundTimeout(fetch.bind(globalThis));
+  const fetcher = input.fetcher ?? defaultOutboundFetcher;
   const now = input.now ?? Date.now;
   const maxJobs = input.maxJobs ?? 5;
 
@@ -4931,7 +5007,6 @@ export const __testing__ = {
   chunkBindValues,
   SLOT_QUERY_CHUNK_SIZE,
   FULL_WALK_PAGE_SIZE,
-  INITIAL_WALK_PAGE_SIZE,
   MAX_RECONCILE_YIELDS,
   MAX_EVENTS_LIST_PAGES
 };

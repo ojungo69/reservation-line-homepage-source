@@ -135,3 +135,6 @@ export const withOutboundTimeout = (
     return fetcher(input, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   };
 };
+
+// One identity per isolate lets fetcher-scoped credential caches survive later dispatches.
+export const defaultOutboundFetcher: typeof fetch = withOutboundTimeout((input, init) => globalThis.fetch(input, init));

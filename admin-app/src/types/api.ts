@@ -242,7 +242,8 @@ export type ReservationAction =
   | "cancel"
   | "complete"
   | "no-show"
-  // 終端状態の訂正 (owner+ のみ)。backend は expectedVersion を必須にする。
+  // 終端状態の訂正。correct-no-show は自店舗 staff も可、restore-completed は owner+。
+  // backend は expectedVersion を必須にする。
   | "correct-no-show"
   | "restore-completed";
 
@@ -477,7 +478,7 @@ export type UpdateCustomerVisitRequest = {
   visitedAt: string; // YYYY-MM-DD (JST day), not in the future
 };
 
-// 顧客の手動追加 (owner+)。紙カルテのお客様を予約前に登録しておく用途。
+// 顧客の手動追加 (staff は自店舗、owner+ は全店舗)。予約前の紙カルテ登録用。
 export type CreateCustomerRequest = {
   idempotencyKey: string;
   displayName: string;
@@ -676,6 +677,7 @@ export type BusinessHourRow = {
 
 export type BusinessHoursResponse = {
   ok: true;
+  configured: boolean;
   businessHours: BusinessHourRow[];
 };
 

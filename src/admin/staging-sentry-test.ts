@@ -16,6 +16,7 @@ import type { Context } from "hono";
 import { requireStagingSystemAdmin } from "./staging-drift-sweep";
 import { safeCaptureException } from "../sentry-helpers";
 import type { WorkerBindings } from "../bindings";
+import { isObject } from "../routes/shared";
 
 const PRIVATE_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store",
@@ -30,11 +31,14 @@ export async function sentryTestHandler(
     return gate.response;
   }
 
-  let body: { message?: string } = {};
+  let body: unknown = {};
   try {
-    body = await c.req.json<{ message?: string }>();
+    body = await c.req.json();
   } catch {
     // empty body is fine — use default message
+  }
+  if (!isObject(body) || Array.isArray(body)) {
+    return c.json({ ok: false, reason: "invalid_request" }, 400, PRIVATE_HEADERS);
   }
 
   const message = typeof body.message === "string" && body.message.length > 0

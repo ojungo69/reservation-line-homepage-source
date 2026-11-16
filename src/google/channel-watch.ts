@@ -1,7 +1,7 @@
 import { defaultGoogleCalendarAccessTokenProvider } from "./service-account";
 import { fetchStoreCalendars, type StoreCalendarRow } from "./store-calendars";
 import { logGoogleEvent } from "../logging";
-import { withOutboundTimeout } from "../outbound-timeout";
+import { defaultOutboundFetcher } from "../outbound-timeout";
 import { safeCaptureException } from "../sentry-helpers";
 import { sha256Hex } from "../crypto-utils";
 import { mapConcurrent } from "../concurrency";
@@ -102,7 +102,7 @@ const createEmptyResult = (): GoogleCalendarWatchResult => ({
 });
 
 const fetchCalendarAuthConnection = async (db: D1Database, calendarId: string) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT id, status
@@ -150,7 +150,7 @@ const ensureCalendarAuthConnection = async (input: {
 };
 
 const fetchActiveChannel = async (db: D1Database, storeId: string, calendarId: string) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT id, channel_id, resource_id, expiration_at, sync_token
@@ -578,11 +578,7 @@ export async function ensureGoogleCalendarWatchChannels(input: {
   now?: () => number;
 }): Promise<GoogleCalendarWatchResult> {
   const result = createEmptyResult();
-  // Bind to globalThis so the fetcher keeps its expected `this`.
-  // Without the bind, Cloudflare Workers raise
-  // "Illegal invocation: function called with incorrect `this` reference"
-  // when the extracted reference is invoked from a nested helper.
-  const fetcher = input.fetcher ?? withOutboundTimeout(fetch.bind(globalThis));
+  const fetcher = input.fetcher ?? defaultOutboundFetcher;
   const now = input.now ?? Date.now;
   const nowMs = now();
   const nowIso = toIso(nowMs);

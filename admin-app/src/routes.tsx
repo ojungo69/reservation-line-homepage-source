@@ -21,7 +21,7 @@ function PageLoading() {
   return (
     <div className="space-y-4 p-6">
       <div className="h-8 w-48 animate-pulse rounded bg-muted" />
-      <div className="h-4 w-96 animate-pulse rounded bg-muted" />
+      <div className="h-4 w-96 max-w-full animate-pulse rounded bg-muted" />
     </div>
   );
 }
@@ -36,8 +36,8 @@ export function AppRoutes() {
           <Route path="menu" element={<MenuPage />} />
           {/* Customers are staff-accessible (own-store only). The backend store-scopes
               every customer read/write for staff (search/list/detail/memo/カルテ) and
-              owner-only actions (block/archive/merge, archived view) stay gated inside
-              the page by isPrivileged. Keep it OUT of the requiredPrivilege block. */}
+              the page applies the corresponding role/store action permissions.
+              Keep it OUT of the requiredPrivilege block. */}
           <Route path="customers" element={<CustomersPage />} />
 
           {/* 未納一覧も staff がアクセスできる (回収するのは現場のため)。バックエンドが

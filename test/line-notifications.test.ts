@@ -402,35 +402,21 @@ describe("LINE notification jobs", () => {
 
   it("does not finalize a LINE notification when its processing claim is lost after provider send", async () => {
     await createReservationWithNotifications();
-    const fetchMock = vi.fn(async () =>
-      Response.json({
+    const fetchMock = vi.fn(async () => {
+      d1.sqlite.prepare(`UPDATE notification_jobs
+        SET status = 'queued', locked_until = NULL, updated_at = '2026-05-09T23:10:00.001Z'
+        WHERE recipient_type = 'customer'`).run();
+      return Response.json({
         sentMessages: [
           {
             id: "line_message_stale_worker_1"
           }
         ]
-      })
-    ) as unknown as typeof fetch;
-    const claimLossDb = {
-      prepare: d1.prepare.bind(d1),
-      batch: async (statements: D1PreparedStatement[]) => {
-        d1.sqlite
-          .prepare(
-            `
-              UPDATE notification_jobs
-              SET status = 'queued',
-                  locked_until = NULL,
-                  updated_at = '2026-05-09T23:10:00.001Z'
-              WHERE recipient_type = 'customer'
-            `
-          )
-          .run();
-        return d1.batch(statements);
-      }
-    } as unknown as D1Database;
+      });
+    }) as unknown as typeof fetch;
 
     const result = await processDueLineNotificationJobs({
-      db: claimLossDb,
+      db: d1 as unknown as D1Database,
       env: {
         LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: "line_channel_access_token"
       },

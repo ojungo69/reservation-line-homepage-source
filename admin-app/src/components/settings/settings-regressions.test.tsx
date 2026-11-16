@@ -63,7 +63,7 @@ beforeEach(() => {
       return settings;
     }
     if (path.startsWith("/api/admin/settings/business-hours/")) {
-      return { ok: true, businessHours: [{ weekday: 1, opensAt: "10:00", closesAt: "18:00", closed: false }] };
+      return { ok: true, configured: true, businessHours: [{ weekday: 1, opensAt: "10:00", closesAt: "18:00", closed: false }] };
     }
     if (path === "/api/admin/line-quota") return { ok: true, quota: null };
     throw new Error(`Unexpected GET: ${path}`);

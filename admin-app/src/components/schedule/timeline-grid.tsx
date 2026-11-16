@@ -73,23 +73,18 @@ export function TimelineGrid({
     return map;
   }, [externalBlocks]);
 
-  const isToday = useMemo(() => isSameDay(date, new Date()), [date]);
-
   const [nowPosition, setNowPosition] = useState<number | null>(() =>
-    isToday ? currentTimePosition(dayStartMinutes, dayEndMinutes) : null,
+    isSameDay(date, new Date()) ? currentTimePosition(dayStartMinutes, dayEndMinutes) : null,
   );
 
   useEffect(() => {
-    if (!isToday) {
-      setNowPosition(null);
-      return;
-    }
-    setNowPosition(currentTimePosition(dayStartMinutes, dayEndMinutes));
-    const interval = setInterval(() => {
-      setNowPosition(currentTimePosition(dayStartMinutes, dayEndMinutes));
-    }, 60_000);
+    const updatePosition = () => setNowPosition(
+      isSameDay(date, new Date()) ? currentTimePosition(dayStartMinutes, dayEndMinutes) : null,
+    );
+    updatePosition();
+    const interval = setInterval(updatePosition, 60_000);
     return () => clearInterval(interval);
-  }, [isToday, dayStartMinutes, dayEndMinutes]);
+  }, [date, dayStartMinutes, dayEndMinutes]);
 
   // Auto-scroll the timeline to the business open time on mount and whenever the
   // viewed day / store / hours / density change, so the view does not start on

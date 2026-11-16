@@ -153,21 +153,23 @@ export default function ActivityPage() {
         </div>
       </div>
 
-      {isSearching ? (
+      {isSearching && (
         <div className="space-y-3">
-          <p role="status" className="text-sm text-muted-foreground">検索中です…</p>
+          <output className="block text-sm text-muted-foreground">検索中です…</output>
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-16 w-full" />
           ))}
         </div>
-      ) : isError ? (
+      )}
+      {!isSearching && isError && (
         <div role="alert" className="space-y-2 text-sm text-destructive">
           <p>操作記録の取得に失敗しました。</p>
           <Button variant="outline" size="sm" onClick={() => { void refetch(); }}>
             再読み込み
           </Button>
         </div>
-      ) : <>
+      )}
+      {!isSearching && !isError && <>
       {logs.length === 0 && (
         <p className="text-sm text-muted-foreground">該当する操作記録はありません</p>
       )}

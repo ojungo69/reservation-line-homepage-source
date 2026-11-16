@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -56,7 +56,7 @@ function ServiceHeader({ service }: Readonly<{ service: Service }>) {
   return (
     // pr-8: 44px Close (右端 52px 占有) に長いメニュー名が潜らないため。
     <div className="pr-8">
-      <h2 className="text-lg font-semibold">{service.name}</h2>
+      <SheetTitle asChild><h2 className="text-lg font-semibold">{service.name}</h2></SheetTitle>
       <div className="mt-1 flex items-center gap-2">
         <Badge variant={service.active ? "default" : "secondary"}>
           {service.active ? "有効" : "無効"}
@@ -518,7 +518,7 @@ export function ServiceDetailPanel({ service, stores, services, canEdit, onClose
   return (
     <>
       <Sheet open={!!service} onOpenChange={(open) => !open && onClose()}>
-        <SheetContent side="right" className="w-full sm:max-w-lg">
+        <SheetContent side="right" className="w-full sm:max-w-lg" aria-describedby={undefined}>
           {!service ? (
             <div className="space-y-4 pt-6">
               {Array.from({ length: 5 }).map((_, i) => (

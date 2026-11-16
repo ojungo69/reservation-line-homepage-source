@@ -1391,15 +1391,15 @@ export async function getAdminCustomerDetail(input: {
   // only: every write path (memo / profile / visit notes) still requires
   // archived_at IS NULL for every role.
   const isStaff = input.admin.role === "staff";
-  if (isStaff) {
-    if (
+  if (
+    isStaff && (
       !input.admin.store_id ||
       !(await staffCanAccessCustomer(input.db, input.customerId, input.admin.store_id, {
         includeArchived: true
       }))
-    ) {
-      return { ok: false, reason: "forbidden" };
-    }
+    )
+  ) {
+    return { ok: false, reason: "forbidden" };
   }
   // For staff, scope the visit/reservation history to their own store so a
   // cross-store customer's other-store visits / reservations / treatment notes are

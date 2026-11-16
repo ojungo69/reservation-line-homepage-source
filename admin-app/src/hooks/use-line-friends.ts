@@ -33,7 +33,8 @@ export function useLineFriends(params: { filter: LineFriendsFilter; q: string; p
     // keepPreviousData keeps stale items during a refetch; isFetching lets callers
     // hide them while a new search term is loading (avoids clicking a no-longer-matching row).
     isFetching: query.isFetching,
-    isError: query.isError
+    isError: query.isError,
+    refetch: query.refetch,
   };
 }
 
@@ -86,5 +87,11 @@ export function useCustomerSearch(q: string) {
     enabled: q.trim().length >= 1 && !isShortPhoneQuery(q),
     staleTime: 30_000
   });
-  return { results: query.data?.customers ?? [], isPending: query.isFetching };
+  return {
+    results: query.data?.customers ?? [],
+    isPending: query.isFetching,
+    isError: query.isError,
+    truncated: query.data?.truncated ?? false,
+    refetch: query.refetch,
+  };
 }

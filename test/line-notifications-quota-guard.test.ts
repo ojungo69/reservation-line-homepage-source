@@ -310,6 +310,14 @@ describe("LINE notification monthly budget guard", () => {
     seedSnapshot(d1, 179);
     seedJob(d1, "job_confirmed", "reservation_confirmed", "2026-07-31T23:59:59.000Z");
     seedJob(d1, "job_reminder", "reservation_reminder", "2026-08-01T00:00:00.000Z");
+    // A reminder for the SAME reservation must wait for the confirmation retry.
+    // Use an independent reservation to exercise quota-slot release instead.
+    d1.sqlite.exec(`INSERT INTO reservations (
+      id,store_id,service_id,customer_id,resource_id,line_identity_id,source,status,
+      start_at,end_at,duration_minutes,idempotency_key,version
+    ) SELECT 'resv_q_other',store_id,service_id,customer_id,resource_id,line_identity_id,'admin',status,
+      start_at,end_at,duration_minutes,'idem_q_other',version FROM reservations WHERE id='resv_q';
+      UPDATE notification_jobs SET reservation_id='resv_q_other' WHERE id='job_reminder';`);
 
     let call = 0;
     const fetchMock = vi.fn(async () => {

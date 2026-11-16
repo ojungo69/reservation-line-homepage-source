@@ -103,9 +103,10 @@ jobs:
         with:
           node-version: 24
       - name: Prepare coverage destination
+        id: coverage_destination
         if: steps.context.outputs.mode != 'skip'
         shell: bash
-        run: >
+        run: |
           set -euo pipefail
 
           if [ ! -d admin-app ] || [ -L admin-app ]; then
@@ -116,14 +117,52 @@ jobs:
           rm -rf -- coverage admin-app/coverage
 
           mkdir -- coverage admin-app/coverage
+
+          artifact_directory=$(mktemp -d "$RUNNER_TEMP/sonar-coverage.XXXXXX")
+          printf 'artifact_directory=%s\n' "$artifact_directory" >> "$GITHUB_OUTPUT"
       - name: Download coverage from CI
         if: steps.context.outputs.mode != 'skip'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: coverage-report
-          path: .
+          path: ${{ steps.coverage_destination.outputs.artifact_directory }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
+      - name: Import validated coverage reports
+        if: steps.context.outputs.mode != 'skip'
+        shell: bash
+        env:
+          COVERAGE_ARTIFACT_DIR: ${{ steps.coverage_destination.outputs.artifact_directory }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${COVERAGE_ARTIFACT_DIR:-}" ]; then
+            echo "::error::Coverage artifact directory is missing"
+            exit 1
+          fi
+
+          for directory in "$COVERAGE_ARTIFACT_DIR" \
+            "$COVERAGE_ARTIFACT_DIR/coverage" \
+            "$COVERAGE_ARTIFACT_DIR/admin-app" \
+            "$COVERAGE_ARTIFACT_DIR/admin-app/coverage" \
+            coverage admin-app admin-app/coverage; do
+            if [ ! -d "$directory" ] || [ -L "$directory" ]; then
+              echo "::error::Coverage parent is not a regular directory: $directory"
+              exit 1
+            fi
+          done
+
+          for report in coverage/lcov.info admin-app/coverage/lcov.info; do
+            source="$COVERAGE_ARTIFACT_DIR/$report"
+            if [ ! -f "$source" ] || [ -L "$source" ] || [ ! -s "$source" ]; then
+              echo "::error::Missing, empty, or symbolic-link coverage report: $report"
+              exit 1
+            fi
+          done
+
+          # Extra artifact entries must never replace checked-out source or Git configuration.
+          cp -- "$COVERAGE_ARTIFACT_DIR/coverage/lcov.info" coverage/lcov.info
+          cp -- "$COVERAGE_ARTIFACT_DIR/admin-app/coverage/lcov.info" admin-app/coverage/lcov.info
       - name: Restore trusted analysis configuration
         if: steps.context.outputs.mode != 'skip'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3

@@ -3,7 +3,7 @@ import { INSTANCE_CONFIG } from "../instance-config";
 import { calculateGoogleRetryDelayMs } from "./retry-backoff";
 import { buildEventHistoryInsert } from "./event-history";
 import { logGoogleEvent } from "../logging";
-import { withOutboundTimeout } from "../outbound-timeout";
+import { defaultOutboundFetcher } from "../outbound-timeout";
 import { CONTROL_CHARS_PATTERN, sanitizeCustomerNameForCalendarSummary } from "../pii-normalize";
 import { sha256Hex } from "../crypto-utils";
 import { safeCaptureException } from "../sentry-helpers";
@@ -463,7 +463,7 @@ const fetchNextCalendarSyncJob = async (
         LIMIT 1
       `;
   const filterIds = jobIdsFilter && jobIdsFilter.length > 0 ? jobIdsFilter : [];
-  return db
+  return await db
     .prepare(sql)
     .bind(...(claim ? [claim.attempts, claim.lockedUntil] : [nowIso, nowIso, MAX_ATTEMPTS]), nowIso, ...filterIds)
     .first<CalendarSyncJobRow>();
@@ -2389,7 +2389,7 @@ export async function processDueCalendarSyncJobs(input: {
     return { processed: 0, succeeded: 0, failed: 0 };
   }
 
-  const fetcher = input.fetcher ?? withOutboundTimeout(fetch.bind(globalThis));
+  const fetcher = input.fetcher ?? defaultOutboundFetcher;
   const now = input.now ?? Date.now;
   const maxJobs = input.maxJobs ?? 5;
   const result: CalendarSyncResult = {

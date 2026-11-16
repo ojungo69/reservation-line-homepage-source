@@ -46,7 +46,7 @@ const seedConflict = (
 
 const sweepNowMs = 1_800_000_000_000; // 2027-01-15 08:00:00 UTC
 const insideWindow = new Date(sweepNowMs - 60 * 1000).toISOString(); // 1 min ago
-const outsideWindow = new Date(sweepNowMs - 6 * 60 * 1000).toISOString(); // 6 min ago
+const outsideWindow = new Date(sweepNowMs - 7 * 60 * 1000).toISOString(); // 6 min before insideWindow
 
 const baseEnv = {
   LINE_OPERATIONS_USER_IDS: `${OPS_RECIPIENT_1},${OPS_RECIPIENT_2}`,
@@ -272,8 +272,8 @@ describe("detectConflictBursts (Tier D.3)", () => {
     expect(row).toEqual({ recipient_id: OWNER_EMAIL_RECIPIENT_ID });
   });
 
-  it("ignores conflicts outside the 5-minute window", async () => {
-    // 5 inside-window + 8 outside-window = 5 in scope, below threshold.
+  it("does not combine conflicts more than five minutes apart", async () => {
+    // Neither rolling five-minute window reaches the threshold.
     for (let index = 0; index < 5; index += 1) {
       seedConflict(d1, { id: `c_in_${index}`, createdAt: insideWindow });
     }
@@ -286,6 +286,35 @@ describe("detectConflictBursts (Tier D.3)", () => {
       nowMs: sweepNowMs
     });
     expect(burstLogLines("google_conflict_burst_alert")).toHaveLength(0);
+  });
+
+  it("detects a five-minute burst that ended between ten-minute cron ticks", async () => {
+    for (let index = 0; index < 10; index += 1) {
+      seedConflict(d1, { id: `missed_${index}`, createdAt: new Date(sweepNowMs - 9 * 60 * 1000).toISOString() });
+    }
+    await detectConflictBursts({ db: d1 as unknown as D1Database, env: baseEnv, nowMs: sweepNowMs });
+    expect(burstLogLines("google_conflict_burst_alert")).toMatchObject([{ conflict_count: 10, window_minutes: 5 }]);
+  });
+
+  it("counts the whole five-minute window when its end is near the previous tick", async () => {
+    for (let index = 0; index < 10; index += 1) {
+      const minutesAgo = index < 5 ? 13 : 9;
+      seedConflict(d1, { id: `boundary_${index}`, createdAt: new Date(sweepNowMs - minutesAgo * 60 * 1000).toISOString() });
+    }
+    await detectConflictBursts({ db: d1 as unknown as D1Database, env: baseEnv, nowMs: sweepNowMs });
+    expect(burstLogLines("google_conflict_burst_alert")).toMatchObject([{ conflict_count: 10 }]);
+  });
+
+  it("does not notify twice for one burst across an extra maintenance tick", async () => {
+    const burstAt = sweepNowMs + 60 * 1000;
+    for (let index = 0; index < 10; index += 1) {
+      seedConflict(d1, { id: `extra_tick_${index}`, createdAt: new Date(burstAt).toISOString() });
+    }
+    const env = { ...baseEnv, GOOGLE_CONFLICT_BURST_ALERT_LIVE: "true" };
+    await detectConflictBursts({ db: d1 as unknown as D1Database, env, nowMs: sweepNowMs + 3 * 60 * 1000 });
+    await detectConflictBursts({ db: d1 as unknown as D1Database, env, nowMs: sweepNowMs + 10 * 60 * 1000 });
+    const jobs = d1.sqlite.prepare("SELECT id FROM notification_jobs WHERE template_key = 'google_conflict_burst_alert'").all();
+    expect(jobs).toHaveLength(1);
   });
 
   it("ignores conflicts already resolved (resolution_status != 'open')", async () => {

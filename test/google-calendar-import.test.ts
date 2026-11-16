@@ -38,6 +38,9 @@ const requestUrl = (input: RequestInfo | URL) => {
   return input.url;
 };
 
+const containsSql = (statements: D1PreparedStatement[], fragment: string) =>
+  statements.some((statement) => (statement as unknown as { sql: string }).sql.includes(fragment));
+
 describe("Google Calendar import jobs", () => {
   let d1: SqliteD1Database;
 
@@ -87,6 +90,7 @@ describe("Google Calendar import jobs", () => {
             channel_token_hash,
             channel_token_hash_alg,
             sync_token,
+            sync_query_version,
             status
           ) VALUES (
             'google_calendar_channel_import_1',
@@ -98,6 +102,7 @@ describe("Google Calendar import jobs", () => {
             'token_hash',
             'sha256',
             ?,
+            1,
             'active'
           )
         `
@@ -431,35 +436,24 @@ describe("Google Calendar import jobs", () => {
       })
     ) as unknown as typeof fetch;
     const accessTokenProvider = vi.fn(async () => "google_access_token");
+    let claimPrepared = false;
     const claimLossDb = {
       prepare(sql: string) {
-        const statement = (d1 as unknown as D1Database).prepare(sql);
         if (sql.includes("UPDATE google_calendar_import_jobs") && sql.includes("SET status = 'processing'")) {
-          return {
-            bind(...values: unknown[]) {
-              const bound = statement.bind(...values);
-              return {
-                async run() {
-                  d1.sqlite
-                    .prepare(
-                      `
-                        UPDATE google_calendar_import_jobs
-                        SET status = 'processing',
-                            attempt_count = attempt_count + 1,
-                            locked_until = '2027-01-15T08:05:00.000Z'
-                        WHERE id = ?
-                      `
-                    )
-                    .run(String(values[2]));
-                  return bound.run();
-                }
-              } as unknown as D1PreparedStatement;
-            }
-          } as unknown as D1PreparedStatement;
+          claimPrepared = true;
         }
-        return statement;
+        return d1.prepare(sql);
       },
       batch(statements: D1PreparedStatement[]) {
+        if (claimPrepared) {
+          claimPrepared = false;
+          d1.sqlite.prepare(`
+            UPDATE google_calendar_import_jobs
+            SET status = 'processing', attempt_count = attempt_count + 1,
+                locked_until = '2027-01-15T08:05:00.000Z'
+            WHERE id = 'google_import_job_push_1'
+          `).run();
+        }
         return d1.batch(statements);
       }
     } as unknown as D1Database;
@@ -698,7 +692,7 @@ describe("Google Calendar import jobs", () => {
     expect(job.last_error).toBe("exhausted_after_repeated_crash");
   });
 
-  it("does not mark a paginated sync successful before the page carrying nextSyncToken is reached", async () => {
+  it("hands long incremental walks to full recovery without advancing the sync token", async () => {
     insertActiveChannel("sync_token_many_pages_1");
     insertImportJob("push");
     let pageCalls = 0;
@@ -725,24 +719,26 @@ describe("Google Calendar import jobs", () => {
 
     expect(result).toEqual({
       processed: 1,
-      succeeded: 0,
-      failed: 1,
-      fullSyncQueued: 0,
+      succeeded: 1,
+      failed: 0,
+      fullSyncQueued: 1,
       yielded: 0
     });
     expect(fetchMock).toHaveBeenCalledTimes(10);
     const job = d1.sqlite
       .prepare("SELECT status, attempt_count, last_error FROM google_calendar_import_jobs WHERE id = 'google_import_job_push_1'")
-      .get() as { status: string; attempt_count: number; last_error: string };
+      .get() as { status: string; attempt_count: number; last_error: string | null };
     expect(job).toEqual({
-      status: "retryable",
+      status: "succeeded",
       attempt_count: 1,
-      last_error: "google-events-pagination-incomplete"
+      last_error: null
     });
     const channel = d1.sqlite
       .prepare("SELECT sync_token FROM google_calendar_channels WHERE id = 'google_calendar_channel_import_1'")
       .get() as { sync_token: string };
     expect(channel.sync_token).toBe("sync_token_many_pages_1");
+    expect(d1.sqlite.prepare("SELECT reason, status FROM google_calendar_import_jobs WHERE reason = 'full_reconcile'").get())
+      .toEqual({ reason: "full_reconcile", status: "queued" });
   });
 
   it("queues full reconciliation and clears stale syncToken when Google returns 410", async () => {
@@ -807,7 +803,7 @@ describe("Google Calendar import jobs", () => {
     });
 
     // The whole point of ⑦: a NULL sync_token must NOT trigger an inline
-    // INITIAL_WALK (up to 25k events, no checkpoint) — events.list is never hit.
+    // A missing token must use the resumable full walk; events.list is never hit inline.
     expect(fetchMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       processed: 1,
@@ -875,7 +871,7 @@ describe("Google Calendar import jobs", () => {
   it("treats an empty-string sync_token like a missing one and reroutes (no inline walk) (⑦)", async () => {
     // sync_token is TEXT with no non-empty constraint; a corrupted '' row is
     // falsy on the events.list path and would slip a `=== null` guard back into
-    // the unbounded INITIAL_WALK. The guard keys on !syncToken to catch it.
+    // an unbounded inline walk. The guard treats an empty token as missing.
     insertActiveChannel("");
     insertImportJob("cron_incremental");
     const fetchMock = vi.fn(async () =>
@@ -1043,7 +1039,7 @@ describe("Google Calendar import jobs", () => {
     }
   );
 
-  it("clears syncToken when the sync-token-expired full reconciliation job is already processing", async () => {
+  it("keeps an incremental job queued while the recovery full reconciliation is processing", async () => {
     insertActiveChannel("expired_sync_token_processing_1");
     insertImportJob("cron_incremental");
     d1.sqlite
@@ -1095,12 +1091,13 @@ describe("Google Calendar import jobs", () => {
     });
 
     expect(result).toEqual({
-      processed: 1,
-      succeeded: 1,
+      processed: 0,
+      succeeded: 0,
       failed: 0,
-      fullSyncQueued: 1,
+      fullSyncQueued: 0,
       yielded: 0
     });
+    expect(fetchMock).not.toHaveBeenCalled();
     const state = d1.sqlite
       .prepare(
         `
@@ -1122,8 +1119,8 @@ describe("Google Calendar import jobs", () => {
       fullJobStatus: string;
     };
     expect(state).toEqual({
-      syncToken: null,
-      currentJobStatus: "succeeded",
+      syncToken: "expired_sync_token_processing_1",
+      currentJobStatus: "queued",
       fullJobStatus: "processing"
     });
   });
@@ -4171,7 +4168,7 @@ describe("Google Calendar import jobs", () => {
     const racingDb = {
       prepare: d1.prepare.bind(d1),
       batch: async (statements: D1PreparedStatement[]) => {
-        if (!injectedRace) {
+        if (!injectedRace && containsSql(statements, "UPDATE reservations")) {
           injectedRace = true;
           d1.sqlite
             .prepare(
@@ -4225,7 +4222,15 @@ describe("Google Calendar import jobs", () => {
     insertActiveChannel(null);
     insertImportJob("full_reconcile");
     const error = new Error("D1_ERROR: unexpected move batch failure");
-    vi.spyOn(d1, "batch").mockRejectedValueOnce(error);
+    const batch = d1.batch.bind(d1);
+    let injectedFailure = false;
+    vi.spyOn(d1, "batch").mockImplementation(async (statements) => {
+      if (!injectedFailure && containsSql(statements, ownerType === "reservation" ? "UPDATE reservations" : "INSERT INTO external_blocks")) {
+        injectedFailure = true;
+        throw error;
+      }
+      return batch(statements);
+    });
     const result = await processDueGoogleCalendarImportJobs({
       db: d1 as unknown as D1Database,
       env: IMPORT_ENV,
@@ -4289,7 +4294,7 @@ describe("Google Calendar import jobs", () => {
     const racingDb = {
       prepare: d1.prepare.bind(d1),
       batch: async (statements: D1PreparedStatement[]) => {
-        if (!injectedRace) {
+        if (!injectedRace && containsSql(statements, "UPDATE reservations")) {
           injectedRace = true;
           d1.sqlite
             .prepare(
@@ -4418,7 +4423,7 @@ describe("Google Calendar import jobs", () => {
     const racingDb = {
       prepare: d1.prepare.bind(d1),
       batch: async (statements: D1PreparedStatement[]) => {
-        if (!injectedRace) {
+        if (!injectedRace && containsSql(statements, "UPDATE reservations")) {
           injectedRace = true;
           d1.sqlite
             .prepare(
@@ -5435,7 +5440,7 @@ describe("drift alert (Step 6)", () => {
         `
           INSERT INTO google_calendar_channels (
             id, store_id, calendar_auth_connection_id, calendar_id, channel_id,
-            resource_id, channel_token_hash, channel_token_hash_alg, sync_token, status
+            resource_id, channel_token_hash, channel_token_hash_alg, sync_token, sync_query_version, status
           ) VALUES (
             'google_calendar_channel_drift_1',
             'kyoto',
@@ -5446,6 +5451,7 @@ describe("drift alert (Step 6)", () => {
             'token_hash',
             'sha256',
             ?,
+            1,
             'active'
           )
         `

@@ -240,7 +240,7 @@ const fetchParentIdempotency = async (
   db: D1Database,
   idempotencyKey: string
 ): Promise<ParentIdempotencyRow | null> =>
-  db
+  await db
     .prepare(
       `SELECT status, target_id, request_hash, updated_at
        FROM idempotency_keys

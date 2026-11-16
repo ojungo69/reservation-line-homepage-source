@@ -307,7 +307,7 @@ adminApiRoutes.get("/me", async (c) => {
 // Local parsers (admin-only)
 
 const parseAdminIdempotentReasonRequest = (body: unknown) => {
-  if (!isObject(body)) {
+  if (!isObject(body) || (typeof body.reason === "string" && body.reason.length > 500)) {
     return undefined;
   }
 
@@ -1380,9 +1380,9 @@ adminApiRoutes.get("/line-quota", async (c) => {
 });
 
 // 8. GET /customers/:id — detail. Staff may view ONLY their own-store customers;
-// getAdminCustomerDetail returns reason:"forbidden" for an out-of-scope /
-// archived / merged customer (staff) and scopes the visits/reservations history to
-// the staff's store. Owner / system_admin see the full record.
+// getAdminCustomerDetail rejects out-of-scope / merged customers for staff,
+// allows own-store archived customers for restoration, and scopes their history
+// to the staff's store. Owner / system_admin see the full record.
 adminApiRoutes.get("/customers/:id", async (c) => {
   const authGate = await authenticateAdminRoute(c);
   if (!authGate.ok) return authGate.response;

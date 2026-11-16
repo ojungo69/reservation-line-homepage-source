@@ -2,6 +2,7 @@ import { adminWriteGuard, adminWriteWasRevoked } from "./write-authorization";
 import type { AdminUser } from "./access";
 import {
   buildCreateContext,
+  expiredSettingsIdempotencyStatement,
   MAX_ID_LENGTH,
   MAX_IDEMPOTENCY_KEY_LENGTH,
   MAX_NAME_LENGTH,
@@ -368,7 +369,7 @@ type ServiceRow = {
 };
 
 const fetchService = async (db: D1Database, id: string): Promise<ServiceRow | null> =>
-  db
+  await db
     .prepare(
       `SELECT id, store_id, name, price_label, price_amount, combo_price_amount, combo_with_prefix,
               duration_minutes, buffer_before_minutes, buffer_after_minutes, active, mens_menu
@@ -404,12 +405,12 @@ async function handleServiceUpdateBatchError(
   db: D1Database,
   error: unknown,
   serviceId: string,
-  isDeactivating: boolean
+  requestedInactive: boolean
 ): Promise<AdminServiceUpdateResult> {
   if (isActorTypeBatchError(error)) {
     const fresh = await fetchService(db, serviceId);
     if (!fresh) return { ok: false, error: "not_found" };
-    if (isDeactivating) {
+    if (requestedInactive) {
       return { ok: false, error: "has_future_reservations" };
     }
     return { ok: false, error: "write_failed" };
@@ -465,6 +466,13 @@ export const createAdminService = async (input: {
   try {
     await input.db.batch([
       adminWriteGuard(input.db, input.admin),
+      expiredSettingsIdempotencyStatement({
+        db: input.db,
+        key: input.request.idempotencyKey,
+        requestHash,
+        targetType: "service",
+        nowIso
+      }),
       startedIdempotencyStatement({
         db: input.db,
         id: idempotencyId,
@@ -594,14 +602,13 @@ export const updateAdminService = async (input: {
     return { ok: false, error: "has_future_reservations" };
   }
 
-  // Guard only applies on the deactivation transition (active 1→0). Edits
-  // that keep the service active, or that touch an already-inactive service,
-  // pass through unconditionally — otherwise dirty data (an inactive service
-  // that still has stray future bookings) would block routine edits. The
+  // Evaluate the transition against the current DB row, not the earlier read:
+  // a concurrent reactivation may have allowed new bookings. Already-inactive
+  // legacy rows with stray bookings remain editable. The
   // audit_logs INSERT anchors on `CASE WHEN changes()=1 THEN 'staff' ELSE
   // 'soft_delete_conflict' END` so a 0-row UPDATE (race or unknown id)
   // violates the audit_logs CHECK constraint and aborts the batch.
-  const guardActive = isDeactivating ? 1 : 0;
+  const guardActive = input.request.active ? 0 : 1;
   try {
     await input.db.batch([
       adminWriteGuard(input.db, input.admin),
@@ -612,7 +619,7 @@ export const updateAdminService = async (input: {
                combo_with_prefix = ?, duration_minutes = ?, buffer_before_minutes = ?,
                buffer_after_minutes = ?, active = ?, mens_menu = ?, updated_at = ?
            WHERE id = ?
-             AND (? = 0 OR NOT EXISTS (
+             AND (? = 0 OR active = 0 OR NOT EXISTS (
                SELECT 1 FROM reservations r
                LEFT JOIN reservation_services rs ON rs.reservation_id = r.id
                WHERE (r.service_id = ? OR rs.service_id = ?)
@@ -689,7 +696,7 @@ export const updateAdminService = async (input: {
     if (await adminWriteWasRevoked(input.db, input.admin, error)) {
       return { ok: false, error: "forbidden" };
     }
-    return handleServiceUpdateBatchError(input.db, error, input.serviceId, isDeactivating);
+    return handleServiceUpdateBatchError(input.db, error, input.serviceId, !input.request.active);
   }
 
   return { ok: true, serviceId: input.serviceId };

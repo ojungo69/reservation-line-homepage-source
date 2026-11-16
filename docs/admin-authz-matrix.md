@@ -141,7 +141,7 @@
 | `PUT /api/admin/settings/booking-window` | ❌ | ✅ | ✅ | `updateAdminBookingWindowSettings` の `isAdminPrivileged` (settings-booking-window.ts)。予約受付期間1..90日 (#309) |
 | `PUT /api/admin/settings/customer-notice` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-customer-notice.ts)。予約ページのお客様向けお知らせ 500字上限 |
 | `PUT /api/admin/settings/google-edit-mode` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-google-edit.ts) |
-| `GET /api/admin/settings/business-hours/:storeId` | ✅ 自店舗のみ | ✅ | ✅ | route 層で自店舗ガード (admin-api.ts) |
+| `GET /api/admin/settings/business-hours/:storeId` | ✅ 自店舗のみ | ✅ | ✅ | route 層で自店舗ガード (admin-api.ts)。営業時間0行は `configured: false` (未設定・予約受付不可)、明示的な全曜日休業は `configured: true`。未登録曜日は `closed: true` として返し、GET で営業時間を保存しない |
 | `PUT /api/admin/settings/business-hours/:storeId` | ✅ 自店舗のみ | ✅ | ✅ | `putBusinessHours` の `isAdminAllowedForStoreSettings` (settings-business-hours.ts) |
 
 ### 店舗ログイン (store logins) — #308
