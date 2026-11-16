@@ -35,6 +35,7 @@ export type ApiErrorCode =
   | "already_resolved"
   | "overlapping_reservations"
   | "immutable_store"
+  | "linked_closure_dates_immutable"
   | "forbidden_role_escalation"
   | "forbidden_self_deactivation"
   | "duplicate_email"
@@ -104,6 +105,7 @@ const ERROR_MESSAGES = {
   already_resolved: "既に解決済みです",
   overlapping_reservations: "対象の時間帯に予約が入っているため実行できません。先に予約を移動またはキャンセルしてください",
   immutable_store: "店舗の変更はできません",
+  linked_closure_dates_immutable: "Google予定と連動する休業の日時は変更できません。日時を変える場合は休業を取り消し、新しいGoogle予定を再承認してください。理由のみ変更できます",
   forbidden_role_escalation: "この権限変更は許可されていません",
   forbidden_self_deactivation: "自分自身を無効化することはできません",
   duplicate_email: "このメールアドレスは既に使用されています",

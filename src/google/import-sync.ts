@@ -414,8 +414,9 @@ const fetchNextImportJob = async (db: D1Database, nowIso: string) => {
         WHERE (
           (status IN ('queued', 'retryable') AND next_run_at <= ?)
           OR
-          (status = 'processing' AND locked_until < ? AND attempt_count < ?)
+          (status = 'processing' AND locked_until < ?)
         )
+          AND attempt_count < ?
           AND NOT EXISTS (${otherCalendarImportInProgressSql})
         ORDER BY
           CASE WHEN reason = 'full_reconcile' THEN 1 ELSE 0 END ASC,
@@ -508,9 +509,8 @@ const fetchStoreResource = async (db: D1Database, storeId: string, calendarId: s
     .first<StoreResourceRow>();
 };
 
-// Dead-letter any stale `processing` rows whose attempt counter already reached
-// the retry cap (codex #9 follow-up). Without this sweep, repeated worker crashes
-// after markJobProcessing but before markJobFailure could bypass MAX_ATTEMPTS.
+// Retire exhausted queued retries too: legacy claim recovery could leave their
+// checkpoints owning a calendar forever. Live processing leases remain protected.
 const markStaleImportClaimsExhausted = async (db: D1Database, nowMs: number) => {
   const nowIso = toIso(nowMs);
   const result = await db
@@ -526,8 +526,10 @@ const markStaleImportClaimsExhausted = async (db: D1Database, nowMs: number) => 
             resume_time_min = NULL,
             resume_yield_count = 0,
             updated_at = ?
-        WHERE status = 'processing'
-          AND locked_until < ?
+        WHERE (
+            status IN ('queued', 'retryable')
+            OR (status = 'processing' AND locked_until < ?)
+          )
           AND attempt_count >= ?
       `
     )
@@ -557,8 +559,9 @@ const markJobProcessing = async (db: D1Database, row: ImportJobRow, nowMs: numbe
           AND (
             (status IN ('queued', 'retryable') AND next_run_at <= ?)
             OR
-            (status = 'processing' AND locked_until < ? AND attempt_count < ?)
+            (status = 'processing' AND locked_until < ?)
           )
+          AND attempt_count < ?
           AND NOT EXISTS (${otherCalendarImportInProgressSql})
       `
     )
@@ -570,9 +573,10 @@ const markJobProcessing = async (db: D1Database, row: ImportJobRow, nowMs: numbe
       SET status = 'retryable', locked_until = NULL, next_run_at = ?, updated_at = ?
       WHERE calendar_id = ? AND id != ?
         AND status = 'processing' AND locked_until < ?
+        AND attempt_count < ?
         AND changes() > 0
         AND EXISTS (${importJobClaimExistsSql})
-    `).bind(nowIso, nowIso, row.calendar_id, row.job_id, nowIso, row.job_id, lockedUntil, row.attempt_count + 1)
+    `).bind(nowIso, nowIso, row.calendar_id, row.job_id, nowIso, MAX_ATTEMPTS, row.job_id, lockedUntil, row.attempt_count + 1)
   ]);
   if (!hasChangedRows(result)) {
     return undefined;

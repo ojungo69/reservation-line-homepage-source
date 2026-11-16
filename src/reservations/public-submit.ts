@@ -227,6 +227,13 @@ const fetchBookingContext = async (
   return built.ok ? built.context : built;
 };
 
+const mapBookingCatalogFailure = (
+  current: BookingContext | PublicReservationFailure | undefined
+): PublicReservationFailure | undefined => {
+  if (!current) return undefined;
+  return "ok" in current ? current : { ok: false, reason: "service_not_available" };
+};
+
 export const getExistingLineIdentity = async (
   db: D1Database,
   line: VerifiedLineContext
@@ -608,6 +615,26 @@ const resolvePublicIdempotency = async (
   };
 };
 
+const resolvePublicCatalogWriteFailure = async (input: {
+  db: D1Database;
+  context: BookingContext;
+  idempotencyStorageKey: string;
+  requestHash: string;
+  nowIso: string;
+  error: unknown;
+}): Promise<PublicReservationResult | undefined> => {
+  if (!isBookingCatalogGuardError(input.error)) return undefined;
+  // Reuse the key scoped to the verified LINE identity before classifying a changed catalog.
+  const concurrent = await resolvePublicIdempotency(
+    input.db, input.idempotencyStorageKey, input.requestHash, input.nowIso
+  ).catch((): PublicReservationFailure => ({ ok: false, reason: "write_failed" }));
+  if (concurrent) return concurrent;
+  const current = await fetchBookingContext(
+    input.db, input.context.storeId, input.context.serviceIds, input.context.resourceId
+  ).catch(() => undefined);
+  return mapBookingCatalogFailure(current);
+};
+
 const buildPublicReservationStatements = (input: {
   db: D1Database;
   request: ResolvedPublicReservationRequest;
@@ -639,7 +666,7 @@ const buildPublicReservationStatements = (input: {
 }) => {
   const statements: D1PreparedStatement[] = [
     bookingCatalogGuard({ db: input.db, storeId: input.context.storeId,
-      resourceId: input.context.resourceId, serviceIds: input.context.serviceIds, nowIso: input.checkedAt }),
+      resourceId: input.context.resourceId, services: input.context.services, nowIso: input.checkedAt }),
     // Reclaim any EXPIRED idempotency row for this key before inserting the new
     // `started` row. The resolver's TTL filter hides expired rows from the READ,
     // but such a row still occupies UNIQUE(scope, idempotency_key); without this
@@ -1423,11 +1450,11 @@ export async function createPublicReservation(input: {
   try {
     await input.db.batch(statements);
   } catch (error) {
-    if (isBookingCatalogGuardError(error)) {
-      const current = await fetchBookingContext(input.db, request.storeId, serviceIds, request.resourceId).catch(() => undefined);
-      if (current && "ok" in current) return current;
-    }
-    const failure = mapBatchError(error);
+    const recovered = await resolvePublicCatalogWriteFailure({
+      db: input.db, context, idempotencyStorageKey, requestHash, nowIso: checkedAt, error
+    });
+    if (recovered?.ok) return recovered;
+    const failure = recovered ?? mapBatchError(error);
     if (failure.reason === "write_failed") {
       // The customer gets a 500 and nothing retries the booking, so this is a
       // request-boundary failure: keep D1 infra errors (export lock, "Network

@@ -64,12 +64,19 @@ const queryBurstClusters = async (
               RANGE BETWEEN ${CONFLICT_BURST_WINDOW_SECONDS} PRECEDING AND CURRENT ROW
             ) AS conflict_count
           FROM recent
+        ), ranked AS (
+          SELECT store_id, calendar_id, created_seconds, conflict_count,
+            ROW_NUMBER() OVER (
+              PARTITION BY store_id, calendar_id, CAST(created_seconds / ${CONFLICT_BURST_WINDOW_SECONDS} AS INTEGER)
+              ORDER BY conflict_count DESC, created_seconds DESC
+            ) AS window_rank
+          FROM windows
+          WHERE created_seconds > ? AND conflict_count >= ?
         )
-        SELECT store_id, calendar_id, MAX(conflict_count) AS conflict_count,
-          MAX(created_seconds) AS window_end_seconds
-        FROM windows
-        WHERE created_seconds > ? AND conflict_count >= ?
-        GROUP BY store_id, calendar_id
+        SELECT store_id, calendar_id, conflict_count, created_seconds AS window_end_seconds
+        FROM ranked
+        WHERE window_rank = 1
+        ORDER BY store_id, calendar_id, created_seconds
       `
     )
     .bind(nowSeconds - DETECTION_INTERVAL_SECONDS - CONFLICT_BURST_WINDOW_SECONDS,

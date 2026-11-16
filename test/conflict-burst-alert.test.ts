@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
-import { detectConflictBursts } from "../src/google/conflict-burst-detector";
+import { __testing__, detectConflictBursts } from "../src/google/conflict-burst-detector";
 import { createMigratedSqliteD1 } from "./helpers/sqlite-d1";
 
 const STORE_ID = "kyoto";
@@ -315,6 +315,111 @@ describe("detectConflictBursts (Tier D.3)", () => {
     await detectConflictBursts({ db: d1 as unknown as D1Database, env, nowMs: sweepNowMs + 10 * 60 * 1000 });
     const jobs = d1.sqlite.prepare("SELECT id FROM notification_jobs WHERE template_key = 'google_conflict_burst_alert'").all();
     expect(jobs).toHaveLength(1);
+  });
+
+  it("enqueues each separated burst bucket with its own count and deduplicates reruns", async () => {
+    for (const [secondsAgo, count] of [[540, 12], [60, 10]]) {
+      for (let index = 0; index < count; index += 1) {
+        seedConflict(d1, {
+          id: `separated_${secondsAgo}_${index}`,
+          createdAt: new Date(sweepNowMs - secondsAgo * 1000).toISOString()
+        });
+      }
+    }
+    const args = {
+      db: d1 as unknown as D1Database,
+      env: { GOOGLE_CONFLICT_BURST_ALERT_LIVE: "true" },
+      nowMs: sweepNowMs
+    };
+    await detectConflictBursts(args);
+    expect(burstLogLines("google_conflict_burst_alert").map((log) => log.conflict_count)).toEqual([12, 10]);
+    await detectConflictBursts(args);
+    const jobs = d1.sqlite.prepare(
+      "SELECT dedupe_key, payload_json FROM notification_jobs WHERE template_key = 'google_conflict_burst_alert' ORDER BY dedupe_key"
+    ).all() as { dedupe_key: string; payload_json: string }[];
+    expect(jobs).toHaveLength(2);
+    for (const [index, secondsAgo] of [540, 60].entries()) {
+      const bucket = Math.floor((sweepNowMs / 1000 - secondsAgo) / 300);
+      expect(jobs[index].dedupe_key).toContain(`:v1:${bucket}:store:${STORE_ID}:`);
+      expect(JSON.parse(jobs[index].payload_json).conflict_count).toBe(index === 0 ? 12 : 10);
+    }
+  });
+
+  it("keeps the peak count paired with its actual window end within one bucket", async () => {
+    for (const [secondsAgo, count] of [[480, 9], [240, 3], [30, 7]]) {
+      for (let index = 0; index < count; index += 1) {
+        seedConflict(d1, {
+          id: `peak_${secondsAgo}_${index}`,
+          createdAt: new Date(sweepNowMs - secondsAgo * 1000).toISOString()
+        });
+      }
+    }
+    expect(await __testing__.queryBurstClusters(d1 as unknown as D1Database, sweepNowMs / 1000)).toEqual([{
+      store_id: STORE_ID,
+      calendar_id: CALENDAR_ID,
+      conflict_count: 12,
+      window_end_seconds: sweepNowMs / 1000 - 240
+    }]);
+  });
+
+  it.each([false, true])("chooses the latest tied peak in the same bucket (reverse insertion: %s)", async (reverse) => {
+    const secondsAgoValues = [480, 240, 150];
+    if (reverse) secondsAgoValues.reverse();
+    for (const secondsAgo of secondsAgoValues) {
+      for (let index = 0; index < 5; index += 1) {
+        seedConflict(d1, {
+          id: `tied_${secondsAgo}_${index}`,
+          createdAt: new Date(sweepNowMs - secondsAgo * 1000).toISOString()
+        });
+      }
+    }
+    expect(await __testing__.queryBurstClusters(d1 as unknown as D1Database, sweepNowMs / 1000)).toEqual([{
+      store_id: STORE_ID,
+      calendar_id: CALENDAR_ID,
+      conflict_count: 10,
+      window_end_seconds: sweepNowMs / 1000 - 150
+    }]);
+  });
+
+  it("includes full windows just after the previous tick and excludes old ends and future conflicts", async () => {
+    for (const [calendarId, secondsAgo, count] of [
+      ["boundary", 899, 9], ["boundary", 599, 1],
+      ["old_end", 600, 10],
+      ["outside_window", 900, 9], ["outside_window", 599, 1],
+      ["future", 0, 9], ["future", -1, 1],
+      ["now", 0, 10]
+    ] as const) {
+      for (let index = 0; index < count; index += 1) {
+        seedConflict(d1, {
+          id: `${calendarId}_${secondsAgo}_${index}`,
+          calendarId,
+          createdAt: new Date(sweepNowMs - secondsAgo * 1000).toISOString()
+        });
+      }
+    }
+    expect(await __testing__.queryBurstClusters(d1 as unknown as D1Database, sweepNowMs / 1000)).toEqual([
+      { store_id: STORE_ID, calendar_id: "boundary", conflict_count: 10, window_end_seconds: sweepNowMs / 1000 - 599 },
+      { store_id: STORE_ID, calendar_id: "now", conflict_count: 10, window_end_seconds: sweepNowMs / 1000 }
+    ]);
+  });
+
+  it("keeps windows and buckets isolated by both store and calendar", async () => {
+    const partitions = [[STORE_ID, CALENDAR_ID], [STORE_ID, "other_calendar"], ["osaka", CALENDAR_ID]];
+    for (const [storeId, calendarId] of partitions) {
+      for (let index = 0; index < 6; index += 1) {
+        seedConflict(d1, { id: `${storeId}_${calendarId}_${index}`, storeId, calendarId, createdAt: insideWindow });
+      }
+    }
+    expect(await __testing__.queryBurstClusters(d1 as unknown as D1Database, sweepNowMs / 1000)).toEqual([]);
+    for (const [storeId, calendarId] of partitions) {
+      for (let index = 6; index < 10; index += 1) {
+        seedConflict(d1, { id: `${storeId}_${calendarId}_${index}`, storeId, calendarId, createdAt: insideWindow });
+      }
+    }
+    const clusters = await __testing__.queryBurstClusters(d1 as unknown as D1Database, sweepNowMs / 1000);
+    expect(clusters).toEqual(partitions.map(([storeId, calendarId]) => ({
+      store_id: storeId, calendar_id: calendarId, conflict_count: 10, window_end_seconds: sweepNowMs / 1000 - 60
+    })));
   });
 
   it("ignores conflicts already resolved (resolution_status != 'open')", async () => {

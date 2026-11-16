@@ -974,6 +974,24 @@ describe("admin settings — store_closures endpoints", () => {
     }
   });
 
+  it("returns an explicit 409 when PUT tries to change a linked closure interval", async () => {
+    const db = createMigratedSqliteD1();
+    try {
+      insertAdminUser(db, "owner");
+      db.sqlite.exec(`INSERT INTO external_blocks(id,store_id,resource_id,source,start_at,end_at,status)
+        VALUES ('linked-api-block','kyoto','resource_kyoto_calendar','admin_block','2026-12-01T00:00:00.000Z','2026-12-01T12:00:00.000Z','active')`);
+      seedClosure(db, { id: "linked-api-closure", storeId: "kyoto" });
+      db.sqlite.exec("UPDATE store_closures SET external_block_id='linked-api-block' WHERE id='linked-api-closure'");
+      const access = createAccessJwtFixture();
+      vi.stubGlobal("fetch", createFetchMock(access.jwk));
+      const response = await adminRequest(db, access.token, "PUT", "/api/admin/settings/closures/linked-api-closure", {
+        storeId: "kyoto", startsAt: "2026-12-01T00:00:00.000Z", endsAt: "2026-12-01T18:00:00.000Z", reason: "変更"
+      });
+      expect(response.status).toBe(409);
+      await expect(readJson(response)).resolves.toEqual({ ok: false, error: "linked_closure_dates_immutable" });
+    } finally { db.sqlite.close(); }
+  });
+
   it("returns 409 immutable_source on PUT against google_external_block-sourced closure", async () => {
     const db = createMigratedSqliteD1();
     try {

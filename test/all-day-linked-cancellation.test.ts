@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { approveAllDayAsClosure } from "../src/admin/conflict-resolutions";
 import { cancelAdminExternalBlock } from "../src/admin/external-blocks";
-import { deleteAdminClosure } from "../src/admin/settings-closures";
+import { deleteAdminClosure, updateAdminClosure } from "../src/admin/settings-closures";
 import { createMigratedSqliteD1, SqliteD1Database } from "./helpers/sqlite-d1";
 
 const admin = { id: "linked-owner", email: "linked@example.test", role: "owner" as const,
@@ -25,6 +25,8 @@ describe("linked all-day closure cancellation", () => {
 
   const row = (sql: string, ...values: string[]) => db.sqlite.prepare(sql).get(...values) as Record<string, unknown> | undefined;
   const count = (table: string) => Number(row(`SELECT COUNT(*) AS n FROM ${table}`)?.n);
+  const snapshot = () => ["store_closures", "external_blocks", "slot_locks", "slot_lock_history", "calendar_sync_jobs", "audit_logs"]
+    .map((table) => db.sqlite.prepare(`SELECT * FROM ${table} ORDER BY id`).all());
   const approve = async () => {
     db.sqlite.prepare(`INSERT INTO google_calendar_conflicts
       (id,store_id,calendar_id,google_event_id,conflict_type,google_safe_snapshot_json,resolution_status)
@@ -48,6 +50,112 @@ describe("linked all-day closure cancellation", () => {
     expect(row("SELECT COUNT(*) AS n FROM calendar_sync_jobs WHERE dedupe_key=?", `external_block:${blockId}:google:delete:cancelled`)?.n).toBe(1);
     expect(db.sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   };
+
+  it.each([
+    { startsAt: "2027-01-02T15:00:00.000Z", endsAt: "2027-01-03T15:00:00.000Z" },
+    { startsAt: "2027-01-01T16:00:00.000Z", endsAt: end },
+    { startsAt: start, endsAt: "2027-01-03T15:00:00.000Z" },
+    { startsAt: "2027-01-01T15:00:00.001Z", endsAt: end },
+    { startsAt: start, endsAt: "2027-01-02T15:00:00.001Z" }
+  ])("rejects a linked closure date edit without changing either record or side effects (%j)", async (dates) => {
+    const { closureId } = await approve();
+    const before = snapshot();
+    expect(await updateAdminClosure({ db: db as unknown as D1Database, admin, closureId,
+      request: { storeId: "kyoto", ...dates, reason: "移動" } }))
+      .toEqual({ ok: false, error: "linked_closure_dates_immutable" });
+    expect(snapshot()).toEqual(before);
+  });
+
+  it.each([false, true])("allows a linked reason-only edit for the same interval (alternate timestamp format=%s)", async (alternateFormat) => {
+    const { closureId } = await approve();
+    if (alternateFormat) {
+      db.sqlite.prepare("UPDATE store_closures SET starts_at=?,ends_at=? WHERE id=?")
+        .run("2027-01-02T00:00:00+09:00", "2027-01-03T00:00:00+09:00", closureId);
+    }
+    const before = snapshot();
+    expect(await updateAdminClosure({ db: db as unknown as D1Database, admin, closureId,
+      request: { storeId: "kyoto", startsAt: start, endsAt: end, reason: "理由のみ変更" } }))
+      .toEqual({ ok: true, closureId });
+    expect(row("SELECT starts_at,ends_at,reason FROM store_closures WHERE id=?", closureId))
+      .toEqual({ starts_at: start, ends_at: end, reason: "理由のみ変更" });
+    expect(snapshot().slice(1, 5)).toEqual(before.slice(1, 5));
+    expect(row("SELECT COUNT(*) AS n FROM audit_logs WHERE action='settings.closures.update'")?.n).toBe(1);
+  });
+
+  it.each([false, true])("prioritizes linked-date rejection over reservation advice (overlapping=%s)", async (overlapping) => {
+    const { closureId } = await approve();
+    if (overlapping) {
+      db.sqlite.exec(`INSERT INTO customers(id,display_name) VALUES ('linked-overlap-customer','Fixture');
+        INSERT INTO reservations(id,store_id,service_id,resource_id,customer_id,source,status,start_at,end_at,duration_minutes,idempotency_key)
+        VALUES ('linked-overlap-reservation','kyoto','service_kyoto_default_60','resource_kyoto_calendar','linked-overlap-customer',
+          'admin','confirmed','2027-01-03T01:00:00.000Z','2027-01-03T02:00:00.000Z',60,'linked-overlap-key');`);
+    }
+    const before = snapshot();
+    const reservationsBefore = db.sqlite.prepare("SELECT * FROM reservations ORDER BY id").all();
+    expect(await updateAdminClosure({ db: db as unknown as D1Database, admin, closureId,
+      request: { storeId: "kyoto", startsAt: "2027-01-02T15:00:00.000Z", endsAt: "2027-01-03T15:00:00.000Z", reason: "移動" } }))
+      .toEqual({ ok: false, error: "linked_closure_dates_immutable" });
+    expect(snapshot()).toEqual(before);
+    expect(db.sqlite.prepare("SELECT * FROM reservations ORDER BY id").all()).toEqual(reservationsBefore);
+  });
+
+  it("keeps legacy NULL-linked closure date edits independent of a matching mirror", async () => {
+    const { closureId } = await approve();
+    db.sqlite.prepare("UPDATE store_closures SET external_block_id=NULL WHERE id=?").run(closureId);
+    const before = snapshot();
+    const startsAt = "2027-01-02T15:00:00.000Z";
+    const endsAt = "2027-01-03T15:00:00.000Z";
+    expect(await updateAdminClosure({ db: db as unknown as D1Database, admin, closureId,
+      request: { storeId: "kyoto", startsAt, endsAt, reason: "旧データ" } })).toEqual({ ok: true, closureId });
+    expect(row("SELECT starts_at,ends_at,external_block_id FROM store_closures WHERE id=?", closureId))
+      .toEqual({ starts_at: startsAt, ends_at: endsAt, external_block_id: null });
+    expect(snapshot().slice(1, 5)).toEqual(before.slice(1, 5));
+  });
+
+  it.each([
+    ["link", "linked_closure_dates_immutable"],
+    ["dates", "linked_closure_dates_immutable"],
+    ["cancel", "not_found"],
+    ["revoke", "forbidden"],
+    ["store", "immutable_store"]
+  ] as const)("rechecks concurrent %s changes before the atomic update", async (change, error) => {
+    const { closureId, blockId } = await approve();
+    const request = { storeId: "kyoto", startsAt: start, endsAt: end, reason: "古い画面からの変更" };
+    if (change === "link" || change === "store") {
+      db.sqlite.prepare("UPDATE store_closures SET external_block_id=NULL WHERE id=?").run(closureId);
+    }
+    if (change === "link") request.endsAt = "2027-01-03T15:00:00.000Z";
+    const originalBatch = db.batch.bind(db);
+    let before = snapshot();
+    vi.spyOn(db, "batch").mockImplementationOnce(async (statements) => {
+      if (change === "link") db.sqlite.prepare("UPDATE store_closures SET external_block_id=? WHERE id=?").run(blockId, closureId);
+      if (change === "dates") {
+        db.sqlite.prepare("UPDATE store_closures SET ends_at=? WHERE id=?").run("2027-01-03T15:00:00.000Z", closureId);
+        db.sqlite.prepare("UPDATE external_blocks SET end_at=? WHERE id=?").run("2027-01-03T15:00:00.000Z", blockId);
+      }
+      if (change === "cancel") db.sqlite.prepare("UPDATE external_blocks SET status='cancelled' WHERE id=?").run(blockId);
+      if (change === "revoke") db.sqlite.prepare("UPDATE admin_users SET active=0 WHERE id=?").run(admin.id);
+      if (change === "store") {
+        db.sqlite.exec("INSERT INTO stores(id,name) VALUES ('concurrent-other','Other')");
+        db.sqlite.prepare("UPDATE store_closures SET store_id='concurrent-other' WHERE id=?").run(closureId);
+      }
+      before = snapshot();
+      return originalBatch(statements);
+    });
+    expect(await updateAdminClosure({ db: db as unknown as D1Database, admin, closureId, request }))
+      .toEqual({ ok: false, error });
+    expect(snapshot()).toEqual(before);
+  });
+
+  it("refuses another store's staff without exposing the linked-date constraint or changing state", async () => {
+    const { closureId } = await approve();
+    const before = snapshot();
+    expect(await updateAdminClosure({ db: db as unknown as D1Database,
+      admin: { ...admin, role: "staff", store_id: "other-store" }, closureId,
+      request: { storeId: "kyoto", startsAt: start, endsAt: "2027-01-03T15:00:00.000Z", reason: "変更" } }))
+      .toEqual({ ok: false, error: "forbidden" });
+    expect(snapshot()).toEqual(before);
+  });
 
   it.each([0, 1])("deletes the closure and cancels its linked block atomically (recursive_triggers=%s)", async (recursive) => {
     db.sqlite.exec(`PRAGMA recursive_triggers=${recursive}`);

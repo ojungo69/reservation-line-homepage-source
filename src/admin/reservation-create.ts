@@ -466,7 +466,7 @@ const resolveCreateBatchFailure = async (
   error: unknown,
   admin: AdminUser,
   existingCustomerId?: string
-): Promise<AdminCreateReservationResult> => {
+): Promise<AdminCreateReservationResult | undefined> => {
   if (await adminWriteWasRevoked(db, admin, error)) {
     return { ok: false, reason: "forbidden" };
   }
@@ -491,9 +491,9 @@ const resolveCreateBatchFailure = async (
       return concurrent;
     }
   } catch {
-    // fall through to the structured batch-error mapping
+    return { ok: false, reason: "write_failed" };
   }
-  return mapBatchError(error);
+  return undefined;
 };
 
 const buildAdminCreateReservationStatements = (input: {
@@ -519,7 +519,7 @@ const buildAdminCreateReservationStatements = (input: {
   const statements: D1PreparedStatement[] = [
     adminWriteGuard(input.db, input.admin),
     bookingCatalogGuard({ db: input.db, storeId: input.context.storeId,
-      resourceId: input.context.resourceId, serviceIds: input.context.serviceIds, nowIso: input.nowIso }),
+      resourceId: input.context.resourceId, services: input.context.services, nowIso: input.nowIso }),
     input.db
       .prepare(
         `
@@ -908,11 +908,13 @@ const resolveAdminCreateWriteFailure = async (input: {
   existingCustomerId?: string;
 }): Promise<AdminCreateReservationResult> => {
   const { db, admin, request, requestHash, nowIso, error, existingCustomerId } = input;
-  if (isBookingCatalogGuardError(error)) {
+  const recovered = await resolveCreateBatchFailure(db, request.idempotencyKey, requestHash, nowIso, error, admin, existingCustomerId);
+  // Revoked authorization and a concurrent idempotency result take precedence over catalog changes.
+  if (!recovered && isBookingCatalogGuardError(error)) {
     const current = await fetchBookingContext(db, request.storeId, request.serviceIds, request.resourceId).catch(() => undefined);
-    if (current && "ok" in current) return current;
+    if (current) return "ok" in current ? current : { ok: false, reason: "service_not_available" };
   }
-  const result = await resolveCreateBatchFailure(db, request.idempotencyKey, requestHash, nowIso, error, admin, existingCustomerId);
+  const result = recovered ?? mapBatchError(error);
   captureCreateBatchFailure(error, result);
   return result;
 };

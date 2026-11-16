@@ -77,6 +77,194 @@ describe("Google import calendar serialization", () => {
     nextSyncToken: `sync-${version}`
   });
 
+  it("leaves a final-attempt claim expiring after the sweep for the next dead-letter sweep", async () => {
+    enqueue("valid-job");
+    enqueue("exhausted-job");
+    const lockedUntil = new Date(NOW_MS + 1).toISOString();
+    d1.sqlite.prepare(`
+      UPDATE google_calendar_import_jobs SET status = 'processing', attempt_count = 5, locked_until = ?
+      WHERE id = 'exhausted-job'
+    `).run(lockedUntil);
+    const fetcher = vi.fn(async () => Response.json({ items: [], nextSyncToken: "sync-next" }));
+    let clockReads = 0;
+
+    const result = await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database, env: ENV, fetcher,
+      accessTokenProvider: async () => "test-access-token", maxJobs: 2,
+      now: () => clockReads++ === 0 ? NOW_MS : NOW_MS + 2
+    });
+
+    expect(result.processed).toBe(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(d1.sqlite.prepare(
+      "SELECT status, attempt_count, locked_until FROM google_calendar_import_jobs WHERE id = 'exhausted-job'"
+    ).get()).toEqual({ status: "processing", attempt_count: 5, locked_until: lockedUntil });
+    expect((await run(fetcher, NOW_MS + 2)).processed).toBe(0);
+    expect(d1.sqlite.prepare(
+      "SELECT status, attempt_count, last_error FROM google_calendar_import_jobs WHERE id = 'exhausted-job'"
+    ).get()).toEqual({ status: "dead", attempt_count: 5, last_error: "exhausted_after_repeated_crash" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["queued", null], ["retryable", null], ["queued", "page-b"], ["retryable", "page-b"]
+  ])("retires an exhausted %s job with checkpoint %s so later work can run", async (status, checkpoint) => {
+    enqueue("exhausted-job");
+    // 601f1e0 sibling recovery can leave a final-attempt full walk retryable
+    // with this checkpoint after its lease expires between sweep and claim.
+    d1.sqlite.prepare(`
+      UPDATE google_calendar_import_jobs SET status = ?, reason = 'full_reconcile', attempt_count = 5,
+        resume_page_token = ?, resume_processed_count = 7, resume_sweep_start_seconds = ?,
+        resume_time_min = '2026-05-01T00:00:00.000Z', resume_yield_count = 2,
+        next_run_at = '2026-04-01T00:00:00.000Z'
+      WHERE id = 'exhausted-job'
+    `).run(status, checkpoint, Math.floor(NOW_MS / 1000));
+    enqueue("valid-job");
+    const fetcher = vi.fn(async () => Response.json({ items: [], nextSyncToken: "sync-next" }));
+
+    expect((await run(fetcher)).succeeded).toBe(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(d1.sqlite.prepare(`
+      SELECT status, attempt_count, locked_until, last_error, resume_page_token,
+        resume_processed_count, resume_sweep_start_seconds, resume_time_min, resume_yield_count
+      FROM google_calendar_import_jobs WHERE id = 'exhausted-job'
+    `).get()).toEqual({
+      status: "dead", attempt_count: 5, locked_until: null, last_error: "exhausted_after_repeated_crash",
+      resume_page_token: null, resume_processed_count: 0, resume_sweep_start_seconds: null,
+      resume_time_min: null, resume_yield_count: 0
+    });
+  });
+
+  it.each([0, 1])("protects a live final-attempt checkpoint lease at now plus %s ms", async (leaseOffset) => {
+    enqueue("active-final-walk");
+    enqueue("later-push");
+    const lockedUntil = new Date(NOW_MS + leaseOffset).toISOString();
+    d1.sqlite.prepare(`
+      UPDATE google_calendar_import_jobs SET status = 'processing', reason = 'full_reconcile',
+        attempt_count = 5, locked_until = ?, resume_page_token = 'final-page', resume_processed_count = 7
+      WHERE id = 'active-final-walk'
+    `).run(lockedUntil);
+    const fetcher = vi.fn(async () => Response.json({ items: [], nextSyncToken: "sync-next" }));
+
+    expect((await run(fetcher)).processed).toBe(0);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(d1.sqlite.prepare(`
+      SELECT status, attempt_count, locked_until, resume_page_token, resume_processed_count
+      FROM google_calendar_import_jobs WHERE id = 'active-final-walk'
+    `).get()).toEqual({ status: "processing", attempt_count: 5, locked_until: lockedUntil,
+      resume_page_token: "final-page", resume_processed_count: 7 });
+    expect((await run(fetcher, NOW_MS + leaseOffset + 1)).succeeded).toBe(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("retires a final checkpoint expiring after the sweep on the next invocation", async () => {
+    enqueue("expiring-final-walk");
+    enqueue("later-push");
+    d1.sqlite.prepare(`
+      UPDATE google_calendar_import_jobs SET status = 'processing', reason = 'full_reconcile',
+        attempt_count = 5, locked_until = ?, resume_page_token = 'final-page'
+      WHERE id = 'expiring-final-walk'
+    `).run(new Date(NOW_MS + 1).toISOString());
+    const fetcher = vi.fn(async () => Response.json({ items: [], nextSyncToken: "sync-next" }));
+    let clockReads = 0;
+
+    expect((await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database, env: ENV, fetcher,
+      accessTokenProvider: async () => "test-access-token", maxJobs: 2,
+      now: () => clockReads++ === 0 ? NOW_MS : NOW_MS + 2
+    })).processed).toBe(0);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(d1.sqlite.prepare("SELECT status, attempt_count, resume_page_token FROM google_calendar_import_jobs WHERE id = 'expiring-final-walk'").get())
+      .toEqual({ status: "processing", attempt_count: 5, resume_page_token: "final-page" });
+    expect((await run(fetcher, NOW_MS + 2)).succeeded).toBe(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a final-attempt lease renewed before the dead-letter write", async () => {
+    enqueue("renewed-final-walk");
+    enqueue("later-push");
+    d1.sqlite.prepare(`
+      UPDATE google_calendar_import_jobs SET status = 'processing', reason = 'full_reconcile',
+        attempt_count = 5, locked_until = '2026-05-31T23:59:59.000Z', resume_page_token = 'active-page'
+      WHERE id = 'renewed-final-walk'
+    `).run();
+    const renewedLease = new Date(NOW_MS + 300_000).toISOString();
+    const prepare = d1.prepare.bind(d1);
+    vi.spyOn(d1, "prepare").mockImplementation((sql) => {
+      if (sql.includes("last_error = 'exhausted_after_repeated_crash'")) {
+        d1.sqlite.prepare("UPDATE google_calendar_import_jobs SET locked_until = ? WHERE id = 'renewed-final-walk'").run(renewedLease);
+      }
+      return prepare(sql);
+    });
+    const fetcher = vi.fn(async () => Response.json({ items: [], nextSyncToken: "unused" }));
+
+    expect((await run(fetcher)).processed).toBe(0);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(d1.sqlite.prepare(`
+      SELECT status, attempt_count, locked_until, resume_page_token
+      FROM google_calendar_import_jobs WHERE id = 'renewed-final-walk'
+    `).get()).toEqual({ status: "processing", attempt_count: 5, locked_until: renewedLease, resume_page_token: "active-page" });
+  });
+
+  it.each(["queued", "retryable", "processing"])("allows exactly the final valid attempt from %s", async (status) => {
+    enqueue("last-attempt");
+    d1.sqlite.prepare(`
+      UPDATE google_calendar_import_jobs SET status = ?, attempt_count = 4, locked_until = '2026-05-31T23:59:59.000Z'
+      WHERE id = 'last-attempt'
+    `).run(status);
+    const fetcher = vi.fn(async () => Response.json({ items: [], nextSyncToken: "sync-final" }));
+
+    expect((await run(fetcher)).succeeded).toBe(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(d1.sqlite.prepare("SELECT status, attempt_count FROM google_calendar_import_jobs WHERE id = 'last-attempt'").get())
+      .toEqual({ status: "succeeded", attempt_count: 5 });
+    expect((await run(fetcher)).processed).toBe(0);
+  });
+
+  it("rejects a current claim that becomes exhausted after candidate selection", async () => {
+    enqueue("candidate");
+    enqueue("stale-sibling");
+    d1.sqlite.prepare(`
+      UPDATE google_calendar_import_jobs SET status = 'processing', attempt_count = 1,
+        locked_until = '2026-05-31T23:59:59.000Z', next_run_at = '2026-07-01T00:00:00.000Z'
+      WHERE id = 'stale-sibling'
+    `).run();
+    const prepare = d1.prepare.bind(d1);
+    vi.spyOn(d1, "prepare").mockImplementation((sql) => {
+      if (sql.includes("SET status = 'processing'")) {
+        d1.sqlite.prepare("UPDATE google_calendar_import_jobs SET status = 'retryable', attempt_count = 5 WHERE id = 'candidate'").run();
+      }
+      return prepare(sql);
+    });
+    const fetcher = vi.fn(async () => Response.json({ items: [], nextSyncToken: "unused" }));
+
+    expect((await run(fetcher)).processed).toBe(0);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(d1.sqlite.prepare("SELECT status, attempt_count FROM google_calendar_import_jobs WHERE id = 'candidate'").get())
+      .toEqual({ status: "retryable", attempt_count: 5 });
+    expect(d1.sqlite.prepare("SELECT status, attempt_count FROM google_calendar_import_jobs WHERE id = 'stale-sibling'").get())
+      .toEqual({ status: "processing", attempt_count: 1 });
+  });
+
+  it("recovers a stale sibling below the cap and preserves its last valid attempt", async () => {
+    enqueue("first-job");
+    enqueue("stale-sibling");
+    d1.sqlite.prepare(`
+      UPDATE google_calendar_import_jobs SET status = 'processing', attempt_count = 4,
+        locked_until = '2026-05-31T23:59:59.000Z', next_run_at = '2026-07-01T00:00:00.000Z'
+      WHERE id = 'stale-sibling'
+    `).run();
+    const fetcher = vi.fn(async () => Response.json({ items: [], nextSyncToken: "sync-next" }));
+
+    expect((await run(fetcher)).succeeded).toBe(1);
+    expect(d1.sqlite.prepare("SELECT status, attempt_count, locked_until FROM google_calendar_import_jobs WHERE id = 'stale-sibling'").get())
+      .toEqual({ status: "retryable", attempt_count: 4, locked_until: null });
+    expect((await run(fetcher)).succeeded).toBe(1);
+    expect(d1.sqlite.prepare("SELECT status, attempt_count FROM google_calendar_import_jobs WHERE id = 'stale-sibling'").get())
+      .toEqual({ status: "succeeded", attempt_count: 5 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps a later job queued until the same calendar's earlier import finishes", async () => {
     enqueue("job-a");
     enqueue("job-b");
@@ -185,13 +373,14 @@ describe("Google import calendar serialization", () => {
       .toEqual({ status: "processing", locked_until: "2026-05-31T23:59:59.000Z" });
   });
 
-  it("processes a different calendar while the first calendar is owned by another job", async () => {
+  it.each([1, 5])("processes a different calendar while another owns its attempt %s", async (attemptCount) => {
     enqueue("active-first-calendar");
     enqueue("waiting-first-calendar");
     d1.sqlite.prepare(`
-      UPDATE google_calendar_import_jobs SET status = 'processing', attempt_count = 1, locked_until = ?
+      UPDATE google_calendar_import_jobs SET status = 'processing', attempt_count = ?, locked_until = ?,
+        reason = 'full_reconcile', resume_page_token = 'active-page'
       WHERE id = 'active-first-calendar'
-    `).run(new Date(NOW_MS + 300_000).toISOString());
+    `).run(attemptCount, new Date(NOW_MS + 300_000).toISOString());
     d1.sqlite.prepare("UPDATE stores SET google_calendar_id = 'calendar-b@example.invalid' WHERE id = 'osaka'").run();
     d1.sqlite.prepare(`
       INSERT INTO calendar_auth_connections (
@@ -219,6 +408,8 @@ describe("Google import calendar serialization", () => {
     ).get()).toEqual({ status: "queued", attempt_count: 0 });
     expect(d1.sqlite.prepare("SELECT sync_token FROM google_calendar_channels WHERE id = 'channel-b'").get())
       .toEqual({ sync_token: "sync-next-b" });
+    expect(d1.sqlite.prepare("SELECT status, attempt_count, resume_page_token FROM google_calendar_import_jobs WHERE id = 'active-first-calendar'").get())
+      .toEqual({ status: "processing", attempt_count: attemptCount, resume_page_token: "active-page" });
   });
 
   it("resumes the earliest of pre-existing checkpointed walks without deadlocking both", async () => {

@@ -77,6 +77,7 @@ export const ADMIN_API_FAILURE_CODES = [
   "line_api_error",
   "line_check_unavailable",
   "line_not_reachable",
+  "linked_closure_dates_immutable",
   "missing_database",
   "no_active_resource",
   "not_found",

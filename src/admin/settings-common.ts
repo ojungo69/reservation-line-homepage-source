@@ -135,6 +135,7 @@ export const startedIdempotencyStatement = (input: {
     .bind(input.id, input.key, input.requestHash, input.expiresAt, input.nowIso);
 
 // Run after the actor guard and before the new claim in the same batch, so a failed retry restores the old row.
+// Expiry releases the scope/key regardless of payload or action; hash/target inputs retain caller compatibility.
 export const expiredSettingsIdempotencyStatement = (input: {
   db: D1Database;
   key: string;
@@ -143,10 +144,9 @@ export const expiredSettingsIdempotencyStatement = (input: {
   nowIso: string;
 }): D1PreparedStatement => input.db.prepare(`
   DELETE FROM idempotency_keys
-  WHERE scope = 'admin_action' AND idempotency_key = ? AND request_hash = ?
+  WHERE scope = 'admin_action' AND idempotency_key = ?
     AND datetime(expires_at) <= datetime(?)
-    AND (target_type = ? OR (target_type IS NULL AND status = 'started'))
-`).bind(input.key, input.requestHash, input.nowIso, input.targetType);
+`).bind(input.key, input.nowIso);
 
 export type CreateContext = {
   nowMs: number;
