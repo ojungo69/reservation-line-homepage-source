@@ -93,9 +93,13 @@ function partitionConfirmingApprovals(
 export function PendingApprovalsCard({
   selectedStoreId,
   onSelect,
+  fullList = false,
+  nameFilter = "",
 }: Readonly<{
   selectedStoreId: string | null;
   onSelect: (id: string) => void;
+  fullList?: boolean;
+  nameFilter?: string;
 }>) {
   const { data, isPending, isError, refetch } = usePendingReservations();
   const action = useReservationAction();
@@ -115,7 +119,8 @@ export function PendingApprovalsCard({
 
   const pending = useMemo<PendingReservation[]>(() => {
     const list = data?.ok ? data.reservations : [];
-    const scoped = selectedStoreId ? list.filter((r) => r.storeId === selectedStoreId) : list;
+    const scoped = list.filter((r) => (!selectedStoreId || r.storeId === selectedStoreId) &&
+      r.customerDisplayName.includes(nameFilter.trim()));
     return [...scoped].sort((a, b) => {
       const aDeadline = a.pendingExpiresAt ? Date.parse(a.pendingExpiresAt) : Infinity;
       const bDeadline = b.pendingExpiresAt ? Date.parse(b.pendingExpiresAt) : Infinity;
@@ -125,7 +130,7 @@ export function PendingApprovalsCard({
       if (aCreated !== bCreated) return aCreated - bCreated;
       return Date.parse(a.startAt) - Date.parse(b.startAt) || a.id.localeCompare(b.id);
     });
-  }, [data, selectedStoreId]);
+  }, [data, selectedStoreId, nameFilter]);
 
   // 30秒ポーリングを待つと、確認を開いたまま期限を過ぎても承認が有効に見える。
   // 次の期限だけで再描画し、送信入口でも現在時刻を確認する。サーバーが最終判定する。
@@ -144,11 +149,11 @@ export function PendingApprovalsCard({
       .map((r) => r.pendingExpiresAt ? Date.parse(r.pendingExpiresAt) : Infinity)
       .filter((deadline) => Number.isFinite(deadline) && deadline > now));
     if (!Number.isFinite(nextDeadline)) return;
-    const timer = window.setTimeout(() => setDeadlineTick((value) => value + 1), Math.min(nextDeadline - now, 2_147_483_647));
+    const timer = window.setTimeout(() => setDeadlineTick((value) => value + 1), Math.min(nextDeadline - now, fullList ? 60_000 : 2_147_483_647));
     return () => window.clearTimeout(timer);
-  }, [data, deadlineTick, approveTarget, bulkState]);
+  }, [data, deadlineTick, approveTarget, bulkState, fullList]);
 
-  if (pending.length === 0 && bulkState === null && approveTarget === null && approvalFailures.size === 0 && !isPending && !isError) return null;
+  if (!fullList && pending.length === 0 && bulkState === null && approveTarget === null && approvalFailures.size === 0 && !isPending && !isError) return null;
 
   const bulkBusy = bulkState !== null && bulkState.phase === "running";
   const readUnavailable = isError || isPending;
@@ -289,9 +294,9 @@ export function PendingApprovalsCard({
               表示中の{eligible.length}件をまとめて承認
             </Button>
           )}
-          <Link to="/reservations" className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap text-xs text-muted-foreground underline-offset-2 hover:underline">
+          {!fullList && <Link to="/reservations" state={{ reservationView: "pending" }} className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap text-xs text-muted-foreground underline-offset-2 hover:underline">
             予約管理で全件表示
-          </Link>
+          </Link>}
         </div>
       </div>
 
@@ -304,7 +309,7 @@ export function PendingApprovalsCard({
       )}
 
       {!collapsed && (
-        <ul className="mt-2 max-h-64 space-y-1.5 overflow-auto">
+        <ul className={fullList ? "mt-2 space-y-2" : "mt-2 max-h-64 space-y-1.5 overflow-auto"}>
           {pending.map((r) => {
             const busy = readUnavailable || operatingIds.has(r.id) || bulkBusy;
             const approvalReason = approvalUnavailableReason(r, now);
@@ -327,6 +332,9 @@ export function PendingApprovalsCard({
                     </div>
                     <div className="text-xs text-muted-foreground">
                       受付: {formatDateTime(r.createdAt ?? null)} · 承認期限: {r.pendingExpiresAt === null ? "期限なし" : formatDateTime(r.pendingExpiresAt ?? null)}
+                      {fullList && r.pendingExpiresAt && Date.parse(r.pendingExpiresAt) > now && Date.parse(r.pendingExpiresAt) - now <= 7_200_000 && (
+                        <span className="ml-1 font-semibold text-foreground">（あと{Math.ceil((Date.parse(r.pendingExpiresAt) - now) / 60_000)}分）</span>
+                      )}
                     </div>
                   </button>
                   {/* 全予約承認制: staff も自店舗の承認/却下を担う (backend が store scope を強制) */}
@@ -355,6 +363,11 @@ export function PendingApprovalsCard({
           })}
         </ul>
       )}
+
+      {fullList && !isPending && !isError && pending.length === 0 && (
+        <p className="py-6 text-center text-sm text-muted-foreground">この条件に合う承認待ちはありません</p>
+      )}
+      {fullList && <p className="py-2 text-xs text-muted-foreground">予約日による絞り込みはありません。最大200件を承認期限が近い順に表示します。</p>}
 
       {approvalFailures.size > 0 && (
         <ul aria-label="承認できなかった予約" className="mt-2 space-y-1.5">

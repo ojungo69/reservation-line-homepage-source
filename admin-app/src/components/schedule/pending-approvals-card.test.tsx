@@ -636,4 +636,40 @@ describe("PendingApprovalsCard", () => {
     expect(failure.textContent).not.toMatch(/LINEの友だち状態|承認期限|予約状態/);
     expect(mocks.queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["reservations"] });
   });
+  it("全期間表示は期間外の予約を期限順に示し、名前/店舗を絞り込み、0件も説明する", () => {
+    mocks.reservations = [
+      { ...reservation("reservation-1", "store-1", "架空 花子", 1), startAt: "2027-10-14T01:00:00Z", pendingExpiresAt: "2026-10-14T02:00:00Z" },
+      { ...reservation("reservation-2", "store-1", "架空 太郎", 2), pendingExpiresAt: "2026-10-14T01:00:00Z" },
+      reservation("reservation-3", "store-2", "別店舗 花子", 3),
+    ];
+    const { rerender } = render(<MemoryRouter><PendingApprovalsCard selectedStoreId="store-1" onSelect={() => {}} fullList nameFilter="架空" /></MemoryRouter>);
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0].textContent).toContain("架空 太郎");
+    expect(items[1].textContent).toContain("架空 花子");
+    expect(screen.queryByRole("link", { name: "予約管理で全件表示" })).toBeNull();
+    rerender(<MemoryRouter><PendingApprovalsCard selectedStoreId="store-1" onSelect={() => {}} fullList nameFilter="存在しない名前" /></MemoryRouter>);
+    expect(screen.getByText("この条件に合う承認待ちはありません")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "承認" })).toBeNull();
+  });
+
+  it("全期間表示の残り時間を更新し、期限到達で承認を無効にする", async () => {
+    vi.restoreAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-14T00:00:00Z"));
+    try {
+      mocks.reservations = [{ ...reservation("reservation-1", "store-1", "架空 花子", 1), pendingExpiresAt: "2026-10-14T00:01:30Z" }];
+      render(<MemoryRouter><PendingApprovalsCard selectedStoreId="store-1" onSelect={() => {}} fullList /></MemoryRouter>);
+      expect(screen.getByText("（あと2分）")).toBeTruthy();
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(screen.getByText("（あと1分）")).toBeTruthy();
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(screen.getByRole("button", { name: "承認" })).toHaveProperty("disabled", true);
+      expect(screen.getByText("承認期限が過ぎています。却下をご利用ください。")).toBeTruthy();
+      expect(mocks.action.mutateAsync).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
 });

@@ -52,11 +52,18 @@ const reservationSetup = (action: AdminReservationAction) => (db: SqliteD1Databa
     VALUES ('write_line', 'write_customer', 'channel', 'write_line_user', 'friend');
     INSERT INTO reservations (id, store_id, service_id, resource_id, customer_id, line_identity_id, source, status, start_at, end_at, duration_minutes, pending_expires_at, idempotency_key)
     VALUES ('write_reservation', 'kyoto', 'service_kyoto_default_60', 'resource_kyoto_calendar', 'write_customer', 'write_line', 'web_line', '${status}', '2026-09-11T01:00:00.000Z', '2026-09-11T02:00:00.000Z', 60, '2099-01-01T00:00:00.000Z', 'write_reservation_key');
-    INSERT INTO slot_locks (id, store_id, resource_id, slot_at, owner_type, owner_id, lock_status)
-    VALUES ('write_slot', 'kyoto', 'resource_kyoto_calendar', '2026-09-11T01:00:00.000Z', 'reservation', 'write_reservation', 'confirmed');
-    INSERT INTO customer_time_locks (id, customer_id, slot_at, owner_type, owner_id, lock_status)
-    VALUES ('write_time', 'write_customer', '2026-09-11T01:00:00.000Z', 'reservation', 'write_reservation', 'confirmed');
   `);
+  for (const minute of ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"]) {
+    const slotAt = `2026-09-11T01:${minute}:00.000Z`;
+    db.sqlite.prepare(`
+      INSERT INTO slot_locks (id, store_id, resource_id, slot_at, owner_type, owner_id, lock_status)
+      VALUES (?, 'kyoto', 'resource_kyoto_calendar', ?, 'reservation', 'write_reservation', 'confirmed')
+    `).run(`write_slot_${minute}`, slotAt);
+    db.sqlite.prepare(`
+      INSERT INTO customer_time_locks (id, customer_id, slot_at, owner_type, owner_id, lock_status)
+      VALUES (?, 'write_customer', ?, 'reservation', 'write_reservation', 'confirmed')
+    `).run(`write_time_${minute}`, slotAt);
+  }
 };
 
 const mutations: Mutation[] = [

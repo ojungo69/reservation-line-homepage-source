@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { useNavigate } from "react-router";
+import { useNavigate, useLocation } from "react-router";
 import { useMutationState } from "@tanstack/react-query";
 import { CalendarX } from "lucide-react";
 import {
@@ -37,6 +37,14 @@ import {
 } from "@/components/ui/select";
 import { StoreSelect } from "@/components/ui/store-select";
 import { ReservationDetailPanel } from "@/components/schedule/reservation-detail-panel";
+import { PendingApprovalsCard } from "@/components/schedule/pending-approvals-card";
+import {
+  reservationPresetRange,
+  readReservationSearchState,
+  type ReservationSearchState,
+  type ReservationSortKey,
+  type ReservationViewMode,
+} from "@/lib/reservation-search-state";
 import { ReservationListCard } from "@/components/schedule/reservation-list-card";
 import { useSettings } from "@/hooks/use-settings";
 import { useStores } from "@/hooks/use-stores";
@@ -52,14 +60,12 @@ import {
   statusLabel,
   statusColor,
   formatTime,
-  formatJstDate,
   formatDateDisplay,
-  toJstDate,
 } from "@/lib/timeline";
 import { errorMessage } from "@/lib/error-messages";
 import { ApiError } from "@/lib/api-client";
 import { displayServiceName } from "@/lib/service-pricing";
-import { useMediaQuery, NARROW_QUERY } from "@/hooks/use-media-query";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import {
   collectPendingMutationIds,
   RESERVATION_ACTION_MUTATION_KEY,
@@ -80,22 +86,7 @@ const ALL_STATUSES = [
 const ALL_SENTINEL = "__all__";
 const MAX_SEARCH_DAYS = 92;
 
-function getToday(): string {
-  return formatJstDate(new Date());
-}
-
-function getOneMonthLater(): string {
-  // Derive the +1-month default end from JST calendar parts (matching getToday), not the
-  // browser-local calendar, so the window stays a full JST month even for non-JST admins.
-  const jst = toJstDate(new Date());
-  const day = jst.getUTCDate();
-  const next = new Date(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth() + 1, day));
-  // setMonth overflows on short months (Jan 31 -> Mar 3); clamp back to the intended month's last day.
-  if (next.getUTCDate() < day) next.setUTCDate(0);
-  return next.toISOString().slice(0, 10);
-}
-
-type SortKey = "startAt" | "customerDisplayName" | "serviceName" | "storeName" | "status";
+type SortKey = ReservationSortKey;
 
 // 文字列の既定比較(sortKey ソートのフォールバック)。
 function compareStrings(a: string, b: string): number {
@@ -139,22 +130,24 @@ export default function ReservationsPage() {
   const { data: settingsData } = useSettings();
   const settings = settingsData?.ok ? settingsData.settings : null;
 
-  // Default to the upcoming month (today → one month ahead) so the list opens on
-  // actionable future reservations instead of only past ones (was: month-start → today).
-  const [from, setFrom] = useState(getToday);
-  const [to, setTo] = useState(getOneMonthLater);
-  // mount 時の既定値を固定 (hasActiveFilters 用)。毎レンダー再計算すると
-  // 深夜0時 (JST) 跨ぎで from/to とズレて未操作なのに「絞り込み中」扱いになる。
-  // 初期レンダー時の from/to をそのまま捕捉する (日付関数の再計算をしない)
-  const [defaultRange] = useState(() => ({ from, to }));
+  const location = useLocation();
+  const navigationScope = `${user.email}:${user.role}:${user.storeId ?? ""}`;
+  const [restored] = useState(() => readReservationSearchState(location.state, navigationScope));
+  const [defaultRange] = useState(() => reservationPresetRange("upcoming"));
+  const [viewMode, setViewMode] = useState<ReservationViewMode>(() =>
+    location.state?.reservationView === "pending" ? "pending" : restored?.viewMode ?? "upcoming",
+  );
+  const [from, setFrom] = useState(restored?.from ?? defaultRange.from);
+  const [to, setTo] = useState(restored?.to ?? defaultRange.to);
   const { selectedStoreId: storeId, selectStore: setStoreId, isStoreFixed } = useStores();
-  const [serviceId, setServiceId] = useState(ALL_SENTINEL);
-  const [statusFilter, setStatusFilter] = useState(ALL_SENTINEL);
-  const [keyword, setKeyword] = useState("");
-  const [debouncedKeyword] = useDebouncedValue(keyword);
+  const [serviceId, setServiceId] = useState(restored?.serviceId ?? ALL_SENTINEL);
+  const [statusFilter, setStatusFilter] = useState(restored?.statusFilter ?? ALL_SENTINEL);
+  const [keyword, setKeyword] = useState(restored?.keyword ?? "");
+  const [debouncedKeyword, setDebouncedKeyword] = useDebouncedValue(keyword);
+  const isDebouncing = keyword.trim() !== debouncedKeyword;
   const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("startAt");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>(restored?.sortKey ?? "startAt");
+  const [sortDir, setSortDir] = useState<SortDir>(restored?.sortDir ?? "asc");
   const [csvError, setCsvError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [approveTarget, setApproveTarget] = useState<ReservationSearchItem | null>(null);
@@ -169,10 +162,60 @@ export default function ReservationsPage() {
     [pendingReservationVariables],
   );
   const navigate = useNavigate();
-  // スマホ幅では横スクロールテーブルの代わりにカードを積む。CSS 切替 (sm:hidden)
-  // だと両レイアウトが常時マウントされ最大200行が二重レンダーされるため、
-  // matchMedia で片方だけ描画する。
-  const isNarrow = useMediaQuery(NARROW_QUERY);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const narrowViewport = useMediaQuery("(max-width: 1023.98px)");
+  const [narrowContainer, setNarrowContainer] = useState<boolean | null>(null);
+  const isNarrow = narrowContainer ?? narrowViewport;
+  useEffect(() => {
+    if (!pageRef.current || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => setNarrowContainer(entry.contentRect.width < 900));
+    observer.observe(pageRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const previousScope = useRef(navigationScope);
+  useEffect(() => {
+    if (previousScope.current !== navigationScope) {
+      previousScope.current = navigationScope;
+      const range = reservationPresetRange("upcoming");
+      setFrom(range.from);
+      setTo(range.to);
+      setViewMode("upcoming");
+      setKeyword("");
+      setDebouncedKeyword("");
+      setServiceId(ALL_SENTINEL);
+      setStatusFilter(ALL_SENTINEL);
+      setSortKey("startAt");
+      setSortDir("asc");
+      return;
+    }
+    const value: ReservationSearchState = { from, to, serviceId, statusFilter, keyword, sortKey, sortDir, viewMode };
+    const saved = location.state?.reservationSearch;
+    if (saved?.scope === navigationScope && Object.entries(value).every(([key, expected]) => saved.value?.[key] === expected)) return;
+    // Keep search PII in this history entry, never in the URL or localStorage.
+    navigate(".", { replace: true, state: { reservationSearch: { scope: navigationScope, value } } });
+  }, [from, to, keyword, serviceId, statusFilter, sortKey, sortDir, viewMode, navigationScope, location.state, navigate, setDebouncedKeyword]);
+
+  const selectView = (mode: Exclude<ReservationViewMode, "custom">) => {
+    setViewMode(mode);
+    if (mode === "pending") {
+      setServiceId(ALL_SENTINEL);
+      setStatusFilter(ALL_SENTINEL);
+    } else {
+      const range = reservationPresetRange(mode);
+      setFrom(range.from);
+      setTo(range.to);
+      setSortKey("startAt");
+      setSortDir(mode === "history" ? "desc" : "asc");
+    }
+  };
+  const resetFilters = () => {
+    setKeyword("");
+    setDebouncedKeyword("");
+    setServiceId(ALL_SENTINEL);
+    setStatusFilter(ALL_SENTINEL);
+    setCsvError(null);
+  };
 
   const dateValidationMessage = useMemo(() => {
     if (!from || !to) return "日付を入力してください";
@@ -184,7 +227,7 @@ export default function ReservationsPage() {
   }, [from, to]);
 
   const filter: ReservationSearchFilter | null = useMemo(() => {
-    if (dateValidationMessage) return null;
+    if (viewMode === "pending" || dateValidationMessage) return null;
     return {
       from,
       to,
@@ -193,13 +236,13 @@ export default function ReservationsPage() {
       statuses: statusFilter === ALL_SENTINEL ? undefined : [statusFilter],
       keyword: debouncedKeyword || undefined,
     };
-  }, [from, to, dateValidationMessage, storeId, serviceId, statusFilter, debouncedKeyword]);
+  }, [from, to, viewMode, dateValidationMessage, storeId, serviceId, statusFilter, debouncedKeyword]);
 
   const { data: searchData, isPending, isError, error, isPlaceholderData, isFetching } = useReservationSearch(filter);
   // placeholder は前の条件の結果なので、件数や承認操作も含めて新しい結果として表示しない。
   // 無効な条件では query が止まっても placeholder が残るため、filter も確認する。
-  const data = filter && !isPlaceholderData && !isError ? searchData : undefined;
-  const isSearching = !!filter && (isPending || isPlaceholderData || isFetching);
+  const data = filter && !isDebouncing && !isPlaceholderData && !isError ? searchData : undefined;
+  const isSearching = viewMode !== "pending" && !!filter && (isDebouncing || isPending || isPlaceholderData || isFetching);
   const queryErrorMessage = reservationQueryErrorMessage(error);
 
   const reservations = useMemo(() => {
@@ -288,120 +331,177 @@ export default function ReservationsPage() {
   }, [filter, isDownloading]);
 
   return (
-    <div className="space-y-4 p-4 sm:p-6">
+    <div ref={pageRef} className="space-y-4 p-4 sm:p-6">
       <h1 className="text-2xl font-bold">予約管理</h1>
-      {/* スマホは縦積み・入力は幅いっぱい (日付の開始/終了ペアだけ横並び維持) */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-          <div className="min-w-0 flex-1 space-y-1 sm:flex-none">
-            <Label htmlFor="from">開始日</Label>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="表示する予約">
+        {([
+          ["today", "今日"],
+          ["upcoming", "今後30日"],
+          ["history", "過去30日"],
+          ["pending", "承認待ち"],
+        ] as const).map(([mode, label]) => (
+          <Button
+            key={mode}
+            variant={viewMode === mode ? "default" : "outline"}
+            size="sm"
+            aria-pressed={viewMode === mode}
+            onClick={() => selectView(mode)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      <section className="space-y-3 rounded-lg border bg-card p-3 sm:p-4" aria-label="予約を検索">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1 space-y-1">
+            <Label htmlFor="keyword">{viewMode === "pending" ? "顧客名" : "顧客名・カナ・電話番号"}</Label>
             <Input
-              id="from"
-              type="date"
-              value={from}
-              aria-invalid={!!dateValidationMessage}
-              aria-describedby={dateValidationMessage ? "reservation-date-error" : undefined}
-              onChange={(e) => setFrom(e.target.value)}
-              className="w-full sm:w-36"
+              id="keyword"
+              type="search"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder={viewMode === "pending" ? "承認待ちの顧客名" : "顧客名・カナ・電話番号"}
+              aria-describedby="reservation-search-hint"
             />
           </div>
-          <div className="min-w-0 flex-1 space-y-1 sm:flex-none">
-            <Label htmlFor="to">終了日</Label>
-            <Input
-              id="to"
-              type="date"
-              value={to}
-              aria-invalid={!!dateValidationMessage}
-              aria-describedby={dateValidationMessage ? "reservation-date-error" : undefined}
-              onChange={(e) => setTo(e.target.value)}
-              className="w-full sm:w-36"
-            />
-          </div>
-          {dateValidationMessage && (
-            <p id="reservation-date-error" role="alert" className="col-span-2 text-sm text-destructive">
-              {dateValidationMessage}
-            </p>
+          {!isStoreFixed && settings && settings.stores.length > 1 && (
+            <div className="hidden space-y-1 sm:block">
+              <Label htmlFor="filter-store">店舗</Label>
+              <StoreSelect
+                stores={settings.stores}
+                value={storeId}
+                onChange={setStoreId}
+                id="filter-store"
+                className="w-40"
+              />
+            </div>
+          )}
+          <Button variant="outline" size="sm" onClick={resetFilters}>絞り込みを解除</Button>
+        </div>
+        <p id="reservation-search-hint" className="text-xs text-muted-foreground">
+          {viewMode === "pending"
+            ? "予約日に関係なく、選択中の店舗の承認待ちを顧客名で絞り込みます。"
+            : "名前は1文字から検索できます。検索期間は最大92日です。"}
+        </p>
+        {(viewMode !== "pending" || (!isStoreFixed && settings && settings.stores.length > 1)) && (
+          <details className={`border-t pt-1 ${viewMode === "pending" ? "sm:hidden" : ""}`}>
+            <summary className="flex min-h-11 cursor-pointer items-center text-sm text-muted-foreground">
+              {viewMode === "pending" ? "店舗の条件を変更" : "期間・条件を変更"}
+            </summary>
+            <div className="grid grid-cols-2 gap-3 pt-2 lg:grid-cols-4">
+              {!isStoreFixed && settings && settings.stores.length > 1 && (
+                <div className="col-span-2 space-y-1 sm:hidden">
+                  <Label htmlFor="filter-store-mobile">店舗</Label>
+                  <StoreSelect
+                    stores={settings.stores}
+                    value={storeId}
+                    onChange={setStoreId}
+                    id="filter-store-mobile"
+                    className="w-full"
+                  />
+                </div>
+              )}
+              {viewMode !== "pending" && (
+                <>
+                  <div className="min-w-0 space-y-1">
+                    <Label htmlFor="from">開始日</Label>
+                    <Input
+                      id="from"
+                      type="date"
+                      value={from}
+                      aria-invalid={!!dateValidationMessage}
+                      aria-describedby={dateValidationMessage ? "reservation-date-error" : undefined}
+                      onChange={(e) => { setFrom(e.target.value); setViewMode("custom"); }}
+                    />
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    <Label htmlFor="to">終了日</Label>
+                    <Input
+                      id="to"
+                      type="date"
+                      value={to}
+                      aria-invalid={!!dateValidationMessage}
+                      aria-describedby={dateValidationMessage ? "reservation-date-error" : undefined}
+                      onChange={(e) => { setTo(e.target.value); setViewMode("custom"); }}
+                    />
+                  </div>
+                  {settings && settings.services.length > 0 && (
+                    <div className="space-y-1">
+                      <Label htmlFor="filter-service">メニュー</Label>
+                      <Select value={serviceId} onValueChange={setServiceId}>
+                        <SelectTrigger id="filter-service" className="w-full">
+                          <SelectValue placeholder="全メニュー" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={ALL_SENTINEL}>全メニュー</SelectItem>
+                          {settings.services.map((service) => (
+                            <SelectItem key={service.id} value={service.id}>
+                              {displayServiceName(service.name)}{!service.active ? " (停止中)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <Label htmlFor="filter-status">ステータス</Label>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger id="filter-status" className="w-full">
+                        <SelectValue placeholder="全ステータス" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL_SENTINEL}>全ステータス</SelectItem>
+                        {ALL_STATUSES.map((status) => (
+                          <SelectItem key={status} value={status}>{statusLabel(status)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+            </div>
+          </details>
+        )}
+        {viewMode !== "pending" && dateValidationMessage && (
+          <p id="reservation-date-error" role="alert" className="text-sm text-destructive">
+            {dateValidationMessage}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="適用中の検索条件">
+          <Badge variant="secondary">
+            {viewMode === "pending" ? "予約日の指定なし・承認期限順" : `${from || "開始日未指定"} 〜 ${to || "終了日未指定"}`}
+          </Badge>
+          <Badge variant="outline">
+            {storeId ? settings?.stores.find((store) => store.id === storeId)?.name ?? "選択中の店舗" : "全店舗"}
+          </Badge>
+          {keyword.trim() && <Badge variant="outline">検索: {keyword.trim()}</Badge>}
+          {viewMode !== "pending" && serviceId !== ALL_SENTINEL && (
+            <Badge variant="outline">
+              {displayServiceName(settings?.services.find((service) => service.id === serviceId)?.name ?? "選択中のメニュー")}
+            </Badge>
+          )}
+          {viewMode !== "pending" && statusFilter !== ALL_SENTINEL && (
+            <Badge variant="outline">{statusLabel(statusFilter)}</Badge>
           )}
         </div>
-
-        {!isStoreFixed && settings && settings.stores.length > 1 && (
-          <div className="space-y-1">
-            <Label htmlFor="filter-store">店舗</Label>
-            <StoreSelect
-              stores={settings.stores}
-              value={storeId}
-              onChange={setStoreId}
-              id="filter-store"
-              className="w-full sm:w-40"
-            />
-          </div>
-        )}
-
-        {settings && settings.services.length > 0 && (
-          <div className="space-y-1">
-            <Label htmlFor="filter-service">メニュー</Label>
-            <Select value={serviceId} onValueChange={setServiceId}>
-              <SelectTrigger id="filter-service" className="w-full sm:w-40">
-                <SelectValue placeholder="全メニュー" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_SENTINEL}>全メニュー</SelectItem>
-                {settings.services.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {displayServiceName(s.name)}{!s.active ? " (停止中)" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        <div className="space-y-1">
-          <Label htmlFor="filter-status">ステータス</Label>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger id="filter-status" className="w-full sm:w-36">
-              <SelectValue placeholder="全ステータス" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_SENTINEL}>全ステータス</SelectItem>
-              {ALL_STATUSES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {statusLabel(s)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="keyword">キーワード</Label>
-          <Input
-            id="keyword"
-            type="text"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            placeholder="顧客名・電話番号"
-            className="w-full sm:w-44"
-          />
-        </div>
-
-        <div className="flex gap-2">
-          <Button
-            variant={statusFilter === "pending_approval" ? "default" : "outline"}
-            size="sm"
-            aria-pressed={statusFilter === "pending_approval"}
-            onClick={() =>
-              setStatusFilter(statusFilter === "pending_approval" ? ALL_SENTINEL : "pending_approval")
-            }
-          >
-            承認待ちのみ
-          </Button>
-
-          <Button variant="outline" size="sm" onClick={handleCsvDownload} disabled={!filter || isDownloading}>
+      </section>
+      {viewMode === "pending" ? (
+        <PendingApprovalsCard
+          selectedStoreId={storeId}
+          onSelect={setSelectedReservationId}
+          fullList
+          nameFilter={keyword}
+        />
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">
+            {data?.ok && !data.truncated && data.totalCount !== null ? `${data.totalCount}件` : "予約の検索結果"}
+          </p>
+          <Button variant="outline" size="sm" onClick={handleCsvDownload} disabled={!filter || isDebouncing || isDownloading}>
             {isDownloading ? "出力中..." : "CSV"}
           </Button>
         </div>
-      </div>
+      )}
 
       {csvError && (
         <p role="alert" className="text-sm text-destructive">{csvError}</p>
@@ -626,12 +726,6 @@ export default function ReservationsPage() {
             </TableBody>
           </Table>
         </div>
-      )}
-
-      {data?.ok && !data.truncated && data.totalCount !== null && (
-        <p className="text-sm text-muted-foreground">
-          {data.totalCount}件
-        </p>
       )}
 
       <AlertDialog

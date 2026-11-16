@@ -163,9 +163,17 @@ const insertPendingReservation = (db: SqliteD1Database, status: "pending_approva
 
   for (const [index, slotAt] of [
     "2026-06-01T01:00:00.000Z",
+    "2026-06-01T01:05:00.000Z",
+    "2026-06-01T01:10:00.000Z",
     "2026-06-01T01:15:00.000Z",
+    "2026-06-01T01:20:00.000Z",
+    "2026-06-01T01:25:00.000Z",
     "2026-06-01T01:30:00.000Z",
-    "2026-06-01T01:45:00.000Z"
+    "2026-06-01T01:35:00.000Z",
+    "2026-06-01T01:40:00.000Z",
+    "2026-06-01T01:45:00.000Z",
+    "2026-06-01T01:50:00.000Z",
+    "2026-06-01T01:55:00.000Z"
   ].entries()) {
     db.sqlite
       .prepare(
@@ -802,7 +810,7 @@ describe("admin reservation API", () => {
         version: 2
       });
       expect(pendingLocks.count).toBe(0);
-      expect(confirmedLocks.count).toBe(4);
+      expect(confirmedLocks.count).toBe(12);
       expect(confirmedNotification.count).toBe(1);
       expect(calendarJob.count).toBe(1);
     } finally {

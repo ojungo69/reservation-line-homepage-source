@@ -1201,20 +1201,17 @@ describe("Google Calendar outbound sync", () => {
 
   it("queues stale cleanup when a pending upsert crosses expiry during the Google write", async () => {
     const reservationId = await createReservationWithGoogleJob();
-    // processDueCalendarSyncJobs now invokes markStaleCalendarSyncClaimsExhausted
-    // once before the loop, which consumes one `now()` call. The original two
-    // ACTIVE returns are still required for the loop's nowMs and the
-    // beforeWriteMs check; afterWriteMs onward must observe EXPIRED so the
-    // post-write cleanup path queues the stale delete.
-    const now = vi.fn()
-      .mockReturnValueOnce(ACTIVE_SYNC_NOW_MS) // markStaleCalendarSyncClaimsExhausted (reaper sweep)
-      .mockReturnValueOnce(ACTIVE_SYNC_NOW_MS) // loop nowMs
-      .mockReturnValueOnce(ACTIVE_SYNC_NOW_MS) // beforeWriteMs (pre-flight check)
-      .mockReturnValue(EXPIRED_SYNC_NOW_MS);   // afterWriteMs and all subsequent calls
-    const fetchMock = googleUpsertFetchMock({
+    let clock = ACTIVE_SYNC_NOW_MS;
+    const now = () => clock;
+    const googleFetch = googleUpsertFetchMock({
       id: "google_event_expired_after_write_1",
       etag: "google_etag_expired_after_write_1",
       updated: "2026-06-01T00:00:00.000Z"
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await googleFetch(input, init);
+      if (init?.method !== "GET") clock = EXPIRED_SYNC_NOW_MS;
+      return response;
     });
 
     const result = await processDueCalendarSyncJobs({
@@ -4357,15 +4354,17 @@ describe("Google Calendar outbound sync", () => {
     // This test verifies the reservation cleanup path still works after
     // the helpers were moved to calendar-sync-eligibility.ts.
     const reservationId = await createReservationWithGoogleJob();
-    const now = vi.fn()
-      .mockReturnValueOnce(ACTIVE_SYNC_NOW_MS) // markStaleCalendarSyncClaimsExhausted
-      .mockReturnValueOnce(ACTIVE_SYNC_NOW_MS) // loop nowMs
-      .mockReturnValueOnce(ACTIVE_SYNC_NOW_MS) // beforeWriteMs
-      .mockReturnValue(EXPIRED_SYNC_NOW_MS);   // afterWriteMs
-    const fetchMock = googleUpsertFetchMock({
+    let clock = ACTIVE_SYNC_NOW_MS;
+    const now = () => clock;
+    const googleFetch = googleUpsertFetchMock({
       id: "google_event_relocation_guard_1",
       etag: "google_etag_relocation_guard_1",
       updated: "2026-06-01T00:00:00.000Z"
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await googleFetch(input, init);
+      if (init?.method !== "GET") clock = EXPIRED_SYNC_NOW_MS;
+      return response;
     });
 
     const result = await processDueCalendarSyncJobs({

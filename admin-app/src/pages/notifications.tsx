@@ -7,8 +7,7 @@ import { useAdminPush } from "@/hooks/use-admin-push";
 /**
  * 端末ごとのプッシュ通知設定。
  *
- * 店舗設定ではなくこの独立ページに置いている: 店舗設定はオーナー専用ルートで、
- * スタッフも自分の端末で受け取れるという要件を満たせないため。
+ * 店舗の設定とは別に、スタッフも自分の端末の受信設定を管理する。
  */
 function NotificationsPage() {
   const {

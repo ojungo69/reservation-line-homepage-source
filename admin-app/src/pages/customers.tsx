@@ -118,20 +118,9 @@ export default function CustomersPage() {
     setOffset(0);
   }, [storeFilter]);
 
-  // `debouncedQuery` は `useDebouncedValue` が trim 済みの値を返すので、ここで trim し直さない
-  // (`isQueryTooShort` 側と同じ trim 後の長さで比べていることになる)。ここに `.trim()` を
-  // 足すのは無害だが、trim がどちらの層の責務か曖昧になる。`検 ` のように見える文字 1 つ +
-  // 空白で「絞り込んでいない」と書いてある表の中身が絞り込まれないことは、
-  // 「見える文字が1つで後ろに空白があっても検索に出さない」で固定してある。
-  // 1 文字だけ入れた状態は「検索したのに全員出ている」ように見える。絞り込みの結果と
-  // 誤読されると、居ない顧客を居ると判断する。何も言わずに一覧へ戻さない。
-  const isQueryTooShort = !showArchived && searchQuery.trim().length === 1;
-  // `isQueryTooShort` も併せて見る。debounce は 300ms 遅れるので、2 文字から 1 文字へ
-  // 消した直後は「短すぎる」が先に true になり、`debouncedQuery` はまだ前の 2 文字のまま
-  // = 「下の一覧は絞り込み前の顧客一覧です」と書いてある下に前の語の検索結果が出る。
-  // このリポジトリは同じ害を既に知っていて、アーカイブ切替では `useDebouncedValue` の
-  // setter で窓を閉じている。ここは表示の切り替えだけなので条件で閉じる。
-  const isSearchMode = !isQueryTooShort && debouncedQuery.length >= 2;
+  const isSearchMode = !showArchived && searchQuery.trim().length > 0;
+  // 入力変更直後は前の検索結果を選べないよう、debounce の待ち時間も読み込み中にする。
+  const isDebouncing = searchQuery.trim() !== debouncedQuery;
   const listQuery = useCustomerList(offset, showArchived, storeFilter);
   const searchResult = useCustomerSearch(debouncedQuery, storeFilter);
 
@@ -141,8 +130,8 @@ export default function CustomersPage() {
   const totalPages = listData ? Math.ceil(listData.total / PAGE_SIZE) : 0;
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
-  const isPending = isSearchMode ? searchResult.isPending : listQuery.isPending;
-  const isError = isSearchMode ? searchResult.isError : listQuery.isError;
+  const isPending = isSearchMode ? isDebouncing || searchResult.isPending : listQuery.isPending;
+  const isError = isSearchMode ? !isDebouncing && searchResult.isError : listQuery.isError;
   const refetch = isSearchMode ? searchResult.refetch : listQuery.refetch;
 
   const listRows: CustomerListItem[] = useMemo(
@@ -225,12 +214,6 @@ export default function CustomersPage() {
           </Button>
         )}
       </div>
-
-      {isQueryTooShort && (
-        <p className="text-sm text-muted-foreground">
-          検索するには 2 文字以上入力してください。下の一覧は絞り込み前の顧客一覧です。
-        </p>
-      )}
 
       {isError && (
         <div className="space-y-2" role="alert">

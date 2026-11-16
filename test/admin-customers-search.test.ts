@@ -175,12 +175,27 @@ describe("searchAdminCustomers", () => {
     expect(result).toEqual({ ok: false, reason: "invalid_request" });
   });
 
-  it("returns invalid_request when normalized fields are all null", async () => {
-    const result = await searchAdminCustomers({ db: d1 as unknown as D1Database, query: "09" });
+  it.each(["0", "09"])("rejects an incomplete phone query: %s", async (query) => {
+    const result = await searchAdminCustomers({ db: d1 as unknown as D1Database, query });
     expect(result).toEqual({ ok: false, reason: "invalid_request" });
   });
 
   it.each([
+    {
+      name: "matches a single Latin name character case-insensitively",
+      query: "p",
+      expectedIds: ["cust_no_phone"]
+    },
+    {
+      name: "matches a single kana character",
+      query: "ヤ",
+      expectedIds: ["cust_yamamoto", "cust_yamada"]
+    },
+    {
+      name: "matches a single wildcard character literally",
+      query: "%",
+      expectedIds: ["cust_percent_name"]
+    },
     {
       name: "matches by display_name substring without false-positive phone matches",
       query: "山田",

@@ -70,7 +70,12 @@ export const listMyReservations = async (
           r.resource_id                     AS resource_id,
           store_resources.name              AS resource_name,
           r.service_id                      AS service_id,
-          services.name                     AS service_name,
+          COALESCE((
+            SELECT GROUP_CONCAT(name_snapshot, ' / ') FROM (
+              SELECT name_snapshot FROM reservation_services
+              WHERE reservation_id = r.id ORDER BY display_order ASC
+            )
+          ), services.name)                 AS service_name,
           r.duration_minutes                AS duration_minutes,
           r.start_at                        AS start_at,
           r.end_at                          AS end_at,

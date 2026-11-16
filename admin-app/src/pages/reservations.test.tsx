@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ReservationsPage from "./reservations";
 import { useReservationSearch } from "@/hooks/use-reservation-search";
@@ -14,6 +14,7 @@ const reservationState = vi.hoisted(() => ({
   navigate: vi.fn(),
   mutate: vi.fn(),
   rejectReason: "",
+  locationState: null as unknown,
 }));
 
 const reservations = [
@@ -53,6 +54,7 @@ const reservations = [
 
 vi.mock("react-router", () => ({
   useNavigate: () => reservationState.navigate,
+  useLocation: () => ({ state: reservationState.locationState }),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -111,6 +113,11 @@ vi.mock("@/hooks/use-media-query", () => ({
   useMediaQuery: () => reservationState.isNarrow,
 }));
 
+vi.mock("@/components/schedule/pending-approvals-card", () => ({
+  PendingApprovalsCard: ({ selectedStoreId, fullList, nameFilter }: { selectedStoreId: string | null; fullList?: boolean; nameFilter?: string }) =>
+    <p>全期間承認待ち: {selectedStoreId ?? "全店舗"} / {String(fullList)} / {nameFilter}</p>,
+}));
+
 vi.mock("@/components/schedule/reservation-detail-panel", () => ({
   ReservationDetailPanel: ({ reservationId }: { reservationId: string | null }) =>
     reservationId ? <p>予約詳細: {reservationId}</p> : null,
@@ -146,6 +153,9 @@ afterEach(() => {
   reservationState.navigate.mockClear();
   reservationState.mutate.mockClear();
   reservationState.rejectReason = "";
+  reservationState.locationState = null;
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.mocked(useReservationSearch).mockClear();
 });
 
@@ -192,16 +202,52 @@ describe("ReservationsPage user flows", () => {
     expect(screen.getByText("予約詳細: reservation-2")).toBeTruthy();
   });
 
-  it("承認待ちフィルタでは空状態と絞り込みヒントを表示する", () => {
+  it("承認待ちは日付検索を停止して現在の店舗の全期間キューを開く", () => {
+    authState.selectedStoreId = "store-1";
     render(<ReservationsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "承認待ち" }));
+    expect(screen.getByText(/全期間承認待ち: store-1 \/ true \//)).toBeTruthy();
+    expect(useReservationSearch).toHaveBeenLastCalledWith(null);
+    expect(screen.queryByLabelText("開始日")).toBeNull();
+    expect(screen.getByText("予約日の指定なし・承認期限順")).toBeTruthy();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "承認待ちのみ" }));
+  it("今日/今後30日/過去30日を選び、検索語を解除しても期間と店舗は保つ", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-16T05:00:00Z"));
+    authState.selectedStoreId = "store-1";
+    render(<ReservationsPage />);
+    expect(useReservationSearch).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2026-11-16", to: "2026-12-15" }));
+    fireEvent.click(screen.getByRole("button", { name: "過去30日" }));
+    expect(useReservationSearch).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2026-10-18", to: "2026-11-16" }));
+    fireEvent.change(screen.getByLabelText("顧客名・カナ・電話番号"), { target: { value: "架" } });
+    expect(screen.queryByText("山田 花子")).toBeNull();
+    expect(screen.getByText("検索中です…")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "絞り込みを解除" }));
+    expect(screen.getByLabelText("顧客名・カナ・電話番号")).toHaveProperty("value", "");
+    expect(useReservationSearch).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2026-10-18", to: "2026-11-16", storeId: "store-1", keyword: undefined }));
+    expect(authState.selectStore).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "今日" }));
+    expect(useReservationSearch).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2026-11-16", to: "2026-11-16" }));
+  });
 
-    expect(screen.getByText("該当する予約はありません")).toBeTruthy();
-    expect(screen.getByText("絞り込み条件を変更すると見つかる場合があります")).toBeTruthy();
-    expect(useReservationSearch).toHaveBeenLastCalledWith(
-      expect.objectContaining({ statuses: ["pending_approval"] }),
-    );
+  it("同一ログインの履歴stateから条件を復元し、検索語をURLへ入れず保存する", () => {
+    reservationState.locationState = { reservationSearch: { scope: "undefined:owner:", value: { from: "2026-10-18", to: "2026-11-16", keyword: "山田", serviceId: "__all__", statusFilter: "__all__", sortKey: "startAt", sortDir: "desc", viewMode: "history" } } };
+    render(<ReservationsPage />);
+    expect(screen.getByLabelText("顧客名・カナ・電話番号")).toHaveProperty("value", "山田");
+    expect(useReservationSearch).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2026-10-18", to: "2026-11-16", keyword: "山田" }));
+    fireEvent.click(screen.getByRole("button", { name: "今日" }));
+    expect(reservationState.navigate).toHaveBeenLastCalledWith(".", expect.objectContaining({ replace: true, state: expect.objectContaining({ reservationSearch: expect.objectContaining({ value: expect.objectContaining({ keyword: "山田" }) }) }) }));
+  });
+
+  it("狭い一覧領域では画面全体の幅に関わらずカードを使う", () => {
+    let onResize: ResizeObserverCallback = () => {};
+    vi.stubGlobal("ResizeObserver", class { constructor(callback: ResizeObserverCallback) { onResize = callback; } observe() {} disconnect() {} });
+    render(<ReservationsPage />);
+    expect(screen.getByRole("table")).toBeTruthy();
+    act(() => onResize([{ contentRect: { width: 800 } } as ResizeObserverEntry], {} as ResizeObserver));
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "詳細" })).toHaveLength(2);
   });
 
   it("モバイルで承認確認を経て予約を承認する", () => {

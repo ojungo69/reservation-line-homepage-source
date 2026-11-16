@@ -80,6 +80,26 @@ describe("parseRrule", () => {
 });
 
 describe("expandRrule", () => {
+  it("rejects a MONTHLY interval whose calendar arithmetic produces an invalid Date", () => {
+    expect(expandRrule({
+      rrule: "FREQ=MONTHLY;INTERVAL=999999999999999999999999999999;COUNT=2",
+      dtstartMs: iso("2026-01-01T00:00:00Z"),
+      windowEndMs: iso("2026-04-01T00:00:00Z")
+    })).toEqual({ ok: false, reason: "invalid_rrule" });
+  });
+
+  it("keeps a large representable MONTHLY interval without an arbitrary interval cap", () => {
+    const result = expandRrule({
+      rrule: "FREQ=MONTHLY;INTERVAL=1000000;COUNT=2",
+      dtstartMs: iso("2026-01-01T00:00:00Z"),
+      windowEndMs: iso("2026-04-01T00:00:00Z")
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.occurrences.map((date) => date.toISOString())).toEqual(["2026-01-01T00:00:00.000Z"]);
+    expect(result.truncatedByWindow).toBe(true);
+  });
+
   it("DAILY: 7 occurrences within a 7-day window", () => {
     const dtstart = iso("2026-05-19T10:00:00Z");
     const result = expandRrule({

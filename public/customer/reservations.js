@@ -38,6 +38,13 @@ const FAILURE_LABEL = {
 // `window.status`, which static analysis flags as a deprecated-API use.
 const statusBanner = document.getElementById("status-banner");
 const list = document.getElementById("reservations");
+const retryButton = document.createElement("button");
+retryButton.type = "button";
+retryButton.className = "back-button";
+retryButton.textContent = "再試行";
+retryButton.setAttribute("aria-label", "予約の確認を再試行");
+retryButton.hidden = true;
+statusBanner?.after(retryButton);
 
 const setStatus = (text, tone) => {
   if (!statusBanner) return;
@@ -51,7 +58,10 @@ const setStatus = (text, tone) => {
 
 const showError = (reason) => {
   const label = FAILURE_LABEL[reason] ?? "通信に失敗しました";
+  list?.removeAttribute("aria-busy");
+  list?.replaceChildren();
   setStatus(label, "error");
+  retryButton.hidden = false;
 };
 
 const waitForLiff = () =>
@@ -193,6 +203,10 @@ const renderReservation = (reservation) => {
 };
 
 const bootstrap = async (tokensInput) => {
+  if (retryButton.disabled) return;
+  retryButton.disabled = true;
+  list?.setAttribute("aria-busy", "true");
+  list?.replaceChildren();
   setStatus("読み込み中…");
   try {
     const tokens = tokensInput ?? (await initLiff());
@@ -204,11 +218,16 @@ const bootstrap = async (tokensInput) => {
     }
     setStatus("", null);
     renderReservations(body.reservations);
+    retryButton.hidden = true;
   } catch (error) {
     const reason = error instanceof Error ? error.message : "invalid_request";
     showError(reason);
+  } finally {
+    retryButton.disabled = false;
   }
 };
+
+retryButton.addEventListener("click", () => void bootstrap());
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => void bootstrap());

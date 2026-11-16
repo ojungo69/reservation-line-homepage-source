@@ -11,6 +11,7 @@ import { sha256Hex } from "../crypto-utils";
 import { captureBatchWriteFailure } from "../sentry-helpers";
 import { withOutboundTimeout } from "../outbound-timeout";
 import { isNonEmptyString } from "./reservation-time-utils";
+import { SLOT_LOCK_INTERVAL_MINUTES } from "../reservations/slot-times";
 
 const ACTION_TO_EVENT: Record<AdminReservationAction, ReservationEventType> = {
   approve: "approved",
@@ -851,6 +852,7 @@ const buildApproveStatements = (input: {
   nowIso: string;
   nextVersion: number;
 }) => {
+  // Reclaimed holds must fail inside the same transaction as confirmation.
   const statements = [
     input.db
       .prepare(
@@ -863,6 +865,18 @@ const buildApproveStatements = (input: {
               updated_at = ?
           WHERE id = ?
             AND status = 'pending_approval'
+            AND (
+              SELECT COUNT(*) FROM slot_locks sl
+              WHERE sl.owner_type = 'reservation' AND sl.owner_id = reservations.id
+                AND sl.store_id = reservations.store_id AND sl.resource_id = reservations.resource_id
+                AND sl.slot_at >= reservations.start_at AND sl.slot_at < reservations.end_at
+            ) * ${SLOT_LOCK_INTERVAL_MINUTES} = reservations.duration_minutes
+            AND (
+              SELECT COUNT(*) FROM customer_time_locks cl
+              WHERE cl.owner_type = 'reservation' AND cl.owner_id = reservations.id
+                AND cl.customer_id = reservations.customer_id
+                AND cl.slot_at >= reservations.start_at AND cl.slot_at < reservations.end_at
+            ) * ${SLOT_LOCK_INTERVAL_MINUTES} = reservations.duration_minutes
         `
       )
       .bind(input.admin.id, input.nowIso, input.reservation.id),
@@ -1523,6 +1537,12 @@ export async function runAdminReservationAction(input: {
   });
   if (reachabilityError) {
     return reachabilityError;
+  }
+
+  // The external LINE check can outlive the pending hold.
+  if (input.action === "approve") {
+    const expiryError = validateReservationTransition(input.action, reservation, new Date(now()).toISOString());
+    if (expiryError) return expiryError;
   }
 
   const nextVersion = reservation.version + 1;

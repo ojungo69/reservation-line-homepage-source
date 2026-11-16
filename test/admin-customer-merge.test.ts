@@ -452,13 +452,59 @@ describe("POST /api/admin/customers/:id/merge", () => {
     }
   });
 
-  it("drops conflicting source customer_time_locks before retarget (target keeps canonical lock)", async () => {
-    // Duplicate customers can each have a lock at the same slot (each
-    // bound to its own reservation). A naive UPDATE customer_id=target
-    // would collide with UNIQUE(customer_id, slot_at). The DELETE-then-
-    // UPDATE chain keeps the target's existing lock and discards the
-    // redundant source-side lock for that slot, while non-overlapping
-    // source locks retarget normally.
+  it.each([
+    { status: "confirmed", targetStatus: "confirmed", raced: false },
+    { status: "pending_approval", targetStatus: "pending_approval", raced: false },
+    { status: "confirmed", targetStatus: "completed", raced: false },
+    { status: "confirmed", targetStatus: "confirmed", raced: true }
+  ])("refuses a merge with overlapping $status/$targetStatus reservation locks (raced=$raced) without changing data", async ({ status, targetStatus, raced }) => {
+    const db = createMigratedSqliteD1();
+    try {
+      insertAdminUser(db, "owner");
+      seedCustomer(db, { id: "overlap_source", name: "元", phoneHash: "overlap-phone", memo: "残すメモ" });
+      seedCustomer(db, { id: "overlap_target", name: "先", phoneHash: "overlap-phone" });
+      seedReservation(db, "overlap_source_reservation", "overlap_source");
+      seedReservation(db, "overlap_target_reservation", "overlap_target");
+      db.sqlite.prepare("UPDATE reservations SET source = 'web_line', status = ?, pending_expires_at = ? WHERE id LIKE 'overlap_%'")
+        .run(status, status === "pending_approval" ? "2026-06-01T00:00:00.000Z" : null);
+      db.sqlite.prepare(`UPDATE reservations SET store_id = 'osaka', service_id = 'service_osaka_default_60', resource_id = 'resource_osaka_calendar', status = ?, pending_expires_at = ?
+        WHERE id = 'overlap_target_reservation'`).run(targetStatus, targetStatus === "pending_approval" ? "2026-06-01T00:00:00.000Z" : null);
+      const slot = "2026-06-01T01:00:00.000Z";
+      seedCustomerTimeLock(db, "overlap_source_lock", "overlap_source", "overlap_source_reservation", slot);
+      const addTargetLock = () => seedCustomerTimeLock(db, "overlap_target_lock", "overlap_target", "overlap_target_reservation", slot);
+      if (raced) {
+        const originalBatch = db.batch.bind(db);
+        vi.spyOn(db, "batch").mockImplementationOnce(async (statements) => {
+          addTargetLock();
+          return originalBatch(statements);
+        });
+      } else {
+        addTargetLock();
+      }
+      const access = createTestAccessJwt();
+      vi.stubGlobal("fetch", createAccessJwksFetchMock(TEAM_DOMAIN, access.jwk));
+
+      const response = await adminRequest(db, access.token, "/api/admin/customers/overlap_source/merge", { targetId: "overlap_target" });
+
+      expect(response.status).toBe(409);
+      await expect(readJson(response)).resolves.toMatchObject({ ok: false, error: "customer_time_conflict" });
+      expect(db.sqlite.prepare("SELECT block_status, merged_into_id FROM customers WHERE id = 'overlap_source'").get())
+        .toEqual({ block_status: "active", merged_into_id: null });
+      expect(db.sqlite.prepare("SELECT memo FROM customers WHERE id = 'overlap_target'").get()).toEqual({ memo: null });
+      expect(db.sqlite.prepare("SELECT customer_id, version FROM reservations WHERE id = 'overlap_source_reservation'").get())
+        .toEqual({ customer_id: "overlap_source", version: 1 });
+      expect(db.sqlite.prepare("SELECT id, customer_id FROM customer_time_locks ORDER BY id").all()).toEqual([
+        { id: "overlap_source_lock", customer_id: "overlap_source" },
+        { id: "overlap_target_lock", customer_id: "overlap_target" }
+      ]);
+      expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_logs WHERE action = 'customer.merge'").get()).toEqual({ n: 0 });
+      expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM calendar_sync_jobs").get()).toEqual({ n: 0 });
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
+  it("drops overlapping leftover locks for terminal reservations before retarget", async () => {
     const conflictSlot = "2026-06-10T01:00:00.000Z";
     const uniqueSlot = "2026-06-11T01:00:00.000Z";
     const db = createMigratedSqliteD1();
@@ -468,6 +514,7 @@ describe("POST /api/admin/customers/:id/merge", () => {
       seedCustomer(db, { id: "customer_lock_target", name: "lock target", phoneHash: "lock-phone-hash" });
       seedReservation(db, "reservation_lock_source", "customer_lock_source");
       seedReservation(db, "reservation_lock_target", "customer_lock_target");
+      db.sqlite.exec("UPDATE reservations SET status = 'completed' WHERE id IN ('reservation_lock_source', 'reservation_lock_target')");
       seedCustomerTimeLock(db, "lock_source_conflict", "customer_lock_source", "reservation_lock_source", conflictSlot);
       seedCustomerTimeLock(db, "lock_source_unique", "customer_lock_source", "reservation_lock_source", uniqueSlot);
       seedCustomerTimeLock(db, "lock_target_conflict", "customer_lock_target", "reservation_lock_target", conflictSlot);

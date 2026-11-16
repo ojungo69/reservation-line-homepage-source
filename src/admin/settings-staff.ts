@@ -656,9 +656,9 @@ export const softDeleteAdminStaff = async (input: {
         .prepare(
           `UPDATE staff_members
            SET active = 0, version = version + 1, updated_at = ?
-           WHERE id = ?`
+           WHERE id = ? AND version = ?`
         )
-        .bind(nowIso, input.staffId),
+        .bind(nowIso, input.staffId, current.version),
       input.db
         .prepare(
           `INSERT INTO audit_logs (
@@ -706,6 +706,9 @@ export const softDeleteAdminStaff = async (input: {
     if (isActorTypeBatchError(error)) {
       const fresh = await fetchStaff(input.db, input.staffId);
       if (!fresh) return { ok: false, error: "not_found" };
+      if (fresh.role === "system_admin" && input.admin.role !== "system_admin") {
+        return { ok: false, error: "forbidden_role_escalation" };
+      }
       return { ok: false, error: "write_failed" };
     }
     console.error("softDeleteAdminStaff batch failed", {

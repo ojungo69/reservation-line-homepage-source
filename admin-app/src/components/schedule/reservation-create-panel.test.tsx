@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const createReservation = vi.fn();
 const customerState = vi.hoisted(() => ({ empty: false, isPrivileged: true, truncated: false, pending: false }));
@@ -98,7 +98,40 @@ beforeEach(() => {
   customerState.pending = false;
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("ReservationCreatePanel", () => {
+  it("1文字の名前で候補を選び、入力変更やクリア中に古い候補を選択させない", () => {
+    vi.useFakeTimers();
+    render(
+      <ReservationCreatePanel
+        open
+        onClose={vi.fn()}
+        defaultStoreId="store-1"
+        defaultResourceId="resource-1"
+        defaultDate={new Date("2026-07-24T00:00:00+09:00")}
+        defaultMinutes={600}
+      />,
+    );
+    const search = screen.getByLabelText("既存顧客を検索");
+    fireEvent.change(search, { target: { value: "検" } });
+    expect(screen.queryByRole("list", { name: "顧客候補" })).toBeNull();
+    act(() => vi.advanceTimersByTime(250));
+    expect(screen.getByRole("list", { name: "顧客候補" })).toBeTruthy();
+
+    fireEvent.change(search, { target: { value: "検索" } });
+    expect(screen.queryByRole("list", { name: "顧客候補" })).toBeNull();
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.queryByRole("list", { name: "顧客候補" })).toBeNull();
+
+    fireEvent.change(search, { target: { value: "検" } });
+    act(() => vi.advanceTimersByTime(250));
+    fireEvent.click(screen.getByRole("button", { name: /検索 花子/ }));
+    expect(screen.getByText("検索 花子 様で予約")).toBeTruthy();
+  });
+
   it("日付をまたいでスケジュールの初期日が変わっても未入力の予約は確認なしで閉じる", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

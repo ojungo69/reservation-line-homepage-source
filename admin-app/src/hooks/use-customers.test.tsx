@@ -384,14 +384,14 @@ describe("customer queries", () => {
     expect(result.current.isPlaceholderData).toBe(false);
   });
 
-  it("gates short searches and encodes the active query and store in key and URL", async () => {
+  it("gates blank searches and encodes the active query and store in key and URL", async () => {
     const disabledClient = createClient();
-    renderHook(() => useCustomerSearch("a"), {
+    renderHook(() => useCustomerSearch("   "), {
       wrapper: createWrapper(disabledClient),
     });
     expect(mocks.api.get).not.toHaveBeenCalled();
     expect(
-      disabledClient.getQueryState(["customers", "search", "a", null])
+      disabledClient.getQueryState(["customers", "search", "   ", null])
         ?.fetchStatus,
     ).toBe("idle");
 
@@ -412,6 +412,19 @@ describe("customer queries", () => {
         exact: true,
       }),
     ).toBeDefined();
+  });
+
+  it.each(["山", "a"])("searches a single name character: %s", async (query) => {
+    const response = { ok: true, customers: [{ id: "matching-customer" }] };
+    mocks.api.get.mockResolvedValue(response);
+    const { result } = renderHook(() => useCustomerSearch(query), {
+      wrapper: createWrapper(createClient()),
+    });
+
+    await waitFor(() => expect(result.current.data).toBe(response));
+    expect(mocks.api.get).toHaveBeenCalledWith(
+      `/api/admin/customers?q=${encodeURIComponent(query)}`,
+    );
   });
 
   it("fetches merge candidates only for privileged users", async () => {

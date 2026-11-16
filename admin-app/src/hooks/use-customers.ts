@@ -58,7 +58,7 @@ export function useCustomerSearch(query: string, storeId: string | null = null) 
         `/api/admin/customers?q=${encodeURIComponent(query)}${storeParam}`,
       );
     },
-    enabled: query.length >= 2,
+    enabled: query.trim().length > 0,
     staleTime: 15_000,
   });
 }

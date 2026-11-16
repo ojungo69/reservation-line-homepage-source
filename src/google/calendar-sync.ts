@@ -316,11 +316,22 @@ function buildExternalBlockCalendarEvent(row: ExternalBlockCalendarSyncJobRow): 
 export const BULK_BACKFILL_DEDUPE_MARKER = ":title-backfill-";
 export const MAX_BULK_BACKFILL_JOBS_PER_RUN = 3;
 
+// Serialize provider writes per owner across cron, queue and Workflow invocations.
+const OTHER_ACTIVE_OWNER_CLAIM_SQL = `
+  SELECT 1 FROM calendar_sync_jobs active_owner
+  WHERE active_owner.owner_type = calendar_sync_jobs.owner_type
+    AND active_owner.owner_id = calendar_sync_jobs.owner_id
+    AND active_owner.id <> calendar_sync_jobs.id
+    AND active_owner.status = 'processing'
+    AND active_owner.locked_until >= ?
+`;
+
 const fetchNextCalendarSyncJob = async (
   db: D1Database,
   nowIso: string,
   jobIdsFilter?: string[],
-  excludeBulkBackfill = false
+  excludeBulkBackfill = false,
+  claim?: CalendarSyncJobClaim
 ) => {
   const idFilterClause = jobIdsFilter && jobIdsFilter.length > 0
     ? ` AND calendar_sync_jobs.id IN (${jobIdsFilter.map(() => "?").join(",")})`
@@ -329,6 +340,10 @@ const fetchNextCalendarSyncJob = async (
   const bulkBackfillClause = excludeBulkBackfill
     ? ` AND calendar_sync_jobs.dedupe_key NOT LIKE '%${BULK_BACKFILL_DEDUPE_MARKER}%'`
     : "";
+  const claimCondition = claim
+    ? "calendar_sync_jobs.status = 'processing' AND calendar_sync_jobs.attempts = ? AND calendar_sync_jobs.locked_until = ?"
+    : `((calendar_sync_jobs.status IN ('queued', 'retryable') AND calendar_sync_jobs.available_at <= ?)
+        OR (calendar_sync_jobs.status = 'processing' AND calendar_sync_jobs.locked_until < ? AND calendar_sync_jobs.attempts < ?))`;
   const sql = `
         SELECT
           calendar_sync_jobs.id AS job_id,
@@ -390,14 +405,7 @@ const fetchNextCalendarSyncJob = async (
           ON customers.id = reservations.customer_id
         JOIN stores ON stores.id = COALESCE(reservations.store_id, external_blocks.store_id)
         WHERE calendar_sync_jobs.google_action IN ('upsert', 'delete')
-          AND (
-            (calendar_sync_jobs.status IN ('queued', 'retryable')
-              AND calendar_sync_jobs.available_at <= ?)
-            OR
-            (calendar_sync_jobs.status = 'processing'
-              AND calendar_sync_jobs.locked_until < ?
-              AND calendar_sync_jobs.attempts < ?)
-          )
+          AND (${claimCondition})
           AND stores.google_calendar_id IS NOT NULL
           AND (
             (
@@ -448,6 +456,7 @@ const fetchNextCalendarSyncJob = async (
               AND external_blocks.status = 'cancelled'
             )
           )
+          AND NOT EXISTS (${OTHER_ACTIVE_OWNER_CLAIM_SQL})
       ${idFilterClause}
       ${bulkBackfillClause}
         ORDER BY calendar_sync_jobs.available_at ASC, calendar_sync_jobs.created_at ASC
@@ -456,7 +465,7 @@ const fetchNextCalendarSyncJob = async (
   const filterIds = jobIdsFilter && jobIdsFilter.length > 0 ? jobIdsFilter : [];
   return db
     .prepare(sql)
-    .bind(nowIso, nowIso, MAX_ATTEMPTS, ...filterIds)
+    .bind(...(claim ? [claim.attempts, claim.lockedUntil] : [nowIso, nowIso, MAX_ATTEMPTS]), nowIso, ...filterIds)
     .first<CalendarSyncJobRow>();
 };
 
@@ -566,7 +575,8 @@ const markJobProcessing = async (db: D1Database, row: CalendarSyncJobRow, nowMs:
             attempts = attempts + 1,
             locked_until = ?,
             updated_at = ?
-        WHERE id = ?
+        WHERE id = ? AND attempts = ?
+          AND NOT EXISTS (${OTHER_ACTIVE_OWNER_CLAIM_SQL})
           AND (
             (status IN ('queued', 'retryable') AND available_at <= ?)
             OR
@@ -574,7 +584,7 @@ const markJobProcessing = async (db: D1Database, row: CalendarSyncJobRow, nowMs:
           )
       `
     )
-    .bind(lockedUntil, nowIso, row.job_id, nowIso, nowIso, MAX_ATTEMPTS)
+    .bind(lockedUntil, nowIso, row.job_id, row.attempts, nowIso, nowIso, nowIso, MAX_ATTEMPTS)
     .run();
   return hasChangedRows(result)
     ? {
@@ -598,6 +608,15 @@ const calendarSyncJobClaimBindings = (row: CalendarSyncJobRow, claim: CalendarSy
   claim.attempts,
   claim.lockedUntil
 ];
+
+const releaseCalendarSyncJobClaim = async (
+  db: D1Database, row: CalendarSyncJobRow, claim: CalendarSyncJobClaim, nowMs: number
+) => {
+  await db.prepare(`UPDATE calendar_sync_jobs
+    SET status = 'queued', attempts = attempts - 1, locked_until = NULL, updated_at = ?
+    WHERE id = ? AND EXISTS (${calendarSyncJobClaimExistsSql})`)
+    .bind(toIso(nowMs), row.job_id, ...calendarSyncJobClaimBindings(row, claim)).run();
+};
 
 const calendarSyncJobClaimOrExpirySupersededSql = `
   SELECT 1
@@ -1185,7 +1204,16 @@ const persistGoogleEventSuccess = async (
           UPDATE reservations
           SET google_event_id = ?,
               google_event_etag = ?,
-              google_sync_state = 'synced',
+              google_sync_state = CASE WHEN EXISTS (
+                SELECT 1 FROM calendar_sync_jobs other
+                WHERE other.owner_type = 'reservation' AND other.owner_id = reservations.id
+                  AND other.id <> ?
+                  AND (
+                    other.status IN ('queued', 'retryable')
+                    OR (other.status = 'processing' AND other.locked_until IS NOT NULL
+                      AND (other.locked_until >= ? OR other.attempts < ?))
+                  )
+              ) THEN 'pending' ELSE 'synced' END,
               updated_at = ?
           WHERE id = ?
             AND (
@@ -1198,7 +1226,7 @@ const persistGoogleEventSuccess = async (
             AND EXISTS (${calendarSyncJobClaimExistsSql})
         `
       )
-      .bind(event.id, etag, nowIso, row.reservation_id, nowIso, ...calendarSyncJobClaimBindings(row, claim)),
+      .bind(event.id, etag, row.job_id, nowIso, MAX_ATTEMPTS, nowIso, row.reservation_id, nowIso, ...calendarSyncJobClaimBindings(row, claim)),
     db
       .prepare(
         `
@@ -2398,24 +2426,32 @@ export async function processDueCalendarSyncJobs(input: {
       break;
     }
 
-    const claim = await markJobProcessing(input.db, row, nowMs);
+    const claimMs = now();
+    const claim = await markJobProcessing(input.db, row, claimMs);
     if (!claim) {
       continue;
     }
 
-    if (row.dedupe_key.includes(BULK_BACKFILL_DEDUPE_MARKER)) {
+    // A different job may have finished since selection; never write that old snapshot.
+    const currentRow = await fetchNextCalendarSyncJob(input.db, toIso(now()), [row.job_id], false, claim);
+    if (!currentRow) {
+      await releaseCalendarSyncJobClaim(input.db, row, claim, now());
+      continue;
+    }
+
+    if (currentRow.dedupe_key.includes(BULK_BACKFILL_DEDUPE_MARKER)) {
       bulkBackfillClaimed += 1;
     }
     result.processed += 1;
     const outcome = await processCalendarSyncJob({
       db: input.db,
       env: input.env,
-      row,
+      row: currentRow,
       claim,
       fetcher,
       accessTokenProvider: input.accessTokenProvider,
       now,
-      nowMs
+      nowMs: claimMs
     });
     if (outcome !== "skipped") {
       result[outcome] += 1;

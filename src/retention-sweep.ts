@@ -6,14 +6,14 @@ import { safeCaptureException } from "./sentry-helpers";
  * audit logs are explicitly OUT OF SCOPE for Phase 1 (see
  * docs/policies/data-retention.md, PR #335).
  *
- * Execution model: invoked from the maintenance cron once per tick, but
+ * Execution model: invoked by the dedicated daily-cleanup cron, and
  * guarded by a persistent daily-bucket marker (INSERT OR IGNORE into
  * google_calendar_history_maintenance_runs) so the actual DELETEs run at most
  * once per UTC day. This mirrors pruneGoogleEventHistory's idempotency
  * pattern (src/google/import-sync.ts) and reuses the same marker table with a
  * distinct task_key.
  *
- * D1 load control: each table is capped at DELETE_BATCH_LIMIT rows per run via
+ * D1 load control: each table has a fixed row cap per run via
  * the `rowid IN (SELECT rowid ... LIMIT n)` idiom (SQLite DELETE does not
  * accept a LIMIT clause unless compiled with SQLITE_ENABLE_UPDATE_DELETE_LIMIT,
  * which D1 is not). Backlogs drain over successive daily runs.
@@ -30,6 +30,8 @@ const RETENTION_COMPLETED_TASK_KEY = "retention_sweep_phase1_completed";
 
 /** Max rows deleted per table per run, to bound D1 work. */
 const DELETE_BATCH_LIMIT = 500;
+// shortcut: four calendars create 584 scheduled import jobs/day; reassess before total daily import volume reaches 1000.
+const IMPORT_JOB_DELETE_BATCH_LIMIT = 1000;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -135,11 +137,11 @@ const buildSweepRules = (nowMs: number): SweepRule[] => {
   const importJobCutoffIso = toIso(nowMs - IMPORT_JOB_RETENTION_DAYS * MS_PER_DAY);
   const googleEventDeletedCutoffIso = toIso(nowMs - GOOGLE_EVENT_DELETED_RETENTION_DAYS * MS_PER_DAY);
 
-  // Helper: cap each DELETE at DELETE_BATCH_LIMIT rows via a rowid subquery,
+  // Helper: cap each DELETE at its table's limit via a rowid subquery,
   // since SQLite/D1 DELETE does not support a LIMIT clause directly.
-  const cappedDelete = (table: string, predicate: string): string =>
+  const cappedDelete = (table: string, predicate: string, limit = DELETE_BATCH_LIMIT): string =>
     `DELETE FROM ${table} WHERE rowid IN (` +
-    `SELECT rowid FROM ${table} WHERE ${predicate} LIMIT ${DELETE_BATCH_LIMIT})`;
+    `SELECT rowid FROM ${table} WHERE ${predicate} LIMIT ${limit})`;
 
   return [
     // ── expires_at + grace (transient operational rows) ──────────────
@@ -246,7 +248,8 @@ const buildSweepRules = (nowMs: number): SweepRule[] => {
       table: "google_calendar_import_jobs",
       sql: cappedDelete(
         "google_calendar_import_jobs",
-        "status IN ('succeeded', 'failed', 'dead') AND datetime(updated_at) < datetime(?)"
+        "status IN ('succeeded', 'failed', 'dead') AND datetime(updated_at) < datetime(?)",
+        IMPORT_JOB_DELETE_BATCH_LIMIT
       ),
       params: [importJobCutoffIso]
     },
@@ -333,13 +336,10 @@ const sweepOrphanedConfirmedLocks = async (
  * marker row. Returns `{ skipped: true }` when today's sweep already ran.
  *
  * On a DELETE failure the daily marker is released so the next scheduled
- * invocation retries (rather than reporting a false "already_ran_today" until
+ * invocation can retry (rather than reporting a false "already_ran_today" until
  * midnight UTC), the error is reported to Sentry, and the error is rethrown
- * so direct callers/tests observe the failure. The maintenance cron call-site
- * (src/index.ts) catches the rejection — Sentry reporting already happened
- * here, and this lowest-priority cleanup must not reject the maintenance
- * Promise.all (an early rejection would settle ctx.waitUntil while sibling
- * tasks such as LINE notification dispatch are still in flight).
+ * so direct callers/tests observe the failure. The daily-cleanup cron call-site
+ * (src/index.ts) waits for all sibling tasks before surfacing the failure.
  */
 export async function runRetentionSweepPhase1(input: {
   db: D1Database;
@@ -366,10 +366,8 @@ export async function runRetentionSweepPhase1(input: {
       .bind(RETENTION_TASK_KEY, dayBucket, nowIso)
       .run();
   } catch (error) {
-    // The maintenance cron call-site swallows our rejection on the premise
-    // that EVERY failure path here self-reports to Sentry. The marker INSERT
-    // runs before the main try/catch below, so it needs its own capture —
-    // otherwise a D1 failure here would be completely silent in production.
+    // The marker INSERT runs before the main try/catch below, so capture its
+    // failure here with the same stage context as the rest of the sweep.
     // No marker release needed: nothing was written.
     safeCaptureException(error, {
       tags: { operation: "retention_sweep_phase1" },
