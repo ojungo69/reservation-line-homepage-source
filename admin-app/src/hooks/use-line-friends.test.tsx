@@ -157,6 +157,12 @@ describe("line friend helper queries", () => {
     vi.clearAllMocks();
   });
 
+
+  it.each(["0", "09", "(+0) 9", "-"])("gates short phone input in LINE customer lookup: %s", (query) => {
+    const { result } = renderHook(() => useCustomerSearch(query), { wrapper: createWrapper(createClient()) });
+    expect(mocks.api.get).not.toHaveBeenCalled();
+    expect(result.current).toEqual({ results: [], isPending: false });
+  });
   it("gates blank customer searches and preserves the raw query in key and URL", async () => {
     const disabledClient = createClient();
     const { result: disabled } = renderHook(

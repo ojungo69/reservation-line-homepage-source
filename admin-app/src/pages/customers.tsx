@@ -44,7 +44,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useStores } from "@/hooks/use-stores";
 import { formatDateDisplay } from "@/lib/timeline";
-import { needsFullPhoneHint } from "@/lib/customer-search-hints";
+import { isShortPhoneQuery, needsFullPhoneHint } from "@/lib/customer-search-hints";
 import type {
   CustomerListItem,
   CustomerSearchItem,
@@ -119,6 +119,7 @@ export default function CustomersPage() {
   }, [storeFilter]);
 
   const isSearchMode = !showArchived && searchQuery.trim().length > 0;
+  const shortPhoneQuery = isSearchMode && isShortPhoneQuery(searchQuery);
   // 入力変更直後は前の検索結果を選べないよう、debounce の待ち時間も読み込み中にする。
   const isDebouncing = searchQuery.trim() !== debouncedQuery;
   const listQuery = useCustomerList(offset, showArchived, storeFilter);
@@ -130,8 +131,8 @@ export default function CustomersPage() {
   const totalPages = listData ? Math.ceil(listData.total / PAGE_SIZE) : 0;
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
-  const isPending = isSearchMode ? isDebouncing || searchResult.isPending : listQuery.isPending;
-  const isError = isSearchMode ? !isDebouncing && searchResult.isError : listQuery.isError;
+  const isPending = isSearchMode ? !shortPhoneQuery && (isDebouncing || searchResult.isPending) : listQuery.isPending;
+  const isError = isSearchMode ? !shortPhoneQuery && !isDebouncing && searchResult.isError : listQuery.isError;
   const refetch = isSearchMode ? searchResult.refetch : listQuery.refetch;
 
   const listRows: CustomerListItem[] = useMemo(
@@ -232,7 +233,9 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {!isPending && !isError && isSearchMode && (
+      {shortPhoneQuery && <CustomerSearchHints showShortPhoneHint showFullPhoneHint={!isPrivileged} className="text-sm text-muted-foreground" />}
+
+      {!shortPhoneQuery && !isPending && !isError && isSearchMode && (
         <SearchResultTable
           rows={searchRows}
           showFullPhoneHint={needsFullPhoneHint(debouncedQuery, !isPrivileged)}

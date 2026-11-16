@@ -132,6 +132,25 @@ describe("ReservationCreatePanel", () => {
     expect(screen.getByText("検索 花子 様で予約")).toBeTruthy();
   });
 
+
+  it.each([
+    { privileged: true, hint: "電話番号は数字3桁以上で検索してください" },
+    { privileged: false, hint: "電話番号は全桁で入力してください" },
+  ])("短い電話入力では旧候補/検索中/該当なしを出さず案内する（owner=$privileged）", ({ privileged, hint }) => {
+    vi.useFakeTimers();
+    customerState.isPrivileged = privileged;
+    render(<ReservationCreatePanel open onClose={vi.fn()} defaultStoreId="store-1" defaultResourceId="resource-1" defaultDate={new Date("2026-07-24T00:00:00+09:00")} defaultMinutes={600} />);
+    const search = screen.getByLabelText("既存顧客を検索");
+    fireEvent.change(search, { target: { value: "検" } });
+    act(() => vi.advanceTimersByTime(250));
+    expect(screen.getByRole("list", { name: "顧客候補" })).toBeTruthy();
+    fireEvent.change(search, { target: { value: "09" } });
+    expect(screen.getByText(hint)).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "顧客候補" })).toBeNull();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.queryByText("検索中...")).toBeNull();
+    expect(screen.queryByText("該当する顧客がいません。")).toBeNull();
+  });
   it("日付をまたいでスケジュールの初期日が変わっても未入力の予約は確認なしで閉じる", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

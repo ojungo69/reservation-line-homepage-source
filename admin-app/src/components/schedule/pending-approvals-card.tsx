@@ -120,7 +120,7 @@ export function PendingApprovalsCard({
   const pending = useMemo<PendingReservation[]>(() => {
     const list = data?.ok ? data.reservations : [];
     const scoped = list.filter((r) => (!selectedStoreId || r.storeId === selectedStoreId) &&
-      r.customerDisplayName.includes(nameFilter.trim()));
+      r.customerDisplayName.toLowerCase().includes(nameFilter.trim().toLowerCase()));
     return [...scoped].sort((a, b) => {
       const aDeadline = a.pendingExpiresAt ? Date.parse(a.pendingExpiresAt) : Infinity;
       const bDeadline = b.pendingExpiresAt ? Date.parse(b.pendingExpiresAt) : Infinity;

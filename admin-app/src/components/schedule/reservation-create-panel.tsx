@@ -23,7 +23,7 @@ import { useSettings } from "@/hooks/use-settings";
 import { useCustomerSearch } from "@/hooks/use-customers";
 import { useAuth } from "@/hooks/use-auth";
 import { formatJstDate, formatTime } from "@/lib/timeline";
-import { needsFullPhoneHint } from "@/lib/customer-search-hints";
+import { isShortPhoneQuery, needsFullPhoneHint } from "@/lib/customer-search-hints";
 import { buildCustomerPart, type CreateMode } from "@/lib/reservation-create-mode";
 import {
   createReservationPayloadSignature,
@@ -387,7 +387,9 @@ function CustomerFields({
                     className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border bg-popover shadow-md"
                     aria-live="polite"
                   >
-                    {renderCustomerResults({
+                    {isShortPhoneQuery(customerSearch) ? (
+                      <CustomerSearchHints showShortPhoneHint showFullPhoneHint={isStaff} className="px-3 py-2 text-xs text-muted-foreground" />
+                    ) : renderCustomerResults({
                       loading: searchLoading,
                       error: searchError,
                       results: customerResults,

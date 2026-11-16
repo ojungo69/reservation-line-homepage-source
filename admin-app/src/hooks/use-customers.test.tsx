@@ -427,6 +427,20 @@ describe("customer queries", () => {
     );
   });
 
+
+  it.each(["0", "09", "(+0) 9", "-"])("does not request a phone-like search below three digits: %s", (query) => {
+    const client = createClient();
+    const { result } = renderHook(() => useCustomerSearch(query), { wrapper: createWrapper(client) });
+    expect(mocks.api.get).not.toHaveBeenCalled();
+    expect(result.current.fetchStatus).toBe("idle");
+  });
+
+  it.each(["0 90", "A1", "１"])("keeps valid partial phones and name text searchable: %s", async (query) => {
+    mocks.api.get.mockResolvedValue({ ok: true, customers: [] });
+    const { result } = renderHook(() => useCustomerSearch(query), { wrapper: createWrapper(createClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mocks.api.get).toHaveBeenCalledWith(`/api/admin/customers?q=${encodeURIComponent(query)}`);
+  });
   it("fetches merge candidates only for privileged users", async () => {
     const staffClient = createClient();
     renderHook(() => useMergeCandidates(), {

@@ -865,21 +865,24 @@ const buildApproveStatements = (input: {
               updated_at = ?
           WHERE id = ?
             AND status = 'pending_approval'
+            AND (pending_expires_at IS NULL OR julianday(pending_expires_at) > julianday(?))
             AND (
               SELECT COUNT(*) FROM slot_locks sl
               WHERE sl.owner_type = 'reservation' AND sl.owner_id = reservations.id
                 AND sl.store_id = reservations.store_id AND sl.resource_id = reservations.resource_id
                 AND sl.slot_at >= reservations.start_at AND sl.slot_at < reservations.end_at
+                AND NOT (sl.lock_status = 'pending' AND sl.expires_at IS NOT NULL AND datetime(sl.expires_at) <= datetime(?))
             ) * ${SLOT_LOCK_INTERVAL_MINUTES} = reservations.duration_minutes
             AND (
               SELECT COUNT(*) FROM customer_time_locks cl
               WHERE cl.owner_type = 'reservation' AND cl.owner_id = reservations.id
                 AND cl.customer_id = reservations.customer_id
                 AND cl.slot_at >= reservations.start_at AND cl.slot_at < reservations.end_at
+                AND NOT (cl.lock_status = 'pending' AND cl.expires_at IS NOT NULL AND datetime(cl.expires_at) <= datetime(?))
             ) * ${SLOT_LOCK_INTERVAL_MINUTES} = reservations.duration_minutes
         `
       )
-      .bind(input.admin.id, input.nowIso, input.reservation.id),
+      .bind(input.admin.id, input.nowIso, input.reservation.id, input.nowIso, input.nowIso, input.nowIso),
     input.db
       .prepare(
         `
@@ -1452,9 +1455,8 @@ export async function runAdminReservationAction(input: {
 }): Promise<AdminReservationActionResult> {
   const now = input.now ?? Date.now;
   const nowMs = now();
-  // Single clock for the whole action: the idempotency TTL read, the
-  // started/succeeded rows, and expires_at all use this nowIso.
-  const nowIso = new Date(nowMs).toISOString();
+  // Read idempotency at request time; approval refreshes its write snapshot after LINE.
+  let nowIso = new Date(nowMs).toISOString();
   const validationError = validateAdminActionInput(input);
   if (validationError) {
     return validationError;
@@ -1541,7 +1543,8 @@ export async function runAdminReservationAction(input: {
 
   // The external LINE check can outlive the pending hold.
   if (input.action === "approve") {
-    const expiryError = validateReservationTransition(input.action, reservation, new Date(now()).toISOString());
+    nowIso = new Date(now()).toISOString();
+    const expiryError = validateReservationTransition(input.action, reservation, nowIso);
     if (expiryError) return expiryError;
   }
 

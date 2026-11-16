@@ -25,6 +25,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isSearchDate(value: unknown): value is string {
+  if (value === "") return true;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
 // History state is a browser boundary; never restore another login's search text.
 export function readReservationSearchState(raw: unknown, scope: string): ReservationSearchState | null {
   if (!isRecord(raw) || !isRecord(raw.reservationSearch)) return null;
@@ -32,8 +39,7 @@ export function readReservationSearchState(raw: unknown, scope: string): Reserva
   if (saved.scope !== scope || !isRecord(saved.value)) return null;
   const v = saved.value;
   if (
-    typeof v.from !== "string" || !/^(\d{4}-\d{2}-\d{2})?$/.test(v.from) ||
-    typeof v.to !== "string" || !/^(\d{4}-\d{2}-\d{2})?$/.test(v.to) ||
+    !isSearchDate(v.from) || !isSearchDate(v.to) ||
     typeof v.serviceId !== "string" || v.serviceId.length > 128 ||
     typeof v.statusFilter !== "string" || v.statusFilter.length > 64 ||
     typeof v.keyword !== "string" || v.keyword.length > 200 ||

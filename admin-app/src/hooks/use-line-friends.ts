@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
+import { isShortPhoneQuery } from "@/lib/customer-search-hints";
 import { showErrorToast } from "@/lib/error-messages";
 import type {
   LineFriendsResponse,
@@ -82,7 +83,7 @@ export function useCustomerSearch(q: string) {
   const query = useQuery({
     queryKey: ["customer-search", q],
     queryFn: () => api.get<CustomerSearchResponse>(`/api/admin/customers?q=${encodeURIComponent(q)}`),
-    enabled: q.trim().length >= 1,
+    enabled: q.trim().length >= 1 && !isShortPhoneQuery(q),
     staleTime: 30_000
   });
   return { results: query.data?.customers ?? [], isPending: query.isFetching };

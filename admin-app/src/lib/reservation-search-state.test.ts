@@ -18,4 +18,17 @@ describe("reservation search view state", () => {
     expect(readReservationSearchState({ reservationSearch: { ...state.reservationSearch, value: { ...value, keyword: {} } } }, state.reservationSearch.scope)).toBeNull();
     expect(readReservationSearchState(null, state.reservationSearch.scope)).toBeNull();
   });
+  it.each(["2026-02-31", "2026-02-29", "2026-13-01", "2026-04-31"])("rejects impossible history calendar day %s", (invalid) => {
+    const value = { from: "2026-02-01", to: "2026-02-28", keyword: "", serviceId: "__all__", statusFilter: "__all__", sortKey: "startAt", sortDir: "asc", viewMode: "custom" };
+    for (const field of ["from", "to"]) {
+      expect(readReservationSearchState({ reservationSearch: { scope: "owner", value: { ...value, [field]: invalid } } }, "owner")).toBeNull();
+    }
+  });
+
+  it("keeps empty date fields and real leap dates available to the view", () => {
+    const value = { from: "", to: "2028-02-29", keyword: "", serviceId: "__all__", statusFilter: "__all__", sortKey: "startAt", sortDir: "asc", viewMode: "custom" };
+    expect(readReservationSearchState({ reservationSearch: { scope: "owner", value } }, "owner")).toEqual(value);
+    expect(readReservationSearchState({ reservationSearch: { scope: "owner", value: { ...value, from: "2028-02-29", to: "" } } }, "owner")).toMatchObject({ from: "2028-02-29", to: "" });
+  });
+
 });
