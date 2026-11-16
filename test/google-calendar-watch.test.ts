@@ -11,6 +11,7 @@ vi.mock("@sentry/cloudflare", () => ({
 }));
 
 import { ensureGoogleCalendarWatchChannels } from "../src/google/channel-watch";
+import { processDueGoogleCalendarImportJobs } from "../src/google/import-sync";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 
 const CALENDAR_ID = "calendar-a@example.invalid";
@@ -150,6 +151,8 @@ describe("Google Calendar watch channel lifecycle", () => {
             google_calendar_channels.channel_token_hash,
             google_calendar_channels.channel_token_hash_alg,
             google_calendar_channels.expiration_at,
+            google_calendar_channels.sync_token,
+            google_calendar_channels.sync_query_version,
             calendar_auth_connections.status AS auth_status
           FROM google_calendar_channels
           JOIN calendar_auth_connections
@@ -172,6 +175,8 @@ describe("Google Calendar watch channel lifecycle", () => {
       channel_token_hash: sha256Hex(requestToken),
       channel_token_hash_alg: "sha256",
       expiration_at: "2027-01-22T08:00:00.000Z",
+      sync_token: null,
+      sync_query_version: null,
       auth_status: "active"
     });
     expect(channel.channel_id).toHaveLength(36);
@@ -363,7 +368,12 @@ describe("Google Calendar watch channel lifecycle", () => {
     });
   });
 
-  it("carries the retired channel's sync_token over to the replacement channel on renewal", async () => {
+  it.each([
+    { queryVersion: 1, stopFails: false, fullSyncQueued: 0, incrementalCalls: 1 },
+    { queryVersion: 1, stopFails: true, fullSyncQueued: 0, incrementalCalls: 1 },
+    { queryVersion: null, stopFails: false, fullSyncQueued: 1, incrementalCalls: 0 },
+    { queryVersion: 7, stopFails: false, fullSyncQueued: 1, incrementalCalls: 0 }
+  ])("preserves query version $queryVersion and import mode after renewal (stopFails=$stopFails)", async ({ queryVersion, stopFails, fullSyncQueued, incrementalCalls }) => {
     // Regression guard for the cron_task_timeout:import_jobs incident
     // (RESERVATION-LINE-HOMEPAGE-C, 2026-06-18): a renewed channel previously
     // started with sync_token = NULL, so the next cron_incremental against the
@@ -392,15 +402,15 @@ describe("Google Calendar watch channel lifecycle", () => {
           INSERT INTO google_calendar_channels (
             id, store_id, calendar_auth_connection_id, calendar_id,
             channel_id, resource_id, channel_token_hash, channel_token_hash_alg,
-            sync_token, status, expiration_at
+            sync_token, sync_query_version, status, expiration_at
           ) VALUES (
             'google_calendar_channel_carryover_old', 'kyoto', 'calendar_auth_kyoto_carryover', ?,
             'old_channel_carryover', 'old_resource_carryover', ?, 'sha256',
-            ?, 'active', '2027-01-08T18:00:00.000Z'
+            ?, ?, 'active', '2027-01-08T18:00:00.000Z'
           )
         `
       )
-      .run(CALENDAR_ID, sha256Hex("old-token-carryover"), OLD_SYNC_TOKEN);
+      .run(CALENDAR_ID, sha256Hex("old-token-carryover"), OLD_SYNC_TOKEN, queryVersion);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
       if (url.endsWith("/events/watch")) {
@@ -413,6 +423,7 @@ describe("Google Calendar watch channel lifecycle", () => {
           expiration: 1_800_604_800_000
         });
       }
+      if (stopFails) throw new DOMException("outbound_timeout:30000ms", "TimeoutError");
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
 
@@ -428,13 +439,49 @@ describe("Google Calendar watch channel lifecycle", () => {
       now: () => 1_800_000_000_000
     });
 
-    expect(result).toMatchObject({ created: 1, renewed: 1, stopped: 1, failed: 0 });
+    expect(result).toMatchObject({ created: 1, renewed: 1, stopped: stopFails ? 0 : 1, failed: stopFails ? 1 : 0 });
+    expect(d1.sqlite.prepare(
+      "SELECT status FROM google_calendar_channels WHERE id = 'google_calendar_channel_carryover_old'"
+    ).get()).toEqual({ status: "stopped" });
     const newChannel = d1.sqlite
       .prepare(
-        "SELECT sync_token FROM google_calendar_channels WHERE resource_id = 'new_resource_carryover'"
+        "SELECT sync_token, sync_query_version, status FROM google_calendar_channels WHERE resource_id = 'new_resource_carryover'"
       )
-      .get() as { sync_token: string | null };
-    expect(newChannel.sync_token).toBe(OLD_SYNC_TOKEN);
+      .get();
+    expect(newChannel).toEqual({ sync_token: OLD_SYNC_TOKEN, sync_query_version: queryVersion, status: "active" });
+
+    d1.sqlite.prepare(`
+      INSERT INTO google_calendar_import_jobs (
+        id, store_id, calendar_id, reason, status, next_run_at, dedupe_key
+      ) VALUES ('after-renewal', 'kyoto', ?, 'cron_incremental', 'queued', ?, 'after-renewal')
+    `).run(CALENDAR_ID, new Date(1_800_000_000_000).toISOString());
+    const importFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const params = new URL(requestUrl(input)).searchParams;
+      expect(params.get("syncToken")).toBe(OLD_SYNC_TOKEN);
+      expect(params.has("timeMin")).toBe(false);
+      return Response.json({ items: [], nextSyncToken: "sync-after-renewal" });
+    });
+    const imported = await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database,
+      env: {
+        GOOGLE_SERVICE_ACCOUNT_EMAIL: "calendar-sync@example.iam.gserviceaccount.com",
+        GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: "unused",
+        LINE_OPERATIONS_USER_IDS: "",
+        GOOGLE_DRIFT_ALERT_LIVE: "false"
+      },
+      fetcher: importFetch,
+      accessTokenProvider: async () => "google_access_token",
+      now: () => 1_800_000_000_000,
+      maxJobs: 1
+    });
+    expect(imported).toMatchObject({ succeeded: 1, fullSyncQueued });
+    expect(importFetch).toHaveBeenCalledTimes(incrementalCalls);
+    expect(d1.sqlite.prepare(
+      "SELECT sync_token, sync_query_version FROM google_calendar_channels WHERE resource_id = 'new_resource_carryover'"
+    ).get()).toEqual({
+      sync_token: incrementalCalls ? "sync-after-renewal" : OLD_SYNC_TOKEN,
+      sync_query_version: queryVersion
+    });
   });
 
   it("retires the old channel to 'stopped' even when the stop call times out (throws)", async () => {
