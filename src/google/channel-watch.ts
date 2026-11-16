@@ -34,6 +34,7 @@ type GoogleCalendarChannelRow = {
   resource_id: string;
   expiration_at: string | null;
   sync_token: string | null;
+  sync_query_version: number | null;
 };
 
 type DueWatchCalendar = {
@@ -153,7 +154,7 @@ const fetchActiveChannel = async (db: D1Database, storeId: string, calendarId: s
   return await db
     .prepare(
       `
-        SELECT id, channel_id, resource_id, expiration_at, sync_token
+        SELECT id, channel_id, resource_id, expiration_at, sync_token, sync_query_version
         FROM google_calendar_channels
         WHERE store_id = ?
           AND calendar_id = ?
@@ -341,6 +342,8 @@ const persistNewChannel = async (input: {
   // replaying that delta is idempotent (event upserts + DELETE-then-reinsert of
   // external-block locks), so the staleness is harmless.
   syncToken: string | null;
+  // Copy provenance from the same snapshot; unknown legacy tokens stay unknown.
+  syncQueryVersion: number | null;
   expirationAt: string;
   nowIso: string;
 }) => {
@@ -357,10 +360,11 @@ const persistNewChannel = async (input: {
           channel_token_hash,
           channel_token_hash_alg,
           sync_token,
+          sync_query_version,
           status,
           expiration_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'sha256', ?, 'active', ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'sha256', ?, ?, 'active', ?, ?)
       `
     )
     .bind(
@@ -372,6 +376,7 @@ const persistNewChannel = async (input: {
       input.resourceId,
       input.tokenHash,
       input.syncToken,
+      input.syncQueryVersion,
       input.expirationAt,
       input.nowIso
     )
@@ -498,9 +503,9 @@ const processDueWatchCalendar = async (input: {
     channelId: watch.channelId,
     resourceId: watch.resourceId,
     tokenHash: watch.tokenHash,
-    // Inherit the retiring channel's sync_token so the replacement does not
-    // restart from a full event walk (NULL for a calendar's first channel).
+    // Inherit the token and its provenance together (both NULL for a first channel).
     syncToken: input.item.currentChannel?.sync_token ?? null,
+    syncQueryVersion: input.item.currentChannel?.sync_query_version ?? null,
     expirationAt: watch.expirationAt,
     nowIso: input.nowIso
   });

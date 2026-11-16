@@ -21,3 +21,7 @@ PASS: existing permission/store checks and D1 lock authority retained. No histor
 ## Completion / rollback
 
 Behavioral regressions pass including delayed search, all theme states, concurrent consent and notification dispatch. Exact changed symbols reviewed with current callers when graph is stale. Reports distinguish evidence from proposal and unverified live behavior. Production adoption follows documented pipeline; rollback is reviewed previous public/private revision via existing promotion, with applied migration history preserved.
+
+## T015 follow-up: watch renewal query provenance
+
+Scope: copy sync_token and nullable sync_query_version from the same retiring-channel snapshot in src/google/channel-watch.ts. Preserve unknown and mismatched versions without promotion; first-channel values remain NULL. No migration or importer behavior changes. Completion: real SQLite watch-to-import regressions prove validated tokens remain incremental, unknown/mismatched tokens still queue full recovery, and failed stop requests safely retire the old channel. Verify the existing Google import/webhook suites, backend typecheck and Worker suite before release review.
