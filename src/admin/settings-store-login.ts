@@ -4,6 +4,7 @@ import { safeCaptureException } from "../sentry-helpers";
 import {
   buildCreateContext,
   fetchAdminActionIdempotency,
+  isActorTypeBatchError,
   isAdminPrivileged,
   MAX_ID_LENGTH,
   MAX_IDEMPOTENCY_KEY_LENGTH,
@@ -232,6 +233,38 @@ export const resolveStoreLoginRow = async (
 ): Promise<ResolvedStoreLogin> => {
   const rows = await fetchCandidateSet(db, storeId);
   return classifyCandidateSet(rows, storeId);
+};
+
+// Recheck target eligibility in the transaction; the actor guard alone cannot protect a newly promoted login.
+const storeLoginTargetGuard = (input: {
+  db: D1Database;
+  storeId: string;
+  resolved: ResolvedStoreLogin;
+  email?: string;
+}): D1PreparedStatement => {
+  const canonical = input.resolved.kind === "canonical" ? input.resolved.row : null;
+  const disabledRows = input.resolved.kind === "canonical" || input.resolved.kind === "disabled"
+    ? input.resolved.disabledRows : [];
+  const revived = disabledRows.find((row) => row.email.toLowerCase() === input.email?.toLowerCase());
+  const conditions = [`NOT EXISTS (
+    SELECT 1 FROM admin_users au JOIN staff_members sm ON sm.id = au.staff_member_id
+    WHERE sm.store_id = ? AND au.is_service_token = 0
+      AND (au.role = 'system_admin' OR (au.active = 1 AND au.id IS NOT ?))
+  )`];
+  const bindings: Array<string | number | null> = [input.storeId, canonical?.id ?? null];
+  for (const row of [...(canonical ? [canonical] : []), ...(revived ? [revived] : [])]) {
+    conditions.push(`EXISTS (
+      SELECT 1 FROM admin_users au JOIN staff_members sm ON sm.id = au.staff_member_id
+      WHERE au.id = ? AND au.role = ? AND au.active = ? AND au.email = ?
+        AND au.staff_member_id IS ? AND sm.store_id = ? AND au.is_service_token = 0
+    )`);
+    bindings.push(row.id, row.role, row.active, row.email, row.staff_member_id, input.storeId);
+  }
+  return input.db.prepare(`
+    INSERT INTO audit_logs (id, actor_type, action, target_type, target_id)
+    SELECT ?, 'store_login_conflict', 'settings.store_login.guard', 'store_login', ?
+    WHERE NOT (${conditions.join(" AND ")})
+  `).bind(crypto.randomUUID(), input.storeId, ...bindings);
 };
 
 // --- List -------------------------------------------------------------------
@@ -656,6 +689,7 @@ export const upsertStoreLogin = async (input: {
   try {
     await input.db.batch([
       adminWriteGuard(input.db, input.admin),
+      storeLoginTargetGuard({ db: input.db, storeId: input.request.storeId, resolved, email: input.request.email }),
       startedIdempotencyStatement({
         db: input.db,
         id: idempotencyId,
@@ -684,13 +718,17 @@ export const upsertStoreLogin = async (input: {
     if (await adminWriteWasRevoked(input.db, input.admin, error)) {
       return { ok: false, error: "forbidden" };
     }
+    const targetConflict = isActorTypeBatchError(error);
     return recoverFromCreateBatchFailure({
       db: input.db,
       idempotencyKey: input.request.idempotencyKey,
       error,
       errorLabel: "upsertStoreLogin",
       nowIso,
-      resolveReplay: (row) => resolveUpsertIdempotency(row, requestHash, input.request.storeId)
+      resolveReplay: (row): StoreLoginUpsertResult | undefined => {
+        const replay = resolveUpsertIdempotency(row, requestHash, input.request.storeId);
+        return targetConflict && !replay?.ok ? { ok: false, error: "invalid_request" } : replay;
+      }
     });
   }
 
@@ -731,6 +769,7 @@ export const revokeStoreLogin = async (input: {
   try {
     await input.db.batch([
       adminWriteGuard(input.db, input.admin),
+      storeLoginTargetGuard({ db: input.db, storeId: input.storeId, resolved }),
       input.db
         .prepare(`UPDATE admin_users SET active = 0, updated_at = ? WHERE id = ?`)
         .bind(nowIso, resolved.row.id),
@@ -756,6 +795,7 @@ export const revokeStoreLogin = async (input: {
     if (await adminWriteWasRevoked(input.db, input.admin, error)) {
       return { ok: false, error: "forbidden" };
     }
+    if (isActorTypeBatchError(error)) return { ok: false, error: "invalid_request" };
     // Security-sensitive: a swallowed failure leaves the staff login active
     // even though the owner believes it was revoked. Surface to Sentry.
     safeCaptureException(error instanceof Error ? error : new Error(String(error)), {

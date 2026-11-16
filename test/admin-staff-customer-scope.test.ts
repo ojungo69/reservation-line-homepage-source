@@ -213,6 +213,35 @@ describe("staff customer store-scope — routes", () => {
     }
   });
 
+  it("returns no customer profile when the last own-store visit disappears before the profile read", async () => {
+    const { db, token } = setup("staff", "staff_owner_kyoto");
+    try {
+      db.sqlite.exec(`
+        INSERT INTO customers (id, display_name, memo)
+        VALUES ('c_scope_race', '来店だけの顧客', '店舗外に返してはいけないメモ');
+        INSERT INTO customer_visits (id, customer_id, store_id, visited_at, visit_source, recorded_by)
+        VALUES ('v_scope_race', 'c_scope_race', 'kyoto', '2026-01-01', 'manual_import', 'admin_scope_http');
+      `);
+      const originalPrepare = db.prepare.bind(db);
+      let removed = false;
+      db.prepare = (sql) => {
+        if (!removed && sql.includes("SELECT id, display_name, display_name_kana, phone_normalized, block_status")) {
+          removed = true;
+          db.sqlite.exec("DELETE FROM customer_visits WHERE id = 'v_scope_race'");
+        }
+        return originalPrepare(sql);
+      };
+
+      const response = await req(db, token, "/api/admin/customers/c_scope_race");
+
+      expect(removed).toBe(true);
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({ ok: false, reason: "not_found" });
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
   it("staff detail: a merge tombstone stays 403 even with includeArchived", async () => {
     const { db, token } = setup("staff", "staff_owner_kyoto");
     try {

@@ -709,6 +709,28 @@ describe("runRetentionSweepPhase1", () => {
     );
   });
 
+  it.each([{ aged: 584, deleted: 584 }, { aged: 1001, deleted: 1000 }])(
+    "keeps up with normal import volume while bounding cleanup ($aged aged jobs)",
+    async ({ aged, deleted }) => {
+      for (let index = 0; index < aged; index += 1) {
+        seedImportJob(`aged-${index}`, "succeeded", daysAgo(181));
+      }
+      seedImportJob("fresh-terminal", "dead", daysAgo(179));
+      for (const status of ["queued", "retryable", "processing"]) {
+        seedImportJob(`inflight-${status}`, status, daysAgo(181));
+      }
+
+      const result = await runRetentionSweepPhase1({ db: d1 as unknown as D1Database, now });
+      if (result.skipped) throw new Error("unexpected skip");
+      expect(result.deleted.google_calendar_import_jobs).toBe(deleted);
+      expect(count("google_calendar_import_jobs")).toBe(aged - deleted + 4);
+      expect(exists("google_calendar_import_jobs", "fresh-terminal")).toBe(true);
+      for (const status of ["queued", "retryable", "processing"]) {
+        expect(exists("google_calendar_import_jobs", `inflight-${status}`)).toBe(true);
+      }
+    }
+  );
+
   it("purges only terminal Google sync/import job rows past retention; keeps in-flight and fresh", async () => {
     // calendar_sync_jobs: 90-day retention; import_jobs: 180. Only terminal
     // statuses ('succeeded'/'failed'/'dead') are eligible; in-flight rows

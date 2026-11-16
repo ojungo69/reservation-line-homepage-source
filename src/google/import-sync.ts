@@ -107,6 +107,7 @@ type GoogleEventsListResponse = {
 type ExternalBlockRow = {
   id: string;
   source: "google_calendar" | "admin_block" | "system_revert";
+  google_event_etag: string | null;
 };
 
 type ReservationMarkerRow = {
@@ -466,7 +467,7 @@ const fetchLatestChannel = async (db: D1Database, job: ImportJobRow) => {
     .first<GoogleCalendarChannelRow>();
 };
 
-const fetchStoreResource = async (db: D1Database, storeId: string) => {
+const fetchStoreResource = async (db: D1Database, storeId: string, calendarId: string) => {
   return db
     .prepare(
       `
@@ -475,11 +476,15 @@ const fetchStoreResource = async (db: D1Database, storeId: string) => {
         WHERE store_id = ?
           AND resource_type = 'staff_calendar'
           AND active = 1
+          AND EXISTS (
+            SELECT 1 FROM stores
+            WHERE stores.id = store_resources.store_id AND stores.google_calendar_id = ?
+          )
         ORDER BY id ASC
         LIMIT 1
       `
     )
-    .bind(storeId)
+    .bind(storeId, calendarId)
     .first<StoreResourceRow>();
 };
 
@@ -488,7 +493,7 @@ const fetchStoreResource = async (db: D1Database, storeId: string) => {
 // after markJobProcessing but before markJobFailure could bypass MAX_ATTEMPTS.
 const markStaleImportClaimsExhausted = async (db: D1Database, nowMs: number) => {
   const nowIso = toIso(nowMs);
-  await db
+  const result = await db
     .prepare(
       `
         UPDATE google_calendar_import_jobs
@@ -508,6 +513,13 @@ const markStaleImportClaimsExhausted = async (db: D1Database, nowMs: number) => 
     )
     .bind(nowIso, nowIso, MAX_ATTEMPTS)
     .run();
+  const deadCount = Number(result.meta?.changes ?? 0);
+  if (deadCount > 0) {
+    safeCaptureException(
+      new Error(`google import jobs dead-lettered after repeated crash: ${deadCount}`),
+      { tags: { dispatcher: "google_calendar_import", reason: "exhausted_after_repeated_crash" } }
+    );
+  }
 };
 
 const markJobProcessing = async (db: D1Database, row: ImportJobRow, nowMs: number) => {
@@ -624,7 +636,15 @@ const markJobFailure = async (
       claim.attemptCount
     )
     .run();
-  return hasChangedRows(result);
+  const changed = hasChangedRows(result);
+  // Unexpected exceptions already capture their original error in processClaimedImportJob.
+  if (changed && status === "dead" && reason !== "google-import-unhandled") {
+    safeCaptureException(new Error(`google import job failed permanently: ${reason}`), {
+      tags: { dispatcher: "google_calendar_import", reason },
+      contexts: { job: { job_id: row.job_id, import_reason: row.reason } }
+    });
+  }
+  return changed;
 };
 
 // Persist the full_reconcile resume checkpoint after a completed page.
@@ -1318,17 +1338,18 @@ const upsertGoogleEvent = (input: {
   return [upsert, history];
 };
 
-const fetchExternalBlock = async (db: D1Database, googleEventId: string) => {
+const fetchExternalBlock = async (db: D1Database, storeId: string, googleEventId: string) => {
   return db
     .prepare(
       `
-        SELECT id, source
+        SELECT id, source, google_event_etag
         FROM external_blocks
         WHERE google_event_id = ?
+          AND store_id = ?
         LIMIT 1
       `
     )
-    .bind(googleEventId)
+    .bind(googleEventId, storeId)
     .first<ExternalBlockRow>();
 };
 
@@ -1336,6 +1357,7 @@ const queueExternalBlockCanonicalRevert = (input: {
   db: D1Database;
   externalBlockId: string;
   googleEventId: string;
+  incomingGoogleEtag: string | null;
   nowIso: string;
 }) => {
   logGoogleEvent({
@@ -1359,7 +1381,7 @@ const queueExternalBlockCanonicalRevert = (input: {
     .bind(
       crypto.randomUUID(),
       compactDedupeKey(
-        `external_block:${input.externalBlockId}:google:upsert:restore:${input.googleEventId}`,
+        `external_block:${input.externalBlockId}:google:upsert:restore:${input.googleEventId}:etag:${input.incomingGoogleEtag ?? "noEtag"}`,
         "calendar-sync:external-block-restore"
       ),
       input.externalBlockId,
@@ -1611,28 +1633,38 @@ const handleNonGoogleExternalBlockEdit = async (input: {
   safeSnapshot: SafeGoogleSnapshot;
   externalBlockId: string;
   googleEventId: string;
+  outboundGoogleEtag: string | null;
   nowIso: string;
 }) => {
+  const googleEtag = isNonEmptyString(input.event.etag, 512) ? input.event.etag : null;
+  // Non-Google blocks keep the etag written by outbound sync; incoming edits never overwrite it.
+  const ownEcho = googleEtag !== null && googleEtag === input.outboundGoogleEtag;
+  const eventStatements = upsertGoogleEvent({
+    db: input.db,
+    storeId: input.job.store_id,
+    calendarId: input.job.calendar_id,
+    googleEventId: input.googleEventId,
+    googleEtag,
+    googleUpdatedAt: isNonEmptyString(input.event.updated, 64) ? input.event.updated : null,
+    sourceType: "external_block",
+    status: ownEcho ? "active" : "conflict",
+    externalBlockId: input.externalBlockId,
+    safeSnapshot: input.safeSnapshot,
+    nowIso: input.nowIso
+  });
+  if (ownEcho) {
+    await input.db.batch([...eventStatements]);
+    return;
+  }
   await input.db.batch([
     queueExternalBlockCanonicalRevert({
       db: input.db,
       externalBlockId: input.externalBlockId,
       googleEventId: input.googleEventId,
+      incomingGoogleEtag: googleEtag,
       nowIso: input.nowIso
     }),
-    ...upsertGoogleEvent({
-      db: input.db,
-      storeId: input.job.store_id,
-      calendarId: input.job.calendar_id,
-      googleEventId: input.googleEventId,
-      googleEtag: isNonEmptyString(input.event.etag, 512) ? input.event.etag : null,
-      googleUpdatedAt: isNonEmptyString(input.event.updated, 64) ? input.event.updated : null,
-      sourceType: "external_block",
-      status: "conflict",
-      externalBlockId: input.externalBlockId,
-      safeSnapshot: input.safeSnapshot,
-      nowIso: input.nowIso
-    }),
+    ...eventStatements,
     input.db
       .prepare(
         `
@@ -1712,7 +1744,7 @@ const prepareExternalBlockImport = async (
   }
 
   const googleEventId = input.safeSnapshot.google_event_id;
-  const existing = await fetchExternalBlock(input.db, googleEventId);
+  const existing = await fetchExternalBlock(input.db, input.job.store_id, googleEventId);
   const externalBlockId = existing?.id ?? crypto.randomUUID();
   if (existing && existing.source !== "google_calendar") {
     await handleNonGoogleExternalBlockEdit({
@@ -1722,6 +1754,7 @@ const prepareExternalBlockImport = async (
       safeSnapshot: input.safeSnapshot,
       externalBlockId,
       googleEventId,
+      outboundGoogleEtag: existing.google_event_etag,
       nowIso: input.nowIso
     });
     return null;
@@ -1785,10 +1818,6 @@ const handleExternalBlockBatchError = async (input: {
 }): Promise<undefined> => {
   const message = input.error instanceof Error ? input.error.message : String(input.error);
   if (message.includes("UNIQUE constraint failed: slot_locks")) {
-    safeCaptureException(input.error, {
-      tags: { google_module: "import-sync", operation: "external_block_batch" },
-      contexts: { d1_query: { external_block_id: input.externalBlockId, google_event_id: input.googleEventId } }
-    });
     await recordGoogleEventConflict({
       db: input.db,
       job: input.job,
@@ -1936,7 +1965,7 @@ const cancelExternalBlock = async (input: {
   nowIso: string;
 }) => {
   const googleEventId = input.safeSnapshot.google_event_id;
-  const existing = await fetchExternalBlock(input.db, googleEventId);
+  const existing = await fetchExternalBlock(input.db, input.job.store_id, googleEventId);
   const googleEtag = isNonEmptyString(input.event.etag, 512) ? input.event.etag : null;
   const googleUpdatedAt = isNonEmptyString(input.event.updated, 64) ? input.event.updated : null;
   const statements: D1PreparedStatement[] = [];
@@ -1959,6 +1988,7 @@ const cancelExternalBlock = async (input: {
           db: input.db,
           externalBlockId: existing.id,
           googleEventId,
+          incomingGoogleEtag: googleEtag,
           nowIso: input.nowIso
         }),
         insertExternalBlockDeletionConflict({
@@ -2666,10 +2696,6 @@ const classifyReservationMoveBatchError = async (input: {
   nowIso: string;
   error: unknown;
 }): Promise<"business-time-conflict-handled" | "phone-conflict-handled" | "lost-race" | "slot-conflict-handled"> => {
-  safeCaptureException(input.error, {
-    tags: { google_module: "import-sync", operation: "reservation_move_batch" },
-    contexts: { d1_query: { reservation_id: input.reservation.id, google_event_id: input.safeSnapshot.google_event_id } }
-  });
   // PR #27 review feedback (Codex P2 + P2 follow-up): the new
   // idx_customer_time_locks_phone_slot UNIQUE can fire here when an
   // admin/phone-tracked reservation is moved (via Google Calendar edit)
@@ -4387,7 +4413,7 @@ const runImportJob = async (input: {
     });
   }
 
-  const resource = await fetchStoreResource(input.db, input.job.store_id);
+  const resource = await fetchStoreResource(input.db, input.job.store_id, input.job.calendar_id);
   if (!resource) {
     return {
       ok: false as const,

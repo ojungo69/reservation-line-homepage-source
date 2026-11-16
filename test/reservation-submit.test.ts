@@ -143,6 +143,26 @@ describe("public reservation submit", () => {
     expect(row.customer_id).toBe("cust_existing");
   });
 
+  it("rolls back a booking when the existing LINE customer is archived before the write", async () => {
+    await seedExistingLineCustomer({ customerId: "cust_archive_race", lineUserId: lineContext.lineUserId, phone: "09012345678" });
+    const originalBatch = d1.batch.bind(d1);
+    d1.batch = async (statements) => {
+      d1.sqlite.prepare("UPDATE customers SET archived_at = ? WHERE id = ?")
+        .run("2026-05-09T23:00:00.000Z", "cust_archive_race");
+      return originalBatch(statements);
+    };
+    const result = await createPublicReservation({
+      db: d1 as unknown as D1Database,
+      request: createRequest({ customer: undefined }),
+      line: lineContext,
+      now: () => Date.parse("2026-05-09T23:00:00.000Z")
+    });
+    expect(result).toEqual({ ok: false, reason: "invalid_request" });
+    for (const table of ["reservations", "slot_locks", "customer_time_locks", "notification_jobs", "calendar_sync_jobs", "consent_records", "idempotency_keys"]) {
+      expect(count(`SELECT COUNT(*) AS count FROM ${table}`)).toBe(0);
+    }
+  });
+
   it("falls back to schema defaults when the store has no store_settings row (LEFT JOIN, not store_not_found)", async () => {
     await seedExistingLineCustomer({ customerId: "cust_nosettings", lineUserId: lineContext.lineUserId, phone: "09012345678", kana: "ヤマダ ハナコ" });
     // Bootstrapped store: store_settings row absent. fetchBookingContext must

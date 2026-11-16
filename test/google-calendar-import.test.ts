@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { captureExceptionSpy } = vi.hoisted(() => ({ captureExceptionSpy: vi.fn() }));
+vi.mock("../src/sentry-helpers", () => ({ safeCaptureException: captureExceptionSpy }));
+
 import {
   captureSweepStartSeconds,
   computeCalendarDrift,
@@ -11,6 +14,12 @@ import { createPublicReservation, type PublicReservationRequest } from "../src/r
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 
 const CALENDAR_ID = "calendar-a@example.invalid";
+const IMPORT_ENV = {
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: "calendar-sync@example.iam.gserviceaccount.com",
+  GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: "unused",
+  LINE_OPERATIONS_USER_IDS: "",
+  GOOGLE_DRIFT_ALERT_LIVE: "false"
+};
 
 const fiveMinuteSlots = (startAt: string, durationMinutes: number) => {
   const startMs = new Date(startAt).getTime();
@@ -33,6 +42,7 @@ describe("Google Calendar import jobs", () => {
   let d1: SqliteD1Database;
 
   beforeEach(() => {
+    captureExceptionSpy.mockReset();
     d1 = createMigratedSqliteD1();
     d1.sqlite.prepare("UPDATE stores SET google_calendar_id = NULL WHERE id <> 'kyoto'").run();
     d1.sqlite.prepare("UPDATE store_settings SET google_controlled_edit_mode = 1 WHERE store_id = 'kyoto'").run();
@@ -1293,18 +1303,18 @@ describe("Google Calendar import jobs", () => {
     expect(retriedJob.last_error).not.toContain("secret_google_access_token");
   });
 
-  it("keeps dead Google import jobs and last_error in D1 after final retry failure", async () => {
+  it.each(["push", "full_reconcile"] as const)("reports a newly dead %s import job once after its final retry failure", async (reason) => {
     insertActiveChannel("sync_token_dead_retry_1");
-    insertImportJob("push");
+    insertImportJob(reason);
     d1.sqlite
       .prepare(
         `
           UPDATE google_calendar_import_jobs
           SET attempt_count = 4
-          WHERE id = 'google_import_job_push_1'
+          WHERE id = ?
         `
       )
-      .run();
+      .run(`google_import_job_${reason}_1`);
     const fetchMock = vi.fn(async () => Response.json({ error: { message: "quota exceeded" } }, { status: 500 })) as unknown as typeof fetch;
 
     const result = await processDueGoogleCalendarImportJobs({
@@ -1328,14 +1338,143 @@ describe("Google Calendar import jobs", () => {
       yielded: 0
     });
     const job = d1.sqlite
-      .prepare("SELECT status, attempt_count, last_error FROM google_calendar_import_jobs WHERE id = 'google_import_job_push_1'")
-      .get() as { status: string; attempt_count: number; last_error: string };
+      .prepare("SELECT status, attempt_count, last_error FROM google_calendar_import_jobs WHERE id = ?")
+      .get(`google_import_job_${reason}_1`) as { status: string; attempt_count: number; last_error: string };
     expect(job).toEqual({
       status: "dead",
       attempt_count: 5,
       last_error: "google-events-list-http-500"
     });
     expect(job.last_error).not.toContain("secret_google_access_token");
+    expect(captureExceptionSpy).toHaveBeenCalledTimes(1);
+    expect(captureExceptionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "google import job failed permanently: google-events-list-http-500" }),
+      expect.objectContaining({ tags: { dispatcher: "google_calendar_import", reason: "google-events-list-http-500" } })
+    );
+    expect(JSON.stringify(captureExceptionSpy.mock.calls)).not.toContain("secret_google_access_token");
+    expect(JSON.stringify(captureExceptionSpy.mock.calls)).not.toContain(CALENDAR_ID);
+    await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database,
+      env: IMPORT_ENV,
+      fetcher: fetchMock,
+      now: () => 1_800_000_000_000
+    });
+    expect(captureExceptionSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report a nonterminal returned failure as a dead import job", async () => {
+    insertActiveChannel();
+    insertImportJob();
+    const result = await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database,
+      env: IMPORT_ENV,
+      accessTokenProvider: async () => undefined,
+      now: () => 1_800_000_000_000
+    });
+    expect(result.failed).toBe(1);
+    expect(d1.sqlite.prepare("SELECT status FROM google_calendar_import_jobs").get()).toMatchObject({ status: "retryable" });
+    expect(captureExceptionSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not report a dead transition when the import failure write loses its claim", async () => {
+    insertActiveChannel();
+    insertImportJob();
+    d1.sqlite.prepare("UPDATE google_calendar_import_jobs SET attempt_count = 4").run();
+    await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database,
+      env: IMPORT_ENV,
+      accessTokenProvider: async () => {
+        d1.sqlite.prepare("UPDATE google_calendar_import_jobs SET locked_until = '2099-01-01T00:00:00.000Z'").run();
+        return undefined;
+      },
+      now: () => 1_800_000_000_000
+    });
+    expect(d1.sqlite.prepare("SELECT status FROM google_calendar_import_jobs").get()).toMatchObject({ status: "processing" });
+    expect(captureExceptionSpy).not.toHaveBeenCalled();
+  });
+
+  it("reports only newly exhausted stale import claims once", async () => {
+    insertImportJob();
+    insertImportJob("full_reconcile");
+    d1.sqlite.prepare(`UPDATE google_calendar_import_jobs
+      SET status = 'processing', attempt_count = 5, locked_until = '2026-05-09T00:00:00.000Z'`).run();
+    await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database,
+      env: IMPORT_ENV,
+      now: () => 1_800_000_000_000
+    });
+    expect(d1.sqlite.prepare("SELECT COUNT(*) AS count FROM google_calendar_import_jobs WHERE status = 'dead'").get()).toMatchObject({ count: 2 });
+    expect(captureExceptionSpy).toHaveBeenCalledTimes(1);
+    expect(captureExceptionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "google import jobs dead-lettered after repeated crash: 2" }),
+      { tags: { dispatcher: "google_calendar_import", reason: "exhausted_after_repeated_crash" } }
+    );
+    await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database,
+      env: IMPORT_ENV,
+      now: () => 1_800_000_000_000
+    });
+    expect(captureExceptionSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a single existing capture when an unexpected import exception exhausts retries", async () => {
+    insertImportJob();
+    d1.sqlite.prepare("UPDATE google_calendar_import_jobs SET attempt_count = 4").run();
+    const error = new Error("unexpected token-provider failure");
+    await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database,
+      env: IMPORT_ENV,
+      accessTokenProvider: async () => { throw error; },
+      now: () => 1_800_000_000_000
+    });
+    expect(d1.sqlite.prepare("SELECT status FROM google_calendar_import_jobs").get()).toMatchObject({ status: "dead" });
+    expect(captureExceptionSpy).toHaveBeenCalledTimes(1);
+    expect(captureExceptionSpy.mock.calls[0][0]).toBe(error);
+  });
+
+  it.each(["cancelled", "confirmed"])("keeps another store's same-ID external block intact on a %s event", async (status) => {
+    d1.sqlite.exec(`
+      UPDATE stores SET google_calendar_id = 'calendar-b@example.invalid' WHERE id = 'osaka';
+      INSERT INTO external_blocks (id, store_id, resource_id, source, start_at, end_at, status, google_event_id)
+      VALUES ('cross-calendar-block', 'kyoto', 'resource_kyoto_calendar', 'google_calendar',
+        '2026-06-01T03:00:00.000Z', '2026-06-01T04:00:00.000Z', 'active', 'crosscalendarevent');
+      INSERT INTO slot_locks (id,store_id,resource_id,slot_at,owner_type,owner_id,lock_status)
+      VALUES ('cross-calendar-lock','kyoto','resource_kyoto_calendar','2026-06-01T03:00:00.000Z','external_block','cross-calendar-block','confirmed');
+    `);
+    insertImportJob("full_reconcile");
+    d1.sqlite.prepare("UPDATE google_calendar_import_jobs SET store_id = 'osaka', calendar_id = 'calendar-b@example.invalid'").run();
+    const result = await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database,
+      env: IMPORT_ENV,
+      accessTokenProvider: async () => "google_access_token",
+      now: () => 1_800_000_000_000,
+      fetcher: async () => Response.json({
+        items: [{ id: "crosscalendarevent", status,
+          start: { dateTime: "2026-06-01T05:00:00.000Z" },
+          end: { dateTime: "2026-06-01T06:00:00.000Z" } }],
+        nextSyncToken: "osaka_only_sync"
+      })
+    });
+    expect(d1.sqlite.prepare("SELECT store_id,status,start_at FROM external_blocks WHERE id='cross-calendar-block'").get()).toMatchObject({
+      store_id: "kyoto", status: "active", start_at: "2026-06-01T03:00:00.000Z"
+    });
+    expect(d1.sqlite.prepare("SELECT COUNT(*) AS count FROM slot_locks WHERE owner_id='cross-calendar-block'").get()).toMatchObject({ count: 1 });
+    expect(result).toMatchObject(status === "cancelled" ? { succeeded: 1, failed: 0 } : { succeeded: 0, failed: 1 });
+  });
+
+  it("rejects an import job for a calendar no longer assigned to its store", async () => {
+    insertImportJob("full_reconcile");
+    d1.sqlite.prepare("UPDATE google_calendar_import_jobs SET calendar_id = 'old-calendar@example.invalid'").run();
+    const fetcher = vi.fn(async () => Response.json({ items: [], nextSyncToken: "unused" }));
+    const result = await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database, env: IMPORT_ENV, fetcher,
+      accessTokenProvider: async () => "google_access_token", now: () => 1_800_000_000_000
+    });
+    expect(result).toMatchObject({ processed: 1, succeeded: 0, failed: 1 });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(d1.sqlite.prepare("SELECT status,last_error FROM google_calendar_import_jobs").get()).toMatchObject({
+      status: "retryable", last_error: "missing-store-resource"
+    });
   });
 
   it("imports new opaque timed Google events as external blocks without storing raw personal text", async () => {
@@ -1527,6 +1666,7 @@ describe("Google Calendar import jobs", () => {
       .prepare("SELECT sync_token FROM google_calendar_channels WHERE id = 'google_calendar_channel_import_1'")
       .get() as { sync_token: string };
     expect(channel.sync_token).toBe("sync_token_after_extblock_race_1");
+    expect(captureExceptionSpy).not.toHaveBeenCalled();
   });
 
   it("stores the actual Google event title as title_snapshot instead of a hardcoded placeholder", async () => {
@@ -2086,7 +2226,7 @@ describe("Google Calendar import jobs", () => {
     });
   });
 
-  it("does not cancel admin-created external blocks when the Google event is deleted and opens a warning", async () => {
+  it.each([undefined, "etag_admin_before_delete"])("repairs a deleted admin block even when its tombstone etag is %s", async (etag) => {
     insertActiveChannel(null);
     insertImportJob("full_reconcile");
     d1.sqlite
@@ -2148,6 +2288,7 @@ describe("Google Calendar import jobs", () => {
         items: [
           {
             id: "google_admin_block_deleted_1",
+            etag,
             status: "cancelled"
           }
         ],
@@ -2194,6 +2335,79 @@ describe("Google Calendar import jobs", () => {
       conflict_type: "external_block_event_deleted",
       resolution_status: "open"
     });
+  });
+
+  it.each(["admin_block", "system_revert"] as const)("repairs repeated independent Google edits without looping its own echo (%s)", async (source) => {
+    d1.sqlite.prepare(`INSERT INTO external_blocks
+      (id,store_id,resource_id,source,start_at,end_at,status,google_event_id,google_event_etag)
+      VALUES ('repeat-revert-block','kyoto','resource_kyoto_calendar',?,
+        '2026-06-01T03:00:00.000Z','2026-06-01T04:00:00.000Z','active','repeat-revert-event','initial-own-etag')`).run(source);
+
+    const importEdit = async (etag: string, start = "05", end = "06") => {
+      const id = crypto.randomUUID();
+      d1.sqlite.prepare(`INSERT INTO google_calendar_import_jobs
+        (id,store_id,calendar_id,reason,status,next_run_at,dedupe_key)
+        VALUES (?,'kyoto',?,'full_reconcile','queued','2026-05-09T00:00:00.000Z',?)`).run(id, CALENDAR_ID, id);
+      const result = await processDueGoogleCalendarImportJobs({
+        db: d1 as unknown as D1Database, env: IMPORT_ENV,
+        accessTokenProvider: async () => "google_access_token", now: () => 1_800_000_000_000,
+        fetcher: async () => Response.json({ items: [{
+          id: "repeat-revert-event", etag, status: "confirmed",
+          start: { dateTime: `2026-06-01T${start}:00:00.000Z` },
+          end: { dateTime: `2026-06-01T${end}:00:00.000Z` }
+        }], nextSyncToken: etag })
+      });
+      expect(result).toMatchObject({ succeeded: 1, failed: 0 });
+    };
+    const repair = async (etag: string) => {
+      const result = await processDueCalendarSyncJobs({
+        db: d1 as unknown as D1Database, env: IMPORT_ENV,
+        accessTokenProvider: async () => "google_access_token", now: () => 1_800_000_000_000,
+        fetcher: async () => Response.json({ id: "repeat-revert-event", etag })
+      });
+      expect(result).toMatchObject({ succeeded: 1, failed: 0 });
+    };
+    const jobCount = (status?: string) => d1.sqlite.prepare(`SELECT COUNT(*) AS count FROM calendar_sync_jobs
+      WHERE owner_id='repeat-revert-block'${status ? " AND status=?" : ""}`).get(...(status ? [status] : []));
+
+    await importEdit("first-staff-edit");
+    expect(jobCount("queued")).toMatchObject({ count: 1 });
+    await repair("first-own-repair");
+    await importEdit("first-staff-edit");
+    expect(jobCount()).toMatchObject({ count: 1 });
+    expect(jobCount("queued")).toMatchObject({ count: 0 });
+
+    await importEdit("second-staff-edit", "07", "08");
+    expect(jobCount("queued")).toMatchObject({ count: 1 });
+    expect(jobCount()).toMatchObject({ count: 2 });
+    await repair("second-own-repair");
+    await importEdit("second-own-repair", "03", "04");
+    expect(jobCount()).toMatchObject({ count: 2 });
+    expect(jobCount("queued")).toMatchObject({ count: 0 });
+    expect(d1.sqlite.prepare("SELECT COUNT(*) AS count FROM google_calendar_conflicts WHERE external_block_id='repeat-revert-block'").get()).toMatchObject({ count: 1 });
+    expect(d1.sqlite.prepare("SELECT status,google_etag FROM google_calendar_events WHERE google_event_id='repeat-revert-event'").get()).toMatchObject({ status: "active", google_etag: "second-own-repair" });
+    expect(d1.sqlite.prepare("SELECT start_at,end_at,google_event_etag FROM external_blocks WHERE id='repeat-revert-block'").get()).toMatchObject({
+      start_at: "2026-06-01T03:00:00.000Z", end_at: "2026-06-01T04:00:00.000Z", google_event_etag: "second-own-repair"
+    });
+  });
+
+  it("refreshes an initial own external-block echo without a repair job or conflict", async () => {
+    d1.sqlite.exec(`INSERT INTO external_blocks
+      (id,store_id,resource_id,source,start_at,end_at,status,google_event_id,google_event_etag)
+      VALUES ('own-echo-block','kyoto','resource_kyoto_calendar','admin_block',
+        '2026-06-01T03:00:00.000Z','2026-06-01T04:00:00.000Z','active','own-echo-event','current-own-etag')`);
+    insertImportJob("full_reconcile");
+    const result = await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database, env: IMPORT_ENV,
+      accessTokenProvider: async () => "google_access_token", now: () => 1_800_000_000_000,
+      fetcher: async () => Response.json({ items: [{ id: "own-echo-event", etag: "current-own-etag", status: "confirmed",
+        start: { dateTime: "2026-06-01T03:00:00.000Z" }, end: { dateTime: "2026-06-01T04:00:00.000Z" }
+      }], nextSyncToken: "own-echo-sync" })
+    });
+    expect(result).toMatchObject({ succeeded: 1, failed: 0 });
+    expect(d1.sqlite.prepare("SELECT COUNT(*) AS count FROM calendar_sync_jobs").get()).toMatchObject({ count: 0 });
+    expect(d1.sqlite.prepare("SELECT COUNT(*) AS count FROM google_calendar_conflicts").get()).toMatchObject({ count: 0 });
+    expect(d1.sqlite.prepare("SELECT source_type,status FROM google_calendar_events WHERE google_event_id='own-echo-event'").get()).toMatchObject({ source_type: "external_block", status: "active" });
   });
 
   it("does not accept Google time edits for admin-created external blocks and queues a canonical revert", async () => {
@@ -3924,6 +4138,7 @@ describe("Google Calendar import jobs", () => {
       status: "succeeded",
       last_error: null
     });
+    expect(captureExceptionSpy).not.toHaveBeenCalled();
   });
 
   it("records a handled business-time conflict when a closure wins the Google move race", async () => {
@@ -4002,6 +4217,42 @@ describe("Google Calendar import jobs", () => {
       .prepare("SELECT status, last_error FROM google_calendar_import_jobs WHERE id = 'google_import_job_full_reconcile_1'")
       .get() as { status: string; last_error: string | null };
     expect(job).toEqual({ status: "succeeded", last_error: null });
+    expect(captureExceptionSpy).not.toHaveBeenCalled();
+  });
+
+  it.each(["reservation", "external_block"] as const)("captures an unexpected %s move batch failure once at the import boundary", async (ownerType) => {
+    const reservationId = ownerType === "reservation" ? await createConfirmedReservationWithGoogleEvent() : undefined;
+    insertActiveChannel(null);
+    insertImportJob("full_reconcile");
+    const error = new Error("D1_ERROR: unexpected move batch failure");
+    vi.spyOn(d1, "batch").mockRejectedValueOnce(error);
+    const result = await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database,
+      env: IMPORT_ENV,
+      accessTokenProvider: async () => "google_access_token",
+      now: () => 1_800_000_000_000,
+      fetcher: async () => Response.json({
+        items: [{
+          id: "google_reservation_event_deleted_1",
+          etag: "unexpected_move_failure_etag",
+          status: "confirmed",
+          start: { dateTime: "2026-06-01T03:00:00.000Z" },
+          end: { dateTime: "2026-06-01T04:00:00.000Z" },
+          extendedProperties: reservationId
+            ? { private: { owner_type: "reservation", reservation_id: reservationId, store_id: "kyoto" } }
+            : undefined
+        }],
+        nextSyncToken: "unused_after_move_failure"
+      })
+    });
+    expect(result).toMatchObject({ processed: 1, succeeded: 0, failed: 1 });
+    expect(captureExceptionSpy).toHaveBeenCalledTimes(1);
+    expect(captureExceptionSpy).toHaveBeenCalledWith(error, expect.objectContaining({
+      tags: { google_module: "import-sync", operation: "process_claimed_job" }
+    }));
+    expect(d1.sqlite.prepare("SELECT status, last_error FROM google_calendar_import_jobs").get()).toMatchObject({
+      status: "retryable", last_error: "google-import-unhandled"
+    });
   });
 
   it("does not advance the sync token when a Google reservation move loses its status guard", async () => {

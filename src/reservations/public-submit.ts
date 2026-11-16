@@ -384,9 +384,9 @@ const UPCOMING_RESERVATIONS_LIMIT = 10;
 // kept character-for-character in sync with trg_reservations_web_cap
 // (migrations/0024_store_settings_reservation_cap.sql:41-51): identity by customer_id
 // only, start_at > now, and status confirmed OR (pending_approval AND not expired). The
-// expired-pending exclusion is essential — listMyReservations (my-reservations.ts) keys
-// off end_at and does NOT drop expired pendings, so it must NOT be reused here, or the
-// form would warn about a reservation the submit-side cap no longer counts. `nowIso`
+// expired-pending exclusion is essential. listMyReservations (my-reservations.ts) also
+// excludes expired pendings, but uses end_at rather than start_at and a LINE identity
+// rather than the canonical customer, so it cannot replace this cap query. `nowIso`
 // must be the submit instant (checkedAt) so this matches the trigger's
 // datetime(NEW.updated_at). Uses idx_reservations_customer_time(customer_id, start_at).
 export const getUpcomingReservations = async (
@@ -405,7 +405,12 @@ export const getUpcomingReservations = async (
           r.id          AS id,
           r.store_id    AS store_id,
           stores.name   AS store_name,
-          services.name AS service_name,
+          COALESCE((
+            SELECT GROUP_CONCAT(name_snapshot, ' / ') FROM (
+              SELECT name_snapshot FROM reservation_services
+              WHERE reservation_id = r.id ORDER BY display_order ASC
+            )
+          ), services.name) AS service_name,
           r.start_at    AS start_at,
           r.end_at      AS end_at,
           r.status      AS status
@@ -525,7 +530,7 @@ const mapBatchError = (error: unknown): PublicReservationFailure => {
   }
 
   const message = error instanceof Error ? error.message : String(error);
-  if (message.includes("blocked_customer")) {
+  if (message.includes("blocked_customer") || message.includes("actor_type")) {
     return {
       ok: false,
       reason: "invalid_request"
@@ -667,6 +672,16 @@ const buildPublicReservationStatements = (input: {
 
   if (input.existingLineIdentity) {
     statements.push(
+      // Match the admin booking guard: a changed customer must roll back every write.
+      input.db.prepare(`
+        INSERT INTO audit_logs (id, actor_type, actor_id, action, target_type, target_id)
+        SELECT ?, 'reservation_customer_unavailable', ?, 'public.reservation.customer.guard', 'customer', ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM customers c JOIN line_identities li ON li.customer_id = c.id
+          WHERE c.id = ? AND c.archived_at IS NULL AND c.merged_into_id IS NULL
+            AND c.block_status = 'active' AND li.id = ?
+        )
+      `).bind(crypto.randomUUID(), input.lineIdentityId, input.customerId, input.customerId, input.lineIdentityId),
       input.db
         .prepare(
           `

@@ -20,7 +20,7 @@
 | `owner` | オーナー | 全店舗 / 全期間 / 設定編集 |
 | `system_admin` | 開発者 | owner + audit metadata 完全表示 + 同期障害対応 |
 
-`AdminUser.role` を `src/admin/access.ts:authenticateAdmin` で Cloudflare Access JWT から取得 (現状)。今後 (Phase 0b 以降) 全 endpoint で **frontend hide のみ** に依存せず **data layer (各 service 関数の最初の guard)** で role を判定すること。
+`src/admin/access.ts` で Cloudflare Access JWT により利用者を検証し、`admin_users` から現在の `AdminUser.role` を取得する。画面の表示制御だけに依存せず、各 service のガードと書き込み時の認可条件で権限を確認する。
 
 ## 認可マトリクス
 
@@ -84,7 +84,7 @@
 | `GET /api/admin/customers?q=...` (検索) | ✅ 自店舗顧客のみ。`memo` を返す | ✅ 全顧客 | ✅ | `searchAdminCustomers(storeScope)` で staff を自店舗 membership に限定 (customers.ts)。予約作成の顧客ピッカーと LINE 友だち紐付けも同じ URL を使う (LINE 友だち紐付けは `isAdminPrivileged` の owner 以上限定なので staff には関係しない)。氏名とマスク電話は `GET /reservations/search?keyword=` が元から返す範囲と同じ |
 | `GET /api/admin/customers?mode=list` (一覧) | ✅ 自店舗顧客のみ・集計値も自店舗のみ。初回表示を JST の 1 日 1 行で監査 (`customer.list_view`) | ✅ 全顧客 (監査しない) | ✅ (監査しない) | `listAllCustomers(storeScope)` で行集合・visitCount/lastVisitAt/nextReservationAt を自店舗 scope (customers.ts)。staff の表示は `recordStaffCustomerListView` (customers.ts) が日付由来の id で `INSERT OR IGNORE` する。他サイト起点 (`Sec-Fetch-Site` が cross-site / same-site) の要求は別の行に記録し、当日の行を奪わせない (ヘッダーで記録を避けることもできない)。記録に失敗しても一覧は返す |
 | `GET /api/admin/customers?view=archived` | ✅ 自店舗のアーカイブ済み顧客のみ | ✅ | ✅ | `listAllCustomers(storeScope)` の membership 句がそのまま効く。2026-08-26 に staff 403 を撤去 (復元の導線がここにしか無いため) |
-| `GET /api/admin/customers/:id` (詳細) | ✅ 自店舗顧客のみ・来店/予約履歴も自店舗のみ。**アーカイブ済みの自店舗顧客も可** (復元用・読み取りのみ)。統合元 (merge tombstone) と対象外は 403 (forbidden) | ✅ 全顧客 (アーカイブ/統合元含む) | ✅ | `getAdminCustomerDetail(admin)` で staff store-scope gate (`includeArchived: true`) + visits/reservations を自店舗 filter (operations.ts)。顧客 SELECT の staff 条件は `merged_into_id IS NULL` のみ。**2026-08-31 に顧客のメールアドレスを撤去した**ので、この応答に email は含まれない (role 別の redaction も無くなった) |
+| `GET /api/admin/customers/:id` (詳細) | ✅ 自店舗顧客のみ・来店/予約履歴も自店舗のみ。**アーカイブ済みの自店舗顧客も可** (復元用・読み取りのみ)。統合元 (merge tombstone) と対象外は 403 (forbidden) | ✅ 全顧客 (アーカイブ/統合元含む) | ✅ | `getAdminCustomerDetail(admin)` で staff store-scope gate (`includeArchived: true`) + visits/reservations を自店舗 filter (operations.ts)。顧客 SELECT でも `merged_into_id IS NULL` と自店舗 membership を再確認し、事前確認後に所属が消えた場合は 404 を返す。**2026-08-31 に顧客のメールアドレスを撤去した**ので、この応答に email は含まれない (role 別の redaction も無くなった) |
 | `POST /api/admin/customers` (手動顧客登録) | ✅ 自店舗の顧客として登録 (`created_store_id = admin.store_id`)。店舗紐付けの無い staff は 403 | ✅ `created_store_id` は NULL | ✅ | `authenticateAdminWithDb` + `parseJsonObjectBody` → `createAdminCustomer` (customer-create.ts) で role 判定。紙カルテ顧客の手動登録。冪等 (requestHash に登録店舗を含む) + audit。2026-08-26 に staff 開放 |
 | `PUT /api/admin/customers/:id/memo` | ✅ 自店舗顧客のみ | ✅ | ✅ | `prepareCustomerMutation` → `writeCustomerText`。actor・店舗・非archive/非mergeを同一batchで確認。optional `expectedMemo` が不一致なら409、成功時だけ監査を書く。未指定の旧UIは従来の更新を維持 |
 | `PUT /api/admin/customers/:id/referrer` | ✅ 自店舗顧客のみ | ✅ | ✅ | `prepareCustomerMutation`。紹介者名は任意、期待値必須。actor検査・店舗・非archive/非merge・CASを同一batchで照合し、成功時だけ本文を含めない監査を書く |
@@ -130,8 +130,8 @@
 | `POST /api/admin/settings/resources` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-resources.ts) |
 | `PUT /api/admin/settings/resources/:id` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-resources.ts) |
 | `DELETE /api/admin/settings/resources/:id` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-resources.ts) |
-| `POST /api/admin/settings/staff` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-staff.ts)。自身の active 1→0 / 降格は `forbidden_self_deactivation` で別途拒否 |
-| `PUT /api/admin/settings/staff/:id` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-staff.ts) |
+| `POST /api/admin/settings/staff` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-staff.ts) |
+| `PUT /api/admin/settings/staff/:id` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-staff.ts)。自身の `active: false` は `forbidden_self_deactivation` で拒否 |
 | `DELETE /api/admin/settings/staff/:id` | ❌ | ✅ | ✅ | `isAdminPrivileged` (settings-staff.ts) |
 | `POST /api/admin/settings/closures` | ✅ 自店舗のみ | ✅ | ✅ | `isAdminAllowedForStoreSettings` (settings-closures.ts: create は request.storeId で判定) |
 | `PUT /api/admin/settings/closures/:id` | ✅ 自店舗のみ | ✅ | ✅ | `isAdminAllowedForStoreSettings` (settings-closures.ts: update は DB 上の current.store_id。cross-store 移動は `guardImmutableStore` が 409) |

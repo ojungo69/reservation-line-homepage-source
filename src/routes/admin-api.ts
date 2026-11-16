@@ -758,6 +758,7 @@ const CUSTOMER_MERGE_STATUS_BY_ERROR = {
   already_merged: 409,
   target_already_merged: 409,
   source_blocked: 409,
+  customer_time_conflict: 409,
   phone_hash_mismatch: 400,
   invalid_request: 400,
   missing_database: 500
@@ -1215,9 +1216,9 @@ adminApiRoutes.get("/reservations/:id", async (c) => {
 
 // Resolve the store scope for the customer list/search. Staff are hard-scoped to their
 // own store (the ?store= param is ignored — no scope widening). Owner / system_admin see
-// all stores by default and may narrow to one via ?store=<id>; any other value (absent,
-// "all", unknown id) falls back to all-stores. The id is bound as a SQL parameter
-// downstream, so an unknown id just returns no rows (no injection, no cross-store leak).
+// all stores by default and may narrow to one via ?store=<id>; absent or "all" means
+// all stores. The id is bound as a SQL parameter downstream, so an unknown id returns
+// no rows (no injection, no cross-store leak).
 function resolveCustomerStoreScope(
   admin: AdminUser,
   isStaff: boolean,

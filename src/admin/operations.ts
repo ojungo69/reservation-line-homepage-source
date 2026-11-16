@@ -1,5 +1,5 @@
 import type { AdminUser } from "./access";
-import { staffCanAccessCustomer } from "./customers";
+import { OWN_STORE_MEMBERSHIP_ARMS, staffCanAccessCustomer } from "./customers";
 import {
   escapeLikePattern,
   exceedsLikePatternBudget,
@@ -1197,7 +1197,7 @@ export async function getAdminReservationDetail(input: {
             SELECT id, actor_type, actor_id, action, target_type, target_id, metadata_json, created_at
             FROM audit_logs
             WHERE target_type = 'reservation' AND target_id = ?
-            ORDER BY created_at DESC
+            ORDER BY julianday(created_at) DESC, id DESC
             LIMIT 20
           `
           )
@@ -1244,7 +1244,7 @@ export async function getAdminReservationDetail(input: {
             WHERE target_type = 'reservation'
               AND target_id = ?
               AND action = '${DUPLICATE_CONSENT_ACTION}'
-            ORDER BY created_at DESC
+            ORDER BY julianday(created_at) DESC, id DESC
             LIMIT 1
           `
           )
@@ -1413,12 +1413,12 @@ export async function getAdminCustomerDetail(input: {
       `
         SELECT id, display_name, display_name_kana, phone_normalized, block_status,
                memo, referrer_name, birth_date, gender, allergy_notes, archived_at
-        FROM customers
-        WHERE id = ?${isStaff ? " AND merged_into_id IS NULL" : ""}
+        FROM customers c
+        WHERE c.id = ?${isStaff ? ` AND c.merged_into_id IS NULL AND ${OWN_STORE_MEMBERSHIP_ARMS}` : ""}
         LIMIT 1
       `
     )
-    .bind(input.customerId)
+    .bind(input.customerId, ...(isStaff ? [storeFilter, storeFilter, storeFilter] : []))
     .first<CustomerRow>();
 
   if (!customer) {
@@ -1491,7 +1491,7 @@ export async function getAdminCustomerDetail(input: {
             WHERE audit_logs.action = '${DUPLICATE_CONSENT_ACTION}'
               AND audit_logs.target_type = 'reservation'
               AND reservations.customer_id = ?
-            ORDER BY audit_logs.created_at DESC
+            ORDER BY julianday(audit_logs.created_at) DESC, audit_logs.id DESC
             LIMIT 50
           `
         )
@@ -1972,7 +1972,7 @@ export async function listAdminAuditLogs(input: {
             WHERE au.id = audit_logs.actor_id) AS actor_name
         FROM audit_logs
         ${whereClause}
-        ORDER BY created_at DESC
+        ORDER BY julianday(created_at) DESC, id DESC
         LIMIT ?
       `;
 
@@ -2260,7 +2260,8 @@ export async function getAvailableSlots(input: {
   const slots = new Map<string, AvailableSlot>();
   for (const resource of resources) {
     for (const hours of activeHours) {
-      for (let minute = hours.opensAt; minute + duration <= hours.closesAt; minute += SLOT_STEP_MINUTES) {
+      const firstMinute = Math.ceil(hours.opensAt / LOCK_GRANULARITY_MINUTES) * LOCK_GRANULARITY_MINUTES;
+      for (let minute = firstMinute; minute + duration <= hours.closesAt; minute += SLOT_STEP_MINUTES) {
         const slotStartMs = dayStartMs + minute * 60_000;
         const startIso = new Date(slotStartMs).toISOString();
         const endIso = new Date(slotStartMs + duration * 60_000).toISOString();

@@ -521,8 +521,10 @@ const buildBusinessHourSlots = (input: {
   }
 
   const slots: PublicAvailabilitySlot[] = [];
+  // Submit accepts UTC quarter-hour starts even when opening hours use other minutes.
+  const startIntervalMs = SLOT_START_INTERVAL_MINUTES * 60_000;
   for (
-    let startAt = opensAt;
+    let startAt = new Date(Math.ceil(opensAt.getTime() / startIntervalMs) * startIntervalMs);
     addMinutes(startAt, input.context.durationMinutes) <= closesAt;
     startAt = addMinutes(startAt, SLOT_START_INTERVAL_MINUTES)
   ) {

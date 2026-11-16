@@ -25,6 +25,7 @@ export type AdminCustomerMergeError =
   | "already_merged"
   | "target_already_merged"
   | "source_blocked"
+  | "customer_time_conflict"
   | "phone_hash_mismatch"
   | "forbidden"
   | "missing_database";
@@ -76,6 +77,22 @@ const fetchCustomerForMerge = async (
     .bind(id)
     .first<CustomerMergeRow>();
 };
+
+// Dropping a live source lock would leave its reservation protected only by the
+// target lock's owner, which a later cancellation or cleanup can remove.
+const LIVE_SOURCE_LOCK_CONFLICT = `EXISTS (
+  SELECT 1 FROM customer_time_locks source_lock
+  JOIN reservations r ON r.id = source_lock.owner_id AND r.customer_id = source_lock.customer_id
+  WHERE source_lock.customer_id = ? AND source_lock.owner_type = 'reservation'
+    AND r.status IN ('pending_approval', 'confirmed')
+    AND EXISTS (
+      SELECT 1 FROM customer_time_locks target_lock
+      WHERE target_lock.customer_id = ? AND target_lock.slot_at = source_lock.slot_at
+    )
+)`;
+
+const hasLiveSourceLockConflict = async (db: D1Database, sourceId: string, targetId: string): Promise<boolean> =>
+  (await db.prepare(`SELECT 1 AS hit WHERE ${LIVE_SOURCE_LOCK_CONFLICT}`).bind(sourceId, targetId).first()) !== null;
 
 // 空白だけの値は「未入力」と同じ扱いにする。全角スペース (U+3000 = 12288) まで落とすのは
 // 日本語の手入力で一番出やすい形だから (operations.ts の施術メモ判定と同じ文字集合)。
@@ -144,6 +161,9 @@ export const executeAdminCustomerMerge = async (input: {
   if (source.phone_hash === null || target.phone_hash === null || source.phone_hash !== target.phone_hash) {
     return { ok: false, error: "phone_hash_mismatch" };
   }
+  if (await hasLiveSourceLockConflict(input.db, input.sourceId, input.targetId)) {
+    return { ok: false, error: "customer_time_conflict" };
+  }
 
   const nowIso = new Date((input.now ?? Date.now)()).toISOString();
   const phoneHashPrefix = source.phone_hash.slice(0, 8);
@@ -209,9 +229,10 @@ export const executeAdminCustomerMerge = async (input: {
                 AND target.merged_into_id IS NULL
                 AND target.phone_hash = customers.phone_hash
             )
+            AND NOT ${LIVE_SOURCE_LOCK_CONFLICT}
         `
       )
-      .bind(input.targetId, nowIso, input.sourceId, ...actorSnapshot.bindings, input.targetId),
+      .bind(input.targetId, nowIso, input.sourceId, ...actorSnapshot.bindings, input.targetId, input.sourceId, input.targetId),
     input.db
       .prepare(
         `
@@ -309,13 +330,11 @@ export const executeAdminCustomerMerge = async (input: {
       )
       .bind(input.targetId, input.sourceId, auditId),
     // customer_time_locks has UNIQUE(customer_id, slot_at). When source
-    // and target both hold locks at the same slot (legitimate when
-    // duplicate customer records each booked the same time before
-    // merging), a naive UPDATE customer_id=target collides and aborts
-    // the whole batch. Resolution: first DELETE the source locks whose
-    // slot already exists on the target side (target's lock for its own
-    // reservation is the canonical owner), then UPDATE the remaining
-    // source locks to target. Both statements gate on the audit row so
+    // and target both hold leftover locks at the same slot, a naive UPDATE
+    // customer_id=target collides and aborts the batch. The first UPDATE
+    // already refused overlaps owned by live source reservations. Drop only
+    // the remaining redundant source locks, then retarget the rest.
+    // Both statements gate on the audit row so
     // a race-lost batch leaves customer_time_locks untouched.
     input.db
       .prepare(
@@ -363,6 +382,9 @@ export const executeAdminCustomerMerge = async (input: {
   if (customersChanged === 0) {
     if (await adminWriteWasRevoked(input.db, input.admin)) {
       return { ok: false, error: "forbidden" };
+    }
+    if (await hasLiveSourceLockConflict(input.db, input.sourceId, input.targetId)) {
+      return { ok: false, error: "customer_time_conflict" };
     }
     // Lost race to a concurrent merge of the same source. The batch's
     // audit INSERT and reservations UPDATE both no-op via the changes()

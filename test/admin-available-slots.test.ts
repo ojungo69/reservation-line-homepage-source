@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getAvailableSlots } from "../src/admin/operations";
 import { jstDayRangeFromKey } from "../src/admin/shared";
+import { parseStartAt } from "../src/admin/reservation-time-utils";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 
 // This file unit-tests getAvailableSlots directly; admin-create-reservation.test.ts covers HTTP routing.
@@ -152,6 +153,18 @@ describe("getAvailableSlots", () => {
     });
     // Slots are spaced 15 minutes apart.
     expect(result.slots[1].startAt).toBe(isoAtMinute(OPEN_MONDAY, OPEN_MINUTE + 15));
+  });
+
+  it.each([
+    { opensAt: "09:12", firstMinute: 555 },
+    { opensAt: "09:10", firstMinute: 550 },
+  ])("offers writable 5-minute starts after an $opensAt opening", async ({ opensAt, firstMinute }) => {
+    db.sqlite.prepare("UPDATE store_business_hours SET opens_at = ? WHERE store_id = ? AND weekday = 1").run(opensAt, STORE_ID);
+    const result = await getAvailableSlots({ db: db as unknown as D1Database, storeId: STORE_ID, date: OPEN_MONDAY });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("availability failed");
+    expect(result.slots[0].startAt).toBe(isoAtMinute(OPEN_MONDAY, firstMinute));
+    expect(result.slots.every((slot) => parseStartAt(slot.startAt, 5) !== undefined)).toBe(true);
   });
 
   it("omits inactive resources from both all-resource and explicit-resource queries", async () => {

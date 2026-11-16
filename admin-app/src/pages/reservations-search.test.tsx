@@ -7,7 +7,7 @@ import ReservationsPage from "./reservations";
 
 const state = vi.hoisted(() => ({ isNarrow: false }));
 
-vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
+vi.mock("react-router", () => ({ useNavigate: () => vi.fn(), useLocation: () => ({ state: null }) }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { role: "owner", storeId: null } }),
 }));
@@ -75,7 +75,7 @@ describe("ReservationsPage search feedback", () => {
     await screen.findByText("架空 花子");
     expect(screen.getByText("1件")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "承認待ちのみ" }));
+    fireEvent.click(screen.getByRole("button", { name: "過去30日" }));
 
     // 前の条件の行を操作できると、利用者は新しい検索結果を承認したつもりになる。
     expect(screen.queryByText("架空 花子")).toBeNull();

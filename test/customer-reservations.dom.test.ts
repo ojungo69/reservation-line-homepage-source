@@ -11,7 +11,10 @@ const APPLICATION_NOTICE =
 
 let dom: JSDOM;
 
-const setup = async (reservations: unknown[]) => {
+const setup = async (reservations: unknown[], fetch = vi.fn(async () => ({
+  status: 200,
+  json: async () => ({ ok: true, reservations })
+}))) => {
   dom = new JSDOM(renderCustomerReservationsPage({ liffId: "test-liff" }), {
     runScripts: "outside-only",
     url: "https://example.com/customer/reservations"
@@ -19,10 +22,7 @@ const setup = async (reservations: unknown[]) => {
   // Exercise the page's real bootstrap; only LINE and the HTTP boundary are fake.
   Object.assign(dom.window, {
     Headers,
-    fetch: vi.fn(async () => ({
-      status: 200,
-      json: async () => ({ ok: true, reservations })
-    })),
+    fetch,
     liff: {
       init: async () => undefined,
       isLoggedIn: () => true,
@@ -90,4 +90,38 @@ describe("customer reservations page (JSDOM)", () => {
       "ご予約の変更・キャンセルをご希望の場合は、お手数ですが当店公式LINEのトークからご連絡くださいませ。"
     );
   });
+
+  it.each(["HTTP 500", "network failure"])("ends loading and can retry after %s", async (failure) => {
+    let finishRetry!: (response: { status: number; json: () => Promise<unknown> }) => void;
+    const fetch = vi.fn()
+      .mockImplementationOnce(async () => {
+        if (failure === "network failure") throw new dom.window.Error("offline");
+        return { status: 500, json: async () => ({ ok: false, reason: "internal_error" }) };
+      })
+      .mockImplementationOnce(() => new Promise((resolve) => { finishRetry = resolve; }));
+    const document = await setup([], fetch);
+    const list = document.getElementById("reservations");
+    const retry = document.querySelector<HTMLButtonElement>("button");
+
+    expect(document.getElementById("status-banner")?.textContent).toBe("通信に失敗しました");
+    expect(list?.textContent).not.toContain("読み込み中");
+    expect(retry?.textContent).toBe("再試行");
+    expect(retry?.hidden).toBe(false);
+
+    retry!.click();
+    retry!.click();
+    expect(retry?.disabled).toBe(true);
+    expect(list?.getAttribute("aria-busy")).toBe("true");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    finishRetry({ status: 200, json: async () => ({ ok: true, reservations: [{
+      id: "reservation-recovered", storeName: "架空店", serviceName: "サンプル施術",
+      startAt: "2026-11-17T01:00:00Z", endAt: "2026-11-17T02:00:00Z", status: "confirmed"
+    }] }) });
+    await vi.waitFor(() => expect(list?.querySelector("article h2")?.textContent).toBe("架空店 / サンプル施術"));
+    expect(list?.hasAttribute("aria-busy")).toBe(false);
+    expect(retry?.hidden).toBe(true);
+    expect(document.getElementById("status-banner")?.textContent).toBe("");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
 });

@@ -340,6 +340,99 @@ describe("listStoreLogins", () => {
 });
 
 describe("upsertStoreLogin", () => {
+  it.each(
+    (["create", "rotate"] as const).flatMap((operation) =>
+      (["same", "different-role", "forged-hash", "actor-revoked"] as const).map((outcome) => ({ operation, outcome })),
+    ),
+  )(
+    "handles a concurrent $operation winner with $outcome recovery credentials",
+    async ({ operation, outcome }) => {
+      const db = createMigratedSqliteD1();
+      try {
+        insertAdminUserHelper(db, { id: OWNER.id, email: OWNER.email, accessSubject: OWNER.id, role: OWNER.role });
+        if (operation === "rotate") {
+          insertStaffMember(db, { id: "staff_login_osaka", storeId: "osaka" });
+          insertAdminUser(db, {
+            id: "original_login", email: "old@example.com", accessSubject: "original-subject",
+            role: "staff", staffMemberId: "staff_login_osaka",
+          });
+        }
+        const request = {
+          storeId: "osaka", email: "winner@example.com", role: "staff" as const,
+          idempotencyKey: `parallel-${operation}`,
+        };
+        let winner: Awaited<ReturnType<typeof upsertStoreLogin>> | undefined;
+        const racing = {
+          prepare: db.prepare.bind(db),
+          batch: async (statements: D1PreparedStatement[]) => {
+            winner = await upsertStoreLogin({
+              db: asD1(db), admin: OWNER, request: outcome === "different-role" ? { ...request, role: "owner" } : request, now: NOW,
+            });
+            if (outcome === "forged-hash") {
+              db.sqlite.prepare("UPDATE idempotency_keys SET request_hash = 'forged-hash' WHERE idempotency_key = ?").run(request.idempotencyKey);
+            }
+            if (outcome === "actor-revoked") {
+              db.sqlite.prepare("UPDATE admin_users SET active = 0 WHERE id = ?").run(OWNER.id);
+            }
+            return db.batch(statements);
+          },
+        } as unknown as D1Database;
+
+        const loser = await upsertStoreLogin({ db: racing, admin: OWNER, request, now: NOW });
+
+        expect(winner).toEqual({ ok: true, storeId: "osaka", replayed: false });
+        expect(loser).toEqual(outcome === "same"
+          ? { ok: true, storeId: "osaka", replayed: true }
+          : { ok: false, error: outcome === "actor-revoked" ? "forbidden" : "invalid_request" });
+        expect(countActiveLoginsForStore(db, "osaka")).toBe(1);
+        expect(countAuditLogs(db, "settings.store_login.upsert")).toBe(1);
+        expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM idempotency_keys WHERE status = 'succeeded'").get()).toEqual({ n: 1 });
+      } finally { db.sqlite.close(); }
+    },
+  );
+
+  it.each(["refresh", "rotate", "revive", "revoke"] as const)(
+    "%s rejects a target promoted to system_admin immediately before the write batch",
+    async (operation) => {
+      const db = createMigratedSqliteD1();
+      try {
+        insertAdminUserHelper(db, { id: OWNER.id, email: OWNER.email, accessSubject: OWNER.id, role: OWNER.role });
+        const staffId = operation === "revive" ? "staff_login_osaka" : "race_legacy_member";
+        insertStaffMember(db, { id: staffId, storeId: "osaka" });
+        insertAdminUser(db, {
+          id: "race_target", email: "race@example.com", accessSubject: "race-subject",
+          role: "staff", active: operation === "revive" ? 0 : 1,
+          staffMemberId: staffId,
+        });
+        const racing = {
+          prepare: db.prepare.bind(db),
+          batch: async (statements: D1PreparedStatement[]) => {
+            db.sqlite.exec("UPDATE admin_users SET role = 'system_admin' WHERE id = 'race_target'");
+            return db.batch(statements);
+          },
+        } as unknown as D1Database;
+
+        const result = operation === "revoke"
+          ? await revokeStoreLogin({ db: racing, admin: OWNER, storeId: "osaka", now: NOW })
+          : await upsertStoreLogin({
+              db: racing, admin: OWNER, now: NOW,
+              request: {
+                storeId: "osaka", email: operation === "rotate" ? "new@example.com" : "race@example.com",
+                role: "owner", idempotencyKey: `target-race-${operation}`,
+              },
+            });
+
+        expect(result).toEqual({ ok: false, error: "invalid_request" });
+        expect(readAdminUser(db, "race_target")).toMatchObject({
+          role: "system_admin", active: operation === "revive" ? 0 : 1, access_subject: "race-subject",
+        });
+        expect(countAdminUsers(db)).toBe(2);
+        expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM idempotency_keys").get()).toEqual({ n: 0 });
+        expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_logs").get()).toEqual({ n: 0 });
+      } finally { db.sqlite.close(); }
+    },
+  );
+
   it("creates a fresh pending login + staff_login_<store> + audit row (none case)", async () => {
     const db = createMigratedSqliteD1();
     insertAdminUserHelper(db, { id: OWNER.id, email: OWNER.email, accessSubject: OWNER.id, role: OWNER.role });

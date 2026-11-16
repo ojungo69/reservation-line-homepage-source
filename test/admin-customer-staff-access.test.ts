@@ -47,7 +47,7 @@ const customerRoutes: CustomerRoute[] = [
   { method: "PUT", suffix: "/visits/:visitId/notes", body: { treatmentNotes: "Example notes", expectedTreatmentNotes: null } }
 ];
 
-const collectionQueries = ["?mode=list", "?mode=list&view=archived", "?q=Example"];
+const collectionQueries = ["?mode=list", "?mode=list&view=archived", "?q=Example", "?q=E"];
 const createCustomerBody = {
   idempotencyKey: "create-1",
   displayName: "Example New Customer",

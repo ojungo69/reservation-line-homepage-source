@@ -1,8 +1,8 @@
 # Reservation system source
 
-Cloudflare Workers / Hono / D1、LINE、Google Calendar、React 管理画面で動く予約システムの公開ソースです。このリポジトリを今後の OSS 開発の正本とします。架空の1店舗から始められますが、実予約には各運営者の Cloudflare・LINE・Google アカウントと公開文書が必要です。
+Cloudflare Workers / Hono / D1、LINE、Google Calendar、React 管理画面で動く現行予約システムの公開ソースです。このリポジトリで現行アプリの共有コードを管理します。架空の1店舗から始められますが、実予約には各運営者の Cloudflare・LINE・Google アカウントと公開文書が必要です。
 
-[導入手順](docs/INSTALL.md)は、独立した Cloudflare リソースを用意し、ローカルで1店舗を確かめてから、外部認証・通知・法定表示を確認する順序です。以前の [Salon Reservation OSS](https://github.com/ojungo69/salon-reservation-oss) の導入手順を参考にしています。旧版は Durable Objects と owner token を使う別実装であり、このアプリの導入ファイルや認証方式とは互換ではありません。
+[導入手順](docs/INSTALL.md)は、独立した Cloudflare リソースを用意し、ローカルで1店舗を確かめてから、外部認証・通知・法定表示を確認する順序です。LINE / Google に依存しない汎用版の [Salon Reservation OSS](https://github.com/ojungo69/salon-reservation-oss) は独立して保守する別実装です。Durable Objects と owner token を使うため、このアプリの導入ファイルや認証方式とは互換ではありません。
 
 ## ローカルで最初に確認する
 

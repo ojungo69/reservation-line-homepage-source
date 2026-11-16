@@ -85,10 +85,10 @@ vi.mock("@/hooks/use-customers", () => ({
     data: searchState.noData ? undefined : {
       ok: true,
       truncated: searchState.truncated,
-      customers: query.length >= 2 && !searchState.empty
+      customers: query.length > 0 && !searchState.empty
         ? [{
             id: "search-customer",
-            displayName: "検索 花子",
+            displayName: query === "a" ? "Alice" : query === "検" ? "検証 太郎" : "検索 花子",
             displayNameKana: "ケンサク ハナコ",
             phoneNormalized: "09012345678",
             blockStatus: "active",
@@ -397,57 +397,42 @@ describe("CustomersPage", () => {
     expect(screen.getByText("アーカイブ済み201件")).toBeTruthy();
   });
 
-  // 1 文字だけ入れた状態は検索が走らず一覧に戻る。何も言わないと「その 1 文字で
-  // 絞った結果、これだけしか居ない」と読めてしまう。
-  it("検索語が1文字のときは絞り込めていないことを伝える", () => {
+  it.each([
+    { query: "検", name: "検証 太郎" },
+    { query: "検 ", name: "検証 太郎" },
+    { query: "a", name: "Alice" },
+  ])("1文字の名前検索 $query で一致した顧客を表示する", ({ query, name }) => {
     vi.useFakeTimers();
     render(<CustomersPage />);
 
-    const search = screen.getByPlaceholderText("名前・カナ・電話番号で検索...");
-    fireEvent.change(search, { target: { value: "検" } });
+    const search = screen.getByRole("textbox", { name: "顧客を検索" });
+    fireEvent.change(search, { target: { value: query } });
     act(() => vi.advanceTimersByTime(300));
 
-    expect(screen.getByText(/2 文字以上入力してください/)).toBeTruthy();
-
-    fireEvent.change(search, { target: { value: "検索" } });
-    act(() => vi.advanceTimersByTime(300));
+    expect(screen.getByText(name)).toBeTruthy();
+    expect(screen.queryByText("山田 花子")).toBeNull();
     expect(screen.queryByText(/2 文字以上入力してください/)).toBeNull();
-  });
 
-  // 「絞り込んでいません」の判定は trim 後、検索に出すかどうかは trim 前、という
-  // ずれがあると、見える文字 1 つ + 空白のときに「一覧です」と書いてある表の中身が
-  // 絞り込まれる。居る顧客を居ないと読み違える。
-  it("見える文字が1つで後ろに空白があっても検索に出さない", () => {
-    vi.useFakeTimers();
-    render(<CustomersPage />);
-
-    const search = screen.getByPlaceholderText("名前・カナ・電話番号で検索...");
-    fireEvent.change(search, { target: { value: "検 " } });
-    act(() => vi.advanceTimersByTime(300));
-
-    expect(screen.getByText(/2 文字以上入力してください/)).toBeTruthy();
-    // 一覧のままであること。検索結果に切り替わっていれば「検索 花子」だけが並ぶ。
-    expect(screen.queryByText("検索 花子")).toBeNull();
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.queryByText(name)).toBeNull();
     expect(screen.getByText("山田 花子")).toBeTruthy();
+    expect(screen.getByText("全201件")).toBeTruthy();
   });
 
-  // debounce は 300ms 遅れる。2 文字から 1 文字へ消した直後は「短すぎる」が先に true に
-  // なる一方 debouncedQuery はまだ前の 2 文字なので、「絞り込み前の一覧です」と書いてある
-  // 下に前の語の検索結果が出続ける。表示は同時に切り替える。
-  it("2文字から1文字へ消した直後に前の語の検索結果を出し続けない", () => {
+  it("2文字から1文字へ消した直後は旧結果を隠し、debounce後に新しい一致を表示する", () => {
     vi.useFakeTimers();
     render(<CustomersPage />);
 
-    const search = screen.getByPlaceholderText("名前・カナ・電話番号で検索...");
+    const search = screen.getByRole("textbox", { name: "顧客を検索" });
     fireEvent.change(search, { target: { value: "検索" } });
     act(() => vi.advanceTimersByTime(300));
     expect(screen.getByText("検索 花子")).toBeTruthy();
 
-    // 1 文字消す。debounce が明ける前の状態を見る。
     fireEvent.change(search, { target: { value: "検" } });
-    expect(screen.getByText(/2 文字以上入力してください/)).toBeTruthy();
     expect(screen.queryByText("検索 花子")).toBeNull();
-    expect(screen.getByText("山田 花子")).toBeTruthy();
+    expect(screen.queryByText("山田 花子")).toBeNull();
+    act(() => vi.advanceTimersByTime(300));
+    expect(screen.getByText("検証 太郎")).toBeTruthy();
   });
 
   it("スタッフはコード入力なしで顧客一覧を開く", () => {

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 import { createAccessJwksFetchMock, createAccessJwtFixture as createAccessJwtFixtureBase, type AccessJwk, insertAdminUser as insertAdminUserHelper, type AdminRole } from "./helpers/admin-access";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
+import { softDeleteAdminStaff } from "../src/admin/settings-staff";
 
 const TEAM_DOMAIN = "https://team.example.cloudflareaccess.com";
 const ACCESS_AUD = "self-deactivation-test-aud";
@@ -322,6 +323,41 @@ describe("F-3.2: staff self-deactivation lockout guard (DELETE)", () => {
 });
 
 describe("F-3.3: system_admin role escalation guard", () => {
+  it("keeps a newly promoted system_admin active when an owner's delete loses the race", async () => {
+    const db = createMigratedSqliteD1();
+    try {
+      seedStore(db);
+      seedStaff(db, { id: "staff_promoted", storeId: "store_test" });
+      insertAdminUser(db);
+      insertAdminUser(db, {
+        id: "admin_promoted", email: "promoted@example.invalid", accessSubject: "promoted-subject",
+        staffMemberId: "staff_promoted", role: "staff"
+      });
+      const originalBatch = db.batch.bind(db);
+      db.batch = async (statements) => {
+        db.sqlite.exec(`
+          UPDATE staff_members SET role='system_admin', version=version+1 WHERE id='staff_promoted';
+          UPDATE admin_users SET role='system_admin' WHERE id='admin_promoted';
+        `);
+        return originalBatch(statements);
+      };
+      const result = await softDeleteAdminStaff({
+        db: db as unknown as D1Database,
+        admin: { id: "admin_self_deact_1", email: ADMIN_EMAIL, role: "owner", staff_member_id: null, store_id: null },
+        staffId: "staff_promoted"
+      });
+      expect(result).toEqual({ ok: false, error: "forbidden_role_escalation" });
+      expect(db.sqlite.prepare("SELECT role,active FROM staff_members WHERE id='staff_promoted'").get())
+        .toMatchObject({ role: "system_admin", active: 1 });
+      expect(db.sqlite.prepare("SELECT role,active FROM admin_users WHERE id='admin_promoted'").get())
+        .toMatchObject({ role: "system_admin", active: 1 });
+      expect(db.sqlite.prepare("SELECT COUNT(*) n FROM audit_logs WHERE action='settings.staff.delete'").get())
+        .toMatchObject({ n: 0 });
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
   afterEach(() => vi.unstubAllGlobals());
 
   it("refuses owner creating system_admin with 403 forbidden_role_escalation", async () => {

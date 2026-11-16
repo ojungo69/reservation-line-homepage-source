@@ -73,7 +73,8 @@ export default function ActivityPage() {
     keyword: debouncedKeyword || undefined,
   }), [from, to, actorType, debouncedKeyword]);
 
-  const { data, isPending, isError, refetch } = useAuditLogs(filter);
+  const { data, isPending, isError, isPlaceholderData, isFetching, refetch } = useAuditLogs(filter);
+  const isSearching = keyword.trim() !== debouncedKeyword || isPending || isPlaceholderData || isFetching;
 
   const staffMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -85,7 +86,7 @@ export default function ActivityPage() {
     return map;
   }, [settings]);
 
-  const logs = !isError && data?.ok ? data.auditLogs : [];
+  const logs = data?.ok ? data.auditLogs : [];
 
   const groupedByDate = useMemo(() => {
     const groups = new Map<string, typeof logs>();
@@ -152,30 +153,28 @@ export default function ActivityPage() {
         </div>
       </div>
 
-      {isPending && (
+      {isSearching ? (
         <div className="space-y-3">
+          <p role="status" className="text-sm text-muted-foreground">検索中です…</p>
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-16 w-full" />
           ))}
         </div>
-      )}
-
-      {isError && (
+      ) : isError ? (
         <div role="alert" className="space-y-2 text-sm text-destructive">
           <p>操作記録の取得に失敗しました。</p>
           <Button variant="outline" size="sm" onClick={() => { void refetch(); }}>
             再読み込み
           </Button>
         </div>
-      )}
-
-      {!isPending && !isError && logs.length === 0 && (
+      ) : <>
+      {logs.length === 0 && (
         <p className="text-sm text-muted-foreground">該当する操作記録はありません</p>
       )}
 
       {/* サーバは 200 件で打ち切る (operations.ts の hard cap)。API に truncated フラグは
           無いため件数一致で検知する — ちょうど 200 件でも警告は誤りにならない。 */}
-      {!isPending && logs.length >= 200 && (
+      {logs.length >= 200 && (
         <p className="text-sm text-amber-600 dark:text-amber-400">
           表示件数が上限に達しました。期間を短くするかフィルタを追加してください。
         </p>
@@ -197,6 +196,7 @@ export default function ActivityPage() {
           ))}
         </div>
       ))}
+      </>}
     </div>
   );
 }

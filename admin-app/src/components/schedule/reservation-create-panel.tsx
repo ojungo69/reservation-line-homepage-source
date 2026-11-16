@@ -379,7 +379,7 @@ function CustomerFields({
                   autoComplete="off"
                 />
                 <p id="rcp-customer-search-help" className="sr-only">
-                  2文字以上入力すると候補が表示されます。Tabキーで候補へ移動して選択できます。
+                  名前は1文字から検索できます。Tabキーで候補へ移動して選択できます。
                 </p>
                 {searchOpen && (
                   <div
@@ -884,7 +884,7 @@ export function ReservationCreatePanel({
             isStaff={!isPrivileged}
             selectedCustomer={selectedCustomer}
             customerSearch={customerSearch}
-            searchOpen={customerSearch.trim().length >= 2}
+            searchOpen={customerSearch.trim().length > 0}
             searchLoading={
               customerSearchQuery.isFetching || debouncedSearch !== customerSearch.trim()
             }

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AdminUser } from "../src/admin/access";
 import { cancelAdminExternalBlock, createAdminExternalBlock } from "../src/admin/external-blocks";
-import { getAdminReservationDetail } from "../src/admin/operations";
+import { getAdminCustomerDetail, getAdminReservationDetail, listAdminAuditLogs } from "../src/admin/operations";
 import { hashRateLimitKey } from "../src/auth/reservation-gate";
 import { createApp } from "../src/app";
 import worker from "../src/index";
@@ -3063,5 +3063,57 @@ describe("来店履歴のページサイズ", () => {
     expect(readConstant("../admin-app/src/components/customers/customer-detail-panel.tsx")).toBe(
       readConstant("../src/admin/operations.ts")
     );
+  });
+});
+
+
+describe("mixed audit timestamp ordering", () => {
+  const owner: AdminUser = { id: "admin_operations_owner_1", email: ADMIN_EMAIL, role: "owner", staff_member_id: null, store_id: null };
+
+  it("keeps the newest 200 records across timestamp formats, milliseconds and stable ties", async () => {
+    const db = createMigratedSqliteD1();
+    try {
+      const insert = db.sqlite.prepare(`INSERT INTO audit_logs
+        (id, actor_type, action, target_type, target_id, created_at)
+        VALUES (?, 'staff', 'test', 'reservation', 'ordering', ?)`);
+      for (let i = 0; i < 200; i++) {
+        insert.run(`old_${String(i).padStart(3, "0")}`, `2026-11-16T01:00:00.${String(i).padStart(3, "0")}Z`);
+      }
+      insert.run("newest_z", "2026-11-16 15:00:00");
+      insert.run("newest_a", "2026-11-16T15:00:00.000Z");
+      insert.run("newest_ms", "2026-11-16T15:00:00.001Z");
+
+      const result = await listAdminAuditLogs({ db: db as unknown as D1Database, admin: owner });
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("audit request failed");
+      expect(result.auditLogs).toHaveLength(200);
+      expect(result.auditLogs.slice(0, 3).map((row) => row.id)).toEqual(["newest_ms", "newest_z", "newest_a"]);
+      expect(result.auditLogs.at(-1)?.id).toBe("old_003");
+    } finally { db.sqlite.close(); }
+  });
+
+  it("orders reservation audit and both duplicate-consent readers by actual capture time", async () => {
+    const db = createMigratedSqliteD1();
+    try {
+      insertAdminUser(db);
+      insertTodayReservation(db);
+      const insert = db.sqlite.prepare(`INSERT INTO audit_logs
+        (id, actor_type, action, target_type, target_id, metadata_json, created_at)
+        VALUES (?, 'customer', 'public_reservation_duplicate_consent', 'reservation', 'reservation_admin_ops_today_1', ?, ?)`);
+      for (const [id, createdAt] of [["old", "2026-11-16T01:00:00.000Z"], ["new", "2026-11-16 15:00:00"]]) {
+        insert.run(id, JSON.stringify({ stage: "soft", warningVersion: id, consentedAt: createdAt, existingReservations: [] }), createdAt);
+      }
+
+      const detail = await getAdminReservationDetail({ db: db as unknown as D1Database, admin: owner, reservationId: "reservation_admin_ops_today_1" });
+      expect(detail.ok).toBe(true);
+      if (!detail.ok) throw new Error("reservation detail failed");
+      expect(detail.reservation.audit.map((row) => row.id)).toEqual(["new", "old"]);
+      expect(detail.reservation.duplicateConsent?.warningVersion).toBe("new");
+
+      const customer = await getAdminCustomerDetail({ db: db as unknown as D1Database, admin: owner, customerId: "customer_admin_ops_1" });
+      expect(customer.ok).toBe(true);
+      if (!customer.ok) throw new Error("customer detail failed");
+      expect(customer.customer.duplicateConsentHistory.map((row) => row.warningVersion)).toEqual(["new", "old"]);
+    } finally { db.sqlite.close(); }
   });
 });

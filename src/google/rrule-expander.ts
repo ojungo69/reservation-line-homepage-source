@@ -430,6 +430,9 @@ export const expandRrule = (input: RruleExpanderInput): RruleExpanderResult => {
   } else {
     expanded = expandMonthly(parsed, input.dtstartMs, input.windowEndMs, cap, localOffsetMs);
   }
+  if (expanded.occurrences.some((date) => !Number.isFinite(date.getTime()))) {
+    return { ok: false, reason: "invalid_rrule" };
+  }
 
   // truncatedByWindow: the per-FREQ expand function already tracks
   // sawAfterWindow precisely. It's true when a valid candidate exists
