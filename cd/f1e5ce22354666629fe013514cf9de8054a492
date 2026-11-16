@@ -1,0 +1,24 @@
+specs/004-system-improvement/plan.md
+  h_c2efce2f38e110 23
+specs/004-system-improvement/tasks.md
+  h_c2efce2f38e110 23-24
+src/admin/reservation-create.ts
+  h_c2efce2f38e110 901-919,1074-1082
+src/google/import-sync.ts
+  h_c2efce2f38e110 807-808,4281,4290,4292,4393-4446,4584,4593-4628,4679
+src/line/notifications.ts
+  h_c2efce2f38e110 895-898,1054,1416,1812,1823-1867,1961
+test/all-day-linked-cancellation.test.ts
+  h_c2efce2f38e110 21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cdf1e5ce22354666629fe013514cf9de8054a492",
+  "prompts": {},
+  "humans": {
+    "h_c2efce2f38e110": {
+      "author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
