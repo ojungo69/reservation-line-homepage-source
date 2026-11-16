@@ -2,6 +2,7 @@ import { adminWriteGuard, adminWriteWasRevoked } from "./write-authorization";
 import type { AdminUser } from "./access";
 import {
   buildCreateContext,
+  expiredSettingsIdempotencyStatement,
   MAX_ID_LENGTH,
   MAX_IDEMPOTENCY_KEY_LENGTH,
   MAX_NAME_LENGTH,
@@ -21,8 +22,8 @@ import {
 // Tier C.3 4c — store_resources editor. Same shape as settings-services.ts
 // (role gate, idempotency_keys POST, audit_logs, has_future_reservations
 // write-time guard on deactivation). FK from reservations(resource_id) is
-// ON DELETE CASCADE — hard delete is hazardous because it would orphan
-// reservation rows; soft-delete via active=0 with the future-reservation
+// ON DELETE RESTRICT; hard delete also cascades to lock/block state.
+// Soft-delete via active=0 with the future-reservation
 // guard keeps the contract intact.
 
 export type AdminResourceType = "staff_calendar";
@@ -162,7 +163,7 @@ type ResourceRow = {
 };
 
 const fetchResource = async (db: D1Database, id: string): Promise<ResourceRow | null> =>
-  db
+  await db
     .prepare(
       `SELECT id, store_id, name, resource_type, active FROM store_resources WHERE id = ?`
     )
@@ -190,12 +191,12 @@ async function handleResourceUpdateBatchError(
   db: D1Database,
   error: unknown,
   resourceId: string,
-  isDeactivating: boolean
+  requestedInactive: boolean
 ): Promise<AdminResourceUpdateResult> {
   if (isActorTypeBatchError(error)) {
     const fresh = await fetchResource(db, resourceId);
     if (!fresh) return { ok: false, error: "not_found" };
-    if (isDeactivating) return { ok: false, error: "has_future_reservations" };
+    if (requestedInactive) return { ok: false, error: "has_future_reservations" };
     return { ok: false, error: "write_failed" };
   }
   console.error("updateAdminResource batch failed", {
@@ -242,6 +243,13 @@ export const createAdminResource = async (input: {
   try {
     await input.db.batch([
       adminWriteGuard(input.db, input.admin),
+      expiredSettingsIdempotencyStatement({
+        db: input.db,
+        key: input.request.idempotencyKey,
+        requestHash,
+        targetType: "store_resource",
+        nowIso
+      }),
       startedIdempotencyStatement({
         db: input.db,
         id: idempotencyId,
@@ -335,7 +343,8 @@ export const updateAdminResource = async (input: {
     return { ok: false, error: "has_future_reservations" };
   }
 
-  const guardActive = isDeactivating ? 1 : 0;
+  // Check the current active state so a concurrent reactivation cannot bypass the booking guard.
+  const guardActive = input.request.active ? 0 : 1;
   try {
     await input.db.batch([
       adminWriteGuard(input.db, input.admin),
@@ -344,7 +353,7 @@ export const updateAdminResource = async (input: {
           `UPDATE store_resources
            SET store_id = ?, name = ?, resource_type = ?, active = ?, updated_at = ?
            WHERE id = ?
-             AND (? = 0 OR NOT EXISTS (
+             AND (? = 0 OR active = 0 OR NOT EXISTS (
                SELECT 1 FROM reservations
                WHERE resource_id = ?
                  AND status IN ('pending_approval', 'confirmed')
@@ -398,7 +407,7 @@ export const updateAdminResource = async (input: {
     if (await adminWriteWasRevoked(input.db, input.admin, error)) {
       return { ok: false, error: "forbidden" };
     }
-    return handleResourceUpdateBatchError(input.db, error, input.resourceId, isDeactivating);
+    return handleResourceUpdateBatchError(input.db, error, input.resourceId, !input.request.active);
   }
 
   return { ok: true, resourceId: input.resourceId };

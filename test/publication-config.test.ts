@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -33,6 +33,103 @@ describe("public repository configuration", () => {
       expect(text).not.toMatch(/CLOUDFLARE_API_TOKEN|CF_API_TOKEN|ENV_PRODUCTION|ENV_STAGING|CI_USE_SELF_HOSTED/);
     }
   });
+});
+
+describe("trusted Sonar coverage import", () => {
+  const directories: string[] = [];
+  const workflow = parse(readFileSync(new URL("../.github/workflows/sonarqube.yml", import.meta.url), "utf8"));
+  const steps = workflow.jobs.analyze.steps as Array<{
+    name: string;
+    id?: string;
+    run?: string;
+    env?: Record<string, string>;
+    with?: Record<string, string>;
+  }>;
+  const prepare = steps.find(step => step.name === "Prepare coverage destination")!;
+  const download = steps.find(step => step.name === "Download coverage from CI")!;
+  const importReports = steps.find(step => step.name === "Import validated coverage reports");
+  const validate = steps.find(step => step.name === "Validate analysis inputs")!;
+  const reports = ["coverage/lcov.info", "admin-app/coverage/lcov.info"];
+
+  afterEach(() => {
+    for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+  });
+
+  const fixture = () => {
+    const directory = mkdtempSync(join(tmpdir(), "public-sonar-coverage-"));
+    directories.push(directory);
+    const workspace = join(directory, "checkout");
+    const runnerTemp = join(directory, "runner-temp");
+    const githubOutput = join(directory, "github-output");
+    for (const path of ["src", "public", "admin-app/src", ".git"]) mkdirSync(join(workspace, path), { recursive: true });
+    mkdirSync(runnerTemp);
+    writeFileSync(githubOutput, "");
+    writeFileSync(join(workspace, "src/app.ts"), "export const source = 'checked-out revision';\n");
+    writeFileSync(join(workspace, "admin-app/src/app.ts"), "export const source = 'checked-out admin';\n");
+    writeFileSync(join(workspace, ".git/config"), "[core]\n\tbare = false\n");
+    const env = { ...process.env, GITHUB_WORKSPACE: workspace, RUNNER_TEMP: runnerTemp, GITHUB_OUTPUT: githubOutput };
+    const run = (step: { run?: string }, extra: Record<string, string> = {}) => spawnSync("bash", ["-c", step.run ?? ""], {
+      cwd: workspace, env: { ...env, ...extra }, encoding: "utf8", timeout: 5000
+    });
+    const prepared = run(prepare);
+    expect(prepared.status, prepared.stderr).toBe(0);
+    const output = Object.fromEntries(readFileSync(githubOutput, "utf8").trim().split("\n").filter(Boolean).map(line => {
+      const separator = line.indexOf("=");
+      return [line.slice(0, separator), line.slice(separator + 1)];
+    }));
+    // Replay the actual destination, including the old unsafe workspace path.
+    const artifact = download.with?.path === "." ? workspace : output.artifact_directory;
+    expect(artifact).toBeTruthy();
+    for (const [index, report] of reports.entries()) {
+      mkdirSync(dirname(join(artifact, report)), { recursive: true });
+      writeFileSync(join(artifact, report), `TN:\nSF:${index === 0 ? "src/app.ts" : "admin-app/src/app.ts"}\nDA:1,1\nend_of_record\n`);
+    }
+    const ingest = () => run(importReports ?? {}, { COVERAGE_ARTIFACT_DIR: artifact });
+    return { directory, workspace, runnerTemp, artifact, run, ingest };
+  };
+
+  it("keeps artifact source and Git configuration entries out of the checkout", () => {
+    const f = fixture();
+    const protectedPaths = ["src/app.ts", ".git/config"];
+    const originals = protectedPaths.map(path => readFileSync(join(f.workspace, path)));
+    for (const path of protectedPaths) {
+      mkdirSync(dirname(join(f.artifact, path)), { recursive: true });
+      writeFileSync(join(f.artifact, path), "artifact replacement\n");
+    }
+    const imported = f.ingest();
+    expect(imported.status, imported.stderr).toBe(0);
+    const validated = f.run(validate);
+    expect(validated.status, validated.stderr).toBe(0);
+    protectedPaths.forEach((path, index) => expect(readFileSync(join(f.workspace, path))).toEqual(originals[index]));
+    expect(dirname(f.artifact)).toBe(f.runnerTemp);
+    for (const report of reports) expect(readFileSync(join(f.workspace, report))).toEqual(readFileSync(join(f.artifact, report)));
+    expect(prepare.id).toBe("coverage_destination");
+    expect(download.with?.path).toBe("${{ steps.coverage_destination.outputs.artifact_directory }}");
+    expect(importReports?.env?.COVERAGE_ARTIFACT_DIR).toBe(download.with?.path);
+  });
+
+  it.each(reports.flatMap(report => ["missing", "empty", "symlink", "directory"].map(kind => [report, kind])))
+    ("rejects a %s report that is %s before copying either report", (report, kind) => {
+      const f = fixture();
+      const path = join(f.artifact, report);
+      rmSync(path);
+      if (kind === "empty") writeFileSync(path, "");
+      if (kind === "symlink") symlinkSync(join(f.workspace, "src/app.ts"), path);
+      if (kind === "directory") mkdirSync(path);
+      expect(f.ingest().status).not.toBe(0);
+      for (const target of reports) expect(existsSync(join(f.workspace, target))).toBe(false);
+    });
+
+  it.each(["", "coverage", "admin-app", "admin-app/coverage"])
+    ("rejects a symlink in the report parent path %s before copying", (parent) => {
+      const f = fixture();
+      const path = join(f.artifact, parent);
+      const moved = join(f.directory, "moved-artifact-parent");
+      renameSync(path, moved);
+      symlinkSync(moved, path);
+      expect(f.ingest().status).not.toBe(0);
+      for (const target of reports) expect(existsSync(join(f.workspace, target))).toBe(false);
+    });
 });
 
 describe("one-store OSS installation", () => {

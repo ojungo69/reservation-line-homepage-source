@@ -84,7 +84,7 @@ type CustomerRow = {
 };
 
 const fetchCustomer = async (db: D1Database, customerId: string) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT id, block_status
@@ -379,7 +379,7 @@ const fetchCustomerArchiveState = async (db: D1Database, customerId: string) =>
   // row. Deliberately do NOT filter archived_at here: unarchive must be able to
   // find an already-archived customer (the caller compares currentlyArchived
   // against the desired state).
-  db
+  await db
     .prepare(
       `
         SELECT id, archived_at

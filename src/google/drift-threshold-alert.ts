@@ -18,6 +18,7 @@ import { logGoogleEvent } from "../logging";
 import { safeCaptureException } from "../sentry-helpers";
 import { sha256Hex } from "../crypto-utils";
 import { OWNER_EMAIL_RECIPIENT_ID } from "../notifications/operations-email";
+import { GoogleImportClaimLostError } from "./import-claim";
 
 export type DriftThresholdAlertEnv = Pick<
   WorkerBindings,
@@ -69,15 +70,14 @@ export const enqueueDriftAlertNotifications = async (input: {
   const dedupeKey = `google_drift_alert:v1:${utcDate}:store:${input.storeId}:cal:${calHash}:recipient:${recHash}`;
   const jobId = crypto.randomUUID();
   try {
-    const insertResult = await input.db
+    const [insertResult] = await input.db.batch([input.db
       .prepare(
         `INSERT OR IGNORE INTO notification_jobs (
            id, dedupe_key, template_key, recipient_type, recipient_id,
            reservation_id, status, payload_json
          ) VALUES (?, ?, 'google_drift_alert', 'owner', ?, NULL, 'queued', ?)`
       )
-      .bind(jobId, dedupeKey, OWNER_EMAIL_RECIPIENT_ID, payloadJson)
-      .run();
+      .bind(jobId, dedupeKey, OWNER_EMAIL_RECIPIENT_ID, payloadJson)]);
     if (Number(insertResult.meta?.changes ?? 0) > 0) {
       result.insertedCount = 1;
       result.jobIds.push(jobId);
@@ -85,6 +85,7 @@ export const enqueueDriftAlertNotifications = async (input: {
       result.existingCount = 1;
     }
   } catch (error) {
+    if (error instanceof GoogleImportClaimLostError) throw error;
     safeCaptureException(error, {
       tags: { google_module: "drift-threshold-alert", operation: "drift_alert_enqueue" },
       contexts: { d1_query: { calendar_id: input.calendarId, store_id: input.storeId } }

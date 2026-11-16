@@ -4,6 +4,7 @@ import { safeCaptureException } from "../sentry-helpers";
 import { parseIsoInstantToCanonical } from "./parse-iso-instant";
 import {
   buildCreateContext,
+  expiredSettingsIdempotencyStatement,
   guardImmutableStore,
   MAX_ID_LENGTH,
   MAX_IDEMPOTENCY_KEY_LENGTH,
@@ -22,9 +23,9 @@ import {
 // Tier C.3 4c — store_closures editor. Admin manages source='admin' rows
 // (google_external_block source is reserved for the sync layer and never
 // written through this endpoint). The schema has no `active` column, so
-// DELETE here is a hard delete — there is no FK pointing at closures
-// from other tables, so the operator can drop them freely. The audit
-// log preserves the row history.
+// DELETE remains a hard delete. Migration 0060 also cancels an explicitly linked
+// all-day mirror in the same transaction; unlinked closures retain their behavior.
+// The audit log preserves the row history.
 
 export type AdminClosureCreateRequest = {
   storeId: string;
@@ -164,7 +165,7 @@ type ClosureRow = {
 };
 
 const fetchClosure = async (db: D1Database, id: string): Promise<ClosureRow | null> =>
-  db
+  await db
     .prepare(
       `SELECT id, store_id, starts_at, ends_at, reason, source FROM store_closures WHERE id = ?`
     )
@@ -252,6 +253,13 @@ export const createAdminClosure = async (input: {
   try {
     await input.db.batch([
       adminWriteGuard(input.db, input.admin),
+      expiredSettingsIdempotencyStatement({
+        db: input.db,
+        key: input.request.idempotencyKey,
+        requestHash,
+        targetType: "store_closure",
+        nowIso
+      }),
       startedIdempotencyStatement({
         db: input.db,
         id: idempotencyId,

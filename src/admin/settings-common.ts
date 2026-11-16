@@ -106,7 +106,7 @@ export const fetchAdminActionIdempotency = async (
   // bind the literal SQLite `'now'` modifier, so `datetime(?)` collapses to
   // `datetime('now')` — byte-for-byte the legacy wall-clock behavior for
   // callers that have not (yet) threaded a clock.
-  db
+  await db
     .prepare(
       `SELECT status, target_id, request_hash
        FROM idempotency_keys
@@ -133,6 +133,20 @@ export const startedIdempotencyStatement = (input: {
        ) VALUES (?, 'admin_action', ?, 'started', ?, ?, ?)`
     )
     .bind(input.id, input.key, input.requestHash, input.expiresAt, input.nowIso);
+
+// Run after the actor guard and before the new claim in the same batch, so a failed retry restores the old row.
+export const expiredSettingsIdempotencyStatement = (input: {
+  db: D1Database;
+  key: string;
+  requestHash: string;
+  targetType: "service" | "store_resource" | "staff_member" | "store_closure" | "store_login";
+  nowIso: string;
+}): D1PreparedStatement => input.db.prepare(`
+  DELETE FROM idempotency_keys
+  WHERE scope = 'admin_action' AND idempotency_key = ? AND request_hash = ?
+    AND datetime(expires_at) <= datetime(?)
+    AND (target_type = ? OR (target_type IS NULL AND status = 'started'))
+`).bind(input.key, input.requestHash, input.nowIso, input.targetType);
 
 export type CreateContext = {
   nowMs: number;

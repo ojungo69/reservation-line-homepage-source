@@ -145,7 +145,7 @@ const fetchIdempotency = async (db: D1Database, idempotencyKey: string, nowIso: 
   // clock that stamps expires_at on insert) so read and write stay deterministic;
   // wrap both sides in datetime(...) because expires_at is an ISO string whose
   // `T` separator would lexically mis-order a bare `>`.
-  return db
+  return await db
     .prepare(
       `
         SELECT status, target_type, target_id, request_hash
@@ -183,18 +183,18 @@ const succeededIdempotencyStatement = (input: {
 
 const fetchJob = async (db: D1Database, source: AdminSyncJobSource, jobId: string) => {
   if (source === "google_calendar_import_jobs") {
-    return db
+    return await db
       .prepare("SELECT id, status, locked_until, last_error FROM google_calendar_import_jobs WHERE id = ? LIMIT 1")
       .bind(jobId)
       .first<JobRow>();
   }
   if (source === "calendar_sync_jobs") {
-    return db
+    return await db
       .prepare("SELECT id, status, locked_until, last_error FROM calendar_sync_jobs WHERE id = ? LIMIT 1")
       .bind(jobId)
       .first<JobRow>();
   }
-  return db
+  return await db
     .prepare(
       `SELECT id, status, locked_until, last_error,
               EXISTS (${NOTIFICATION_ACKNOWLEDGEMENT_SQL}) AS acknowledged
@@ -596,7 +596,7 @@ const resolveAcknowledgeIdempotency = async (
 };
 
 const fetchConflict = async (db: D1Database, conflictId: string) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT id, resolution_status, conflict_type, external_block_id

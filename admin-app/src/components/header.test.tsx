@@ -7,6 +7,8 @@ import type { Store } from "@/types/api";
 
 let initialStoreId: string | null = null;
 let isStoreFixed = false;
+let initialTheme: "light" | "dark" | "system" = "system";
+const setTheme = vi.fn();
 
 const stores: Store[] = ["本店", "支店"].map((name, index) => ({
   id: `store-${index + 1}`,
@@ -24,7 +26,7 @@ vi.mock("@/hooks/use-auth", () => ({
 }));
 
 vi.mock("@/hooks/use-theme", () => ({
-  useTheme: () => ({ theme: "system", setTheme: vi.fn() }),
+  useTheme: () => ({ theme: initialTheme, setTheme }),
 }));
 
 vi.mock("@/hooks/use-stores", () => ({
@@ -39,6 +41,8 @@ import { Header } from "./header";
 beforeEach(() => {
   initialStoreId = null;
   isStoreFixed = false;
+  initialTheme = "system";
+  setTheme.mockClear();
 });
 
 const renderHeader = () => render(
@@ -101,5 +105,21 @@ describe("Header の店舗スコープ", () => {
     await user.click(switcher);
     expect(screen.getByRole("menuitemradio", { name: "全店舗", checked: true })).toBeTruthy();
     expect(screen.getByRole("menuitemradio", { name: "支店", checked: false })).toBeTruthy();
+  });
+});
+
+
+describe("Header のテーマ切替", () => {
+  it.each([
+    { current: "light", label: "ダークモード", next: "dark" },
+    { current: "dark", label: "システム設定", next: "system" },
+    { current: "system", label: "ライトモード", next: "light" },
+  ] as const)("$current から表示された $label に切り替える", async ({ current, label, next }) => {
+    initialTheme = current;
+    const user = userEvent.setup();
+    renderHeader();
+    await user.click(screen.getByRole("button", { name: "アカウントメニュー" }));
+    await user.click(screen.getByRole("menuitem", { name: label }));
+    expect(setTheme).toHaveBeenCalledWith(next);
   });
 });

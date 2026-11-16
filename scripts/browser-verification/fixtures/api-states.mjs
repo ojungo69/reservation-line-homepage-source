@@ -57,7 +57,7 @@ const gateBody = (overrides = {}) => ({
 });
 
 const upcoming = (now, hoursAhead, status) => ({
-  startAt: new Date(now + hoursAhead * 3600_000).toISOString(),
+  startAt: new Date(now + hoursAhead * 3_600_000).toISOString(),
   status,
   // Server-computed hard-warning flag (public/app.js keys the hard level on
   // this field, not on startAt arithmetic).
@@ -67,7 +67,7 @@ const upcoming = (now, hoursAhead, status) => ({
 });
 
 const reservation = (now, id, status) => {
-  const startAt = now + 72 * 3600_000;
+  const startAt = now + 72 * 3_600_000;
   return {
     id,
     storeName: "本店",
@@ -81,7 +81,7 @@ const reservation = (now, id, status) => {
 // Availability slots for "today in Asia/Tokyo": the walk picks the date field's
 // default day, so slots are anchored to the current date at fixed JST times.
 const slotsBody = (now, query) => {
-  const today = new Date(now + 9 * 3600_000).toISOString().slice(0, 10);
+  const today = new Date(now + 9 * 3_600_000).toISOString().slice(0, 10);
   const date = query.date ?? today;
   const midnight = Date.parse(`${date}T00:00:00.000Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(midnight) || new Date(midnight).toISOString().slice(0, 10) !== date) {
@@ -101,7 +101,7 @@ const slotsBody = (now, query) => {
   const duration = resolveTotalTreatmentDuration(services.map((service) => ({ id: service.id, duration_minutes: service.durationMinutes })));
   if (!duration.ok) return duration;
   // Both synthetic stores use Asia/Tokyo; keep the server's inclusive upper bound.
-  const latestDate = new Date(now + 9 * 3600_000 + store.bookingWindowDays * 86_400_000).toISOString().slice(0, 10);
+  const latestDate = new Date(now + 9 * 3_600_000 + store.bookingWindowDays * 86_400_000).toISOString().slice(0, 10);
   if (date < today || date > latestDate) return { ok: false, reason: "invalid_request" };
   const { durationMinutes } = duration;
   const slot = (h, durationMin) => ({
@@ -119,7 +119,7 @@ const submitBody = (now) => ({
   ok: true,
   reservationId: "r-preview-1",
   status: "pending_approval",
-  startAt: new Date(now + 72 * 3600_000).toISOString()
+  startAt: new Date(now + 72 * 3_600_000).toISOString()
 });
 
 const myBody = (reservations) => ({ ok: true, reservations });
@@ -133,13 +133,14 @@ const myBody = (reservations) => ({ ok: true, reservations });
  *     { status?: number, body?: unknown, delayMs?: number }>>
  * }>}
  */
-export const buildApiStates = (now = Date.now(), query = {}) => {
-  const availability = slotsBody(now, query);
+export const buildApiStates = (now, query = {}) => {
+  const timestamp = now === undefined ? Date.now() : now;
+  const availability = slotsBody(timestamp, query);
   const base = {
     options: { body: optionsBody() },
     availability: { body: availability, ...(!availability.ok ? { status: availability.reason === "not_found" ? 404 : 400 } : {}) },
     gate: { body: gateBody() },
-    submit: { body: submitBody(now) },
+    submit: { body: submitBody(timestamp) },
     myReservations: { body: myBody([]) }
   };
   const form = (description, routes = {}, stub) => ({
@@ -170,13 +171,13 @@ export const buildApiStates = (now = Date.now(), query = {}) => {
     }),
     "line-logged-out": form("LINE 未認証 (LIFF loggedIn=false)", {}, { loggedIn: false, inClient: false }),
     "dup-soft": form("重複 soft: 24h より先の既存予約 1 件", {
-      gate: { body: gateBody({ upcomingReservations: [upcoming(now, 72, "confirmed")] }) }
+      gate: { body: gateBody({ upcomingReservations: [upcoming(timestamp, 72, "confirmed")] }) }
     }),
     "dup-hard": form("重複 hard: 24h 以内に確定済み予約", {
-      gate: { body: gateBody({ upcomingReservations: [upcoming(now, 12, "confirmed")] }) }
+      gate: { body: gateBody({ upcomingReservations: [upcoming(timestamp, 12, "confirmed")] }) }
     }),
     "dup-hard-pending": form("重複 hard: 24h 以内に承認待ち申し込み", {
-      gate: { body: gateBody({ upcomingReservations: [upcoming(now, 12, "pending_approval")] }) }
+      gate: { body: gateBody({ upcomingReservations: [upcoming(timestamp, 12, "pending_approval")] }) }
     }),
     cap: form("予約上限到達 (cap=1・既存 1 件)", {
       options: {
@@ -184,13 +185,13 @@ export const buildApiStates = (now = Date.now(), query = {}) => {
           stores: optionsBody().stores.map((store) => ({ ...store, maxActiveReservationsPerCustomer: 1 }))
         })
       },
-      gate: { body: gateBody({ upcomingReservations: [upcoming(now, 72, "confirmed")] }) }
+      gate: { body: gateBody({ upcomingReservations: [upcoming(timestamp, 72, "confirmed")] }) }
     }),
     "submit-success": form("送信成功 (確認パネル → 完了パネルまで到達可能)"),
     "my-loading": my("確認ページ: 読込中 (応答保留)", { delayMs: 600_000 }),
     "my-error": my("確認ページ: エラー", { status: 500, body: { ok: false, reason: "internal_error" } }),
     "my-empty": my("確認ページ: 予約なし", { body: myBody([]) }),
-    "my-pending": my("確認ページ: 承認待ち 1 件", { body: myBody([reservation(now, "rsv-1", "pending_approval")]) }),
-    "my-confirmed": my("確認ページ: 確定 1 件", { body: myBody([reservation(now, "rsv-2", "confirmed")]) })
+    "my-pending": my("確認ページ: 承認待ち 1 件", { body: myBody([reservation(timestamp, "rsv-1", "pending_approval")]) }),
+    "my-confirmed": my("確認ページ: 確定 1 件", { body: myBody([reservation(timestamp, "rsv-2", "confirmed")]) })
   };
 };

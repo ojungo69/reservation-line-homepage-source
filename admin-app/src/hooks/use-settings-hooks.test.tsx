@@ -887,6 +887,7 @@ describe("standalone settings queries", () => {
 
     const response = {
       ok: true,
+      configured: true,
       businessHours: [
         {
           weekday: 1,

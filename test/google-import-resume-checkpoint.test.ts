@@ -33,7 +33,6 @@ const {
   compactDedupeKey,
   SLOT_QUERY_CHUNK_SIZE,
   FULL_WALK_PAGE_SIZE,
-  INITIAL_WALK_PAGE_SIZE,
   MAX_RECONCILE_YIELDS,
   MAX_EVENTS_LIST_PAGES
 } = __testing__;
@@ -100,10 +99,10 @@ describe("full_reconcile resume checkpoint and yield", () => {
         `
           INSERT INTO google_calendar_channels (
             id, store_id, calendar_auth_connection_id, calendar_id, channel_id,
-            resource_id, channel_token_hash, channel_token_hash_alg, sync_token, status
+            resource_id, channel_token_hash, channel_token_hash_alg, sync_token, sync_query_version, status
           ) VALUES (
             'google_calendar_channel_resume_1', 'kyoto', 'calendar_auth_resume_kyoto_1', ?,
-            'google_channel_resume_1', 'google_resource_resume_1', 'token_hash', 'sha256', ?, 'active'
+            'google_channel_resume_1', 'google_resource_resume_1', 'token_hash', 'sha256', ?, 1, 'active'
           )
         `
       )
@@ -240,39 +239,25 @@ describe("full_reconcile resume checkpoint and yield", () => {
         calendarId: CALENDAR_ID,
         syncToken: null,
         pageToken: "pt_x",
-        timeMinIso: "2026-12-16T08:00:00.000Z",
-        pageSize: FULL_WALK_PAGE_SIZE
+        timeMinIso: "2026-12-16T08:00:00.000Z"
       })
     );
     expect(url.searchParams.get("maxResults")).toBe(String(FULL_WALK_PAGE_SIZE));
     expect(url.searchParams.get("timeMin")).toBe("2026-12-16T08:00:00.000Z");
     expect(url.searchParams.get("pageToken")).toBe("pt_x");
-    // syncToken requests carry neither maxResults nor timeMin (Google rejects
-    // syncToken combined with list filters).
+    // Sync-compatible parameters must match the full walk; timeMin is excluded.
     const syncUrl = new URL(
       buildEventsListUrl({
         calendarId: CALENDAR_ID,
         syncToken: "tok",
         pageToken: null,
-        timeMinIso: null,
-        pageSize: null
+        timeMinIso: null
       })
     );
-    expect(syncUrl.searchParams.get("maxResults")).toBeNull();
+    expect(syncUrl.searchParams.get("maxResults")).toBe("150");
+    expect(syncUrl.searchParams.get("singleEvents")).toBe("true");
+    expect(syncUrl.searchParams.get("showDeleted")).toBe("true");
     expect(syncUrl.searchParams.get("timeMin")).toBeNull();
-    // Non-resumable initial walk (no syncToken, not full_reconcile) keeps
-    // Google's 2500-event max page so large calendars are not truncated by
-    // the MAX_EVENTS_LIST_PAGES cap.
-    const initialWalkUrl = new URL(
-      buildEventsListUrl({
-        calendarId: CALENDAR_ID,
-        syncToken: null,
-        pageToken: null,
-        timeMinIso: "2026-12-16T08:00:00.000Z",
-        pageSize: INITIAL_WALK_PAGE_SIZE
-      })
-    );
-    expect(initialWalkUrl.searchParams.get("maxResults")).toBe("2500");
   });
 
   it("detects a slot conflict sitting in the LAST chunk of a 24h block (288 slots = 4 chunks)", async () => {

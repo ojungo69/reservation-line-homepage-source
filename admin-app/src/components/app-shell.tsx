@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Outlet, useLocation } from "react-router";
 import { Sidebar } from "@/components/sidebar";
 import { Header } from "@/components/header";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { CHUNK_RELOAD_FLAG } from "@/components/error-boundary";
 import { StoreProvider } from "@/providers/store-provider";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -63,7 +63,7 @@ export function AppShell() {
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="w-64 p-0" aria-describedby={undefined}>
-          <span className="sr-only">メニュー</span>
+          <SheetTitle className="sr-only">メニュー</SheetTitle>
           <Sidebar onNavigate={() => setMobileOpen(false)} />
         </SheetContent>
       </Sheet>

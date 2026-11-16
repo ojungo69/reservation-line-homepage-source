@@ -438,6 +438,42 @@ async function handleFetch(
   return applyHsts(await routeRequest(request, env, ctx));
 }
 
+// /admin-next was the transitional SPA mount during the /admin canonical migration
+// (PR1); retired in Phase 5 — it now 404s on every host. The match decodes each
+// well-formed percent triplet INDIVIDUALLY (not the whole string via
+// decodeURIComponent, which throws on any stray `%` and would leave the alias
+// still-encoded), so ASCII-encoded aliases like /admin-next%2Fx, /%61dmin-next and
+// /admin%2dnext are caught — including ones with trailing malformed escapes — before
+// reaching the single-page-application ASSETS fallback (which would otherwise surface
+// the customer shell). Checked BEFORE the host redirect / reverse guard so the 404 is
+// uniform across hosts.
+//
+// Security invariant (holds for ANY encoding, however exotic): /admin-next never
+// serves admin content. If a path dodges this probe (e.g. multi-level encoding), on
+// the public host it resolves to the public customer shell (public content, never
+// admin data) and on the admin host to an auth-gated /admin redirect — not a leak.
+// Fast path: the vast majority of request paths contain no `%`, so skip the
+// regex/decoder entirely (a path with no percent-escape decodes to itself).
+function isRetiredAdminAlias(pathname: string): boolean {
+  const aliasProbe = pathname.includes("%")
+    ? pathname.replace(/%[0-9A-Fa-f]{2}/g, (triplet) => {
+        try {
+          return decodeURIComponent(triplet);
+        } catch {
+          return triplet;
+        }
+      })
+    : pathname;
+  // Match "/admin-next" when it is the whole path or is followed by a path / query /
+  // fragment delimiter (/, ?, #) — so encoded delimiters (…%2F, …%3F, …%23) all 404.
+  // A non-delimiter next char (e.g. "/admin-nextfoo") is a distinct path and is
+  // intentionally NOT matched.
+  const ALIAS_PREFIX = "/admin-next";
+  if (!aliasProbe.startsWith(ALIAS_PREFIX)) return false;
+  const boundary = aliasProbe.charAt(ALIAS_PREFIX.length);
+  return boundary === "" || boundary === "/" || boundary === "?" || boundary === "#";
+}
+
 async function routeRequest(
   request: Request,
   env: WorkerBindings,
@@ -447,41 +483,8 @@ async function routeRequest(
 
   const host = request.headers.get("host");
 
-  // /admin-next was the transitional SPA mount during the /admin canonical migration
-  // (PR1); retired in Phase 5 — it now 404s on every host. The match decodes each
-  // well-formed percent triplet INDIVIDUALLY (not the whole string via
-  // decodeURIComponent, which throws on any stray `%` and would leave the alias
-  // still-encoded), so ASCII-encoded aliases like /admin-next%2Fx, /%61dmin-next and
-  // /admin%2dnext are caught — including ones with trailing malformed escapes — before
-  // reaching the single-page-application ASSETS fallback (which would otherwise surface
-  // the customer shell). Checked BEFORE the host redirect / reverse guard so the 404 is
-  // uniform across hosts.
-  //
-  // Security invariant (holds for ANY encoding, however exotic): /admin-next never
-  // serves admin content. If a path dodges this probe (e.g. multi-level encoding), on
-  // the public host it resolves to the public customer shell (public content, never
-  // admin data) and on the admin host to an auth-gated /admin redirect — not a leak.
-  // Fast path: the vast majority of request paths contain no `%`, so skip the
-  // regex/decoder entirely (a path with no percent-escape decodes to itself).
-  const aliasProbe = url.pathname.includes("%")
-    ? url.pathname.replace(/%[0-9A-Fa-f]{2}/g, (triplet) => {
-        try {
-          return decodeURIComponent(triplet);
-        } catch {
-          return triplet;
-        }
-      })
-    : url.pathname;
-  // Match "/admin-next" when it is the whole path or is followed by a path / query /
-  // fragment delimiter (/, ?, #) — so encoded delimiters (…%2F, …%3F, …%23) all 404.
-  // A non-delimiter next char (e.g. "/admin-nextfoo") is a distinct path and is
-  // intentionally NOT matched.
-  const ALIAS_PREFIX = "/admin-next";
-  if (aliasProbe.startsWith(ALIAS_PREFIX)) {
-    const boundary = aliasProbe.charAt(ALIAS_PREFIX.length);
-    if (boundary === "" || boundary === "/" || boundary === "?" || boundary === "#") {
-      return new Response("Not Found", { status: 404 });
-    }
+  if (isRetiredAdminAlias(url.pathname)) {
+    return new Response("Not Found", { status: 404 });
   }
 
   // admin.example.invalid is operator-only. Any non-admin path on that host (e.g. /,

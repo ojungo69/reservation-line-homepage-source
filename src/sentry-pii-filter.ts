@@ -7,8 +7,7 @@
  *   3. Capture callsites never put raw PII in contexts/extra
  *
  * Pattern primitives + phone normalisation live in src/pii-normalize.ts and
- * are shared with src/logging.ts. src/google/calendar-sync.ts intentionally
- * keeps its own copy (touch-prohibited hard constraint).
+ * are shared with src/logging.ts and src/google/calendar-sync.ts.
  */
 import type { ErrorEvent, Breadcrumb } from "@sentry/cloudflare";
 

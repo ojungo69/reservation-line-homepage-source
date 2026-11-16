@@ -98,7 +98,7 @@ export function LinkExistingDialog({ friend, storeId, onClose }: Readonly<Props>
   const link = useLineFriendLink();
   const [q, setQ] = useState("");
   const [debouncedQ] = useDebouncedValue(q);
-  const { results, isPending } = useCustomerSearch(debouncedQ);
+  const { results, isPending, isError, truncated, refetch } = useCustomerSearch(debouncedQ);
   // During the 300ms debounce gap (q has changed but debouncedQ has not caught up)
   // the results still belong to the PREVIOUS query term. Treat that as loading so
   // stale rows are not shown or clickable (mirrors LinkLineFromCardDialog).
@@ -132,10 +132,16 @@ export function LinkExistingDialog({ friend, storeId, onClose }: Readonly<Props>
         <div className="mt-2 max-h-72 space-y-1 overflow-y-auto">
           {shortPhoneQuery && <CustomerSearchHints showShortPhoneHint className="text-sm text-muted-foreground" />}
           {loadingResults && <p className="text-sm text-muted-foreground">検索中...</p>}
-          {!shortPhoneQuery && !loadingResults && debouncedQ.length > 0 && results.length === 0 && (
+          {!shortPhoneQuery && !loadingResults && isError && (
+            <div className="space-y-2" role="alert">
+              <p className="text-sm text-destructive">顧客の検索に失敗しました。</p>
+              <Button variant="outline" size="sm" onClick={() => void refetch()}>再読み込み</Button>
+            </div>
+          )}
+          {!shortPhoneQuery && !loadingResults && !isError && debouncedQ.length > 0 && results.length === 0 && (
             <p className="text-sm text-muted-foreground">該当する顧客がいません</p>
           )}
-          {!shortPhoneQuery && !loadingResults &&
+          {!shortPhoneQuery && !loadingResults && !isError &&
             results.map((cust) => {
             const variables = link.variables;
             const isLinkingThis =
@@ -167,6 +173,9 @@ export function LinkExistingDialog({ friend, storeId, onClose }: Readonly<Props>
               </button>
             );
           })}
+          {!shortPhoneQuery && !loadingResults && !isError && debouncedQ.length > 0 && (
+            <CustomerSearchHints truncated={truncated} className="text-sm text-muted-foreground" />
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={link.isPending}>

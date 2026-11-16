@@ -11,7 +11,7 @@ export type BusinessHourRow = {
 };
 
 type GetResult =
-  | { ok: true; businessHours: BusinessHourRow[] }
+  | { ok: true; configured: boolean; businessHours: BusinessHourRow[] }
   | { ok: false; error: string };
 
 export const getBusinessHours = async (
@@ -38,11 +38,11 @@ export const getBusinessHours = async (
       weekday,
       opensAt: r?.opens_at ?? "10:00",
       closesAt: r?.closes_at ?? "19:00",
-      closed: r ? r.active === 0 : false
+      closed: r ? r.active === 0 : true
     };
   });
 
-  return { ok: true, businessHours };
+  return { ok: true, configured: byWeekday.size > 0, businessHours };
 };
 
 export type PutHoursInput = {

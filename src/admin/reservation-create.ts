@@ -8,7 +8,9 @@ import { ensureBusinessTime } from "../reservations/business-hours";
 import { captureBatchWriteFailure } from "../sentry-helpers";
 import {
   buildBookingContext,
+  bookingCatalogGuard,
   generateSlotTimesForDuration,
+  isBookingCatalogGuardError,
   normalizeServiceIds,
   SLOT_LOCK_INTERVAL_MINUTES
 } from "../reservations/slot-times";
@@ -239,7 +241,7 @@ const getCustomerByPhoneHash = async (db: D1Database, phoneHash: string) => {
   //      active customer with the same phone, which would null out the match
   //      and create a duplicate instead of reusing the active row. (devin/codex)
   //   3. oldest first   — stable canonical pick among ties.
-  return db
+  return await db
     .prepare(
       `
         SELECT id, block_status, phone_normalized, phone_hash, archived_at
@@ -299,7 +301,7 @@ const findOwnStoreCustomerByPhoneHash = async (
 // customers so a soft-deleted row can never be booked against either. The phone
 // may be NULL (paper-chart customers) — locks then carry a NULL phone_hash.
 const getCustomerById = async (db: D1Database, customerId: string) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT id, block_status, phone_normalized, phone_hash
@@ -516,6 +518,8 @@ const buildAdminCreateReservationStatements = (input: {
 }) => {
   const statements: D1PreparedStatement[] = [
     adminWriteGuard(input.db, input.admin),
+    bookingCatalogGuard({ db: input.db, storeId: input.context.storeId,
+      resourceId: input.context.resourceId, serviceIds: input.context.serviceIds, nowIso: input.nowIso }),
     input.db
       .prepare(
         `
@@ -1048,6 +1052,10 @@ export async function createAdminReservation(input: {
   try {
     await input.db.batch(statements);
   } catch (error) {
+    if (isBookingCatalogGuardError(error)) {
+      const current = await fetchBookingContext(input.db, request.storeId, request.serviceIds, request.resourceId).catch(() => undefined);
+      if (current && "ok" in current) return current;
+    }
     const result = await resolveCreateBatchFailure(input.db, request.idempotencyKey, requestHash, nowIso, error, input.admin, existingCustomer?.id);
     captureCreateBatchFailure(error, result);
     return result;

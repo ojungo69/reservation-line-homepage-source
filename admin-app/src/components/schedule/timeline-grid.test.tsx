@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Store } from "@/types/api";
 import { TimelineGrid } from "./timeline-grid";
 
@@ -19,6 +19,8 @@ const props = {
   isLoading: false, slotPx: 40, onReservationClick: vi.fn(), onSlotClick: vi.fn(),
 };
 
+afterEach(() => vi.useRealTimers());
+
 describe("TimelineGridの店舗表示", () => {
   it("全店舗では列と空き枠の名前に所属店舗を出し、単店では重複表示しない", () => {
     const { rerender } = render(<TimelineGrid {...props} />);
@@ -29,5 +31,21 @@ describe("TimelineGridの店舗表示", () => {
     expect(screen.getByText("同じ担当者")).toBeTruthy();
     expect(screen.queryByText(/新宿店/)).toBeNull();
     expect(screen.queryByText("渋谷店 · 同じ担当者")).toBeNull();
+  });
+
+  it.each([
+    ["2026-11-16T00:00:00+09:00", true, false],
+    ["2026-11-17T00:00:00+09:00", false, true],
+  ])("JST深夜0時をまたいだ表示日 %s の現在時刻線を更新する", (displayDate, before, after) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-16T23:59:00+09:00"));
+    const { container, unmount } = render(<TimelineGrid {...props} date={new Date(displayDate)} />);
+    const line = () => container.querySelector<HTMLElement>(".pointer-events-none > .border-t-2");
+    expect(line() !== null).toBe(before);
+    act(() => vi.advanceTimersByTime(61_000));
+    expect(line() !== null).toBe(after);
+    if (after) expect(line()?.style.top).toBe("0%");
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

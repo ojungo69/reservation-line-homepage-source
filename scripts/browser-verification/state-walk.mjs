@@ -229,7 +229,7 @@ export const ACTIONS = {
   // pickMenu + assert the rendered slot grid computes to exactly 4 columns
   // (research R11) — a track-count regression must fail the walk, not just
   // look different in a screenshot.
-  pickMenuAssertGrid: `async () => {${waitForSnippet}
+  pickMenuAssertGrid: String.raw`async () => {${waitForSnippet}
     const trigger = document.getElementById("services-trigger");
     if (document.getElementById("services-popover").hidden) trigger.click();
     const box = document.querySelector("#services input[name='serviceIds']");
@@ -237,7 +237,7 @@ export const ACTIONS = {
     if (!box.checked) box.click();
     trigger.click();
     if (!(await waitFor(() => document.querySelector(".slot-button")))) return { error: "no slot rendered" };
-    const tracks = getComputedStyle(document.getElementById("slots")).gridTemplateColumns.trim().split(/\\s+/).length;
+    const tracks = getComputedStyle(document.getElementById("slots")).gridTemplateColumns.trim().split(/\s+/).length;
     return tracks === 4 ? true : { error: "slot grid tracks: " + tracks };
   }`,
   // Pick a menu and click the first slot, staying on step 1 — the selected

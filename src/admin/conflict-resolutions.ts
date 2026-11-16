@@ -450,12 +450,6 @@ export async function approveAllDayAsClosure(input: {
         expiresAt,
         nowIso
       }),
-      input.db
-        .prepare(
-          `INSERT INTO store_closures (id, store_id, starts_at, ends_at, reason, source, created_at)
-           VALUES (?, ?, ?, ?, ?, 'admin', ?)`
-        )
-        .bind(closureId, validConflict.store_id, snapshot.startAt, snapshot.endAt, reason, nowIso),
       // External block: links closure to the representative resource and
       // the original Google event id for round-trip sync.
       input.db
@@ -478,6 +472,12 @@ export async function approveAllDayAsClosure(input: {
           nowIso,
           nowIso
         ),
+      input.db
+        .prepare(
+          `INSERT INTO store_closures (id, store_id, starts_at, ends_at, reason, source, created_at, external_block_id)
+           VALUES (?, ?, ?, ?, ?, 'admin', ?, ?)`
+        )
+        .bind(closureId, validConflict.store_id, snapshot.startAt, snapshot.endAt, reason, nowIso, externalBlockId),
       // Calendar sync job: tells the sync worker to upsert this block
       // back to Google Calendar.
       input.db
@@ -684,7 +684,7 @@ const handleResolutionBatchFailureForCancelApproval = async (
 };
 
 const fetchConflict = async (db: D1Database, conflictId: string): Promise<ConflictRow | null> =>
-  db
+  await db
     .prepare(
       `SELECT id, store_id, calendar_id, google_event_id, reservation_id,
               conflict_type, resolution_status, google_safe_snapshot_json

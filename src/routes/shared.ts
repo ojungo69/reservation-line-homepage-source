@@ -313,8 +313,8 @@ export const staffHasStore = (
 /**
  * Per-customer store-scope gate for staff. Owner / system_admin always pass
  * (returns null). A staff user is allowed ONLY when they have a store binding and
- * the customer is canonical (not merged/archived) with a reservation or VALID visit
- * at that store; otherwise returns a 403 response. Fail closed for staff with no
+ * the customer is canonical (not merged/archived) and was created at that store
+ * or has a reservation or VALID visit there; otherwise returns a 403 response. Fail closed for staff with no
  * store_id. Use on per-customer mutation/detail routes that staff may now reach
  * (memo / profile / detail) but only for their own-store customers.
  */

@@ -25,6 +25,8 @@ export type ConflictBurstDetectorEnv = Pick<
 
 const CONFLICT_BURST_WINDOW_SECONDS = 5 * 60;
 const CONFLICT_BURST_THRESHOLD = 10;
+// shortcut: cover the nominal ten-minute cron cadence; delayed ticks need a durable watermark.
+const DETECTION_INTERVAL_SECONDS = 10 * 60;
 
 // 16-byte (32 hex char) digest — slice of the canonical 64-hex sha256Hex.
 const sha256Hex16 = (value: string): Promise<string> =>
@@ -34,11 +36,12 @@ type ConflictBurstRow = {
   store_id: string;
   calendar_id: string;
   conflict_count: number;
+  window_end_seconds: number;
 };
 
 const queryBurstClusters = async (
   db: D1Database,
-  windowStartSeconds: number
+  nowSeconds: number
 ): Promise<ConflictBurstRow[]> => {
   // datetime() on both sides normalizes against the codebase's two
   // last_seen_at-style formats (CURRENT_TIMESTAMP + ISO toISOString). Even
@@ -48,15 +51,29 @@ const queryBurstClusters = async (
   const result = await db
     .prepare(
       `
-        SELECT store_id, calendar_id, COUNT(*) AS conflict_count
-        FROM google_calendar_conflicts
-        WHERE resolution_status = 'open'
-          AND datetime(created_at) >= datetime(?, 'unixepoch')
+        WITH recent AS (
+          SELECT store_id, calendar_id, CAST(strftime('%s', created_at) AS INTEGER) AS created_seconds
+          FROM google_calendar_conflicts
+          WHERE resolution_status = 'open'
+            AND datetime(created_at) >= datetime(?, 'unixepoch')
+            AND datetime(created_at) <= datetime(?, 'unixepoch')
+        ), windows AS (
+          SELECT store_id, calendar_id, created_seconds,
+            COUNT(*) OVER (
+              PARTITION BY store_id, calendar_id ORDER BY created_seconds
+              RANGE BETWEEN ${CONFLICT_BURST_WINDOW_SECONDS} PRECEDING AND CURRENT ROW
+            ) AS conflict_count
+          FROM recent
+        )
+        SELECT store_id, calendar_id, MAX(conflict_count) AS conflict_count,
+          MAX(created_seconds) AS window_end_seconds
+        FROM windows
+        WHERE created_seconds > ? AND conflict_count >= ?
         GROUP BY store_id, calendar_id
-        HAVING COUNT(*) >= ?
       `
     )
-    .bind(windowStartSeconds, CONFLICT_BURST_THRESHOLD)
+    .bind(nowSeconds - DETECTION_INTERVAL_SECONDS - CONFLICT_BURST_WINDOW_SECONDS,
+      nowSeconds, nowSeconds - DETECTION_INTERVAL_SECONDS, CONFLICT_BURST_THRESHOLD)
     .all<ConflictBurstRow>();
   return result.results ?? [];
 };
@@ -69,7 +86,8 @@ const enqueueConflictBurstNotifications = async (input: {
   conflictCount: number;
   nowMs: number;
 }): Promise<void> => {
-  // Window bucket = floor(nowMs / WINDOW_MS). A burst lasting longer than
+  // Bucket the detected window's end, so overlapping sweeps dedupe the same burst.
+  // A burst lasting longer than
   // one window will dedupe per-bucket, so the owner gets at most one email
   // per 5-minute window — not a flood for a
   // single ongoing incident.
@@ -119,10 +137,11 @@ export const detectConflictBursts = async (input: {
   // Always run the detection query (so log analysis can graph burst
   // frequency offline), but gate the live LINE enqueue on the feature
   // flag. Mirrors the GOOGLE_DRIFT_ALERT_LIVE pattern from Step 3.
-  const windowStartSeconds = Math.floor(input.nowMs / 1000) - CONFLICT_BURST_WINDOW_SECONDS;
+  const nowSeconds = Math.floor(input.nowMs / 1000);
+  const windowStartSeconds = nowSeconds - DETECTION_INTERVAL_SECONDS - CONFLICT_BURST_WINDOW_SECONDS;
   let clusters: ConflictBurstRow[];
   try {
-    clusters = await queryBurstClusters(input.db, windowStartSeconds);
+    clusters = await queryBurstClusters(input.db, nowSeconds);
   } catch (error) {
     safeCaptureException(error, {
       tags: { google_module: "conflict-burst-detector", operation: "query_burst_clusters" },
@@ -154,7 +173,7 @@ export const detectConflictBursts = async (input: {
         storeId: cluster.store_id,
         calendarId: cluster.calendar_id,
         conflictCount: cluster.conflict_count,
-        nowMs: input.nowMs
+        nowMs: cluster.window_end_seconds * 1000
       });
     }
   });

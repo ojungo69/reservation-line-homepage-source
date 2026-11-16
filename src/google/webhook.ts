@@ -63,7 +63,7 @@ const validateHeaders = (headers: GoogleCalendarWebhookHeaders) => {
 };
 
 const fetchChannel = async (db: D1Database, headers: GoogleCalendarWebhookHeaders) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT

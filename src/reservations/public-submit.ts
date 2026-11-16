@@ -5,7 +5,9 @@ import { fetchGoogleBusyIntervals } from "../google/availability-live-check";
 import { ensureBusinessTime } from "./business-hours";
 import {
   buildBookingContext,
+  bookingCatalogGuard,
   generateSlotTimesForDuration,
+  isBookingCatalogGuardError,
   normalizeServiceIds,
   SLOT_LOCK_INTERVAL_MINUTES
 } from "./slot-times";
@@ -229,7 +231,7 @@ export const getExistingLineIdentity = async (
   db: D1Database,
   line: VerifiedLineContext
 ): Promise<ExistingLineIdentity | null> => {
-  return db
+  return await db
     .prepare(
       `
         SELECT
@@ -294,7 +296,7 @@ const getBlockedCustomerByPhoneHash = async (db: D1Database, phoneHash: string):
   // into merged_into_id and the active record under the same phone_hash
   // is the target customer. Filtering merged_into_id IS NULL keeps the
   // post-merge booking flow from rejecting the target's phone.
-  return db
+  return await db
     .prepare(
       `
         SELECT id, block_status
@@ -530,6 +532,12 @@ const mapBatchError = (error: unknown): PublicReservationFailure => {
   }
 
   const message = error instanceof Error ? error.message : String(error);
+  if (/CHECK constraint failed:.*consent_type/s.test(message)) {
+    return {
+      ok: false,
+      reason: "duplicate_reservation_consent_required"
+    };
+  }
   if (message.includes("blocked_customer") || message.includes("actor_type")) {
     return {
       ok: false,
@@ -630,6 +638,8 @@ const buildPublicReservationStatements = (input: {
   duplicateConsent: DuplicateConsentEvidence | null;
 }) => {
   const statements: D1PreparedStatement[] = [
+    bookingCatalogGuard({ db: input.db, storeId: input.context.storeId,
+      resourceId: input.context.resourceId, serviceIds: input.context.serviceIds, nowIso: input.checkedAt }),
     // Reclaim any EXPIRED idempotency row for this key before inserting the new
     // `started` row. The resolver's TTL filter hides expired rows from the READ,
     // but such a row still occupies UNIQUE(scope, idempotency_key); without this
@@ -788,6 +798,24 @@ const buildPublicReservationStatements = (input: {
         input.checkedAt
       )
   );
+
+  if (input.existingLineIdentity && !input.duplicateConsent) {
+    // Abort on a new duplicate after preflight; the cap trigger above retains precedence.
+    statements.push(input.db.prepare(`
+      INSERT INTO consent_records (id, customer_id, reservation_id, consent_type, version, consented_at)
+      SELECT ?, ?, ?, 'duplicate_reservation_consent_required', '', ?
+      WHERE EXISTS (
+        SELECT 1 FROM reservations r
+        WHERE r.customer_id = ? AND r.id <> ?
+          AND datetime(r.start_at) > datetime(?)
+          AND (r.status = 'confirmed' OR (
+            r.status = 'pending_approval'
+            AND (r.pending_expires_at IS NULL OR datetime(r.pending_expires_at) > datetime(?))
+          ))
+      )
+    `).bind(crypto.randomUUID(), input.customerId, input.reservationId, input.checkedAt,
+      input.customerId, input.reservationId, input.checkedAt, input.checkedAt));
+  }
 
   for (const [index, service] of input.context.services.entries()) {
     statements.push(
@@ -1395,6 +1423,10 @@ export async function createPublicReservation(input: {
   try {
     await input.db.batch(statements);
   } catch (error) {
+    if (isBookingCatalogGuardError(error)) {
+      const current = await fetchBookingContext(input.db, request.storeId, serviceIds, request.resourceId).catch(() => undefined);
+      if (current && "ok" in current) return current;
+    }
     const failure = mapBatchError(error);
     if (failure.reason === "write_failed") {
       // The customer gets a 500 and nothing retries the booking, so this is a

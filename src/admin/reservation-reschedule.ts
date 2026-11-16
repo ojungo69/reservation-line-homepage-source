@@ -87,7 +87,7 @@ type ReservationResultRow = {
 };
 
 const fetchReservation = async (db: D1Database, reservationId: string) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT

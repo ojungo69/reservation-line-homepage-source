@@ -6,6 +6,7 @@ import {
   type PublicReservationRequest,
   type VerifiedLineContext
 } from "../src/reservations/public-submit";
+import { createAdminReservation } from "../src/admin/reservation-create";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 
 // "Now" for these tests. Reservations/locks bind updated_at and the duplicate lookup
@@ -407,6 +408,95 @@ describe("createPublicReservation — duplicate-reservation acknowledgement gate
     // Only one new booking + one dup-consent audit row (no duplication on replay).
     expect(count("SELECT COUNT(*) AS count FROM reservations")).toBe(2);
     expect(count("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'public_reservation_duplicate_consent'")).toBe(1);
+  });
+
+  it.each([1, 2])("protects concurrent public bookings with a reservation cap of %i", async (cap) => {
+    await seedExistingWithReservation();
+    d1.sqlite.prepare("DELETE FROM reservations WHERE id = 'existing_resv'").run();
+    d1.sqlite.prepare("UPDATE store_settings SET max_active_reservations_per_customer = ? WHERE store_id = 'kyoto'").run(cap);
+    let release!: () => void;
+    const bothReady = new Promise<void>((resolve) => { release = resolve; });
+    let waiting = 0;
+    const racingDb = new Proxy(d1, {
+      get(target, prop, receiver) {
+        if (prop === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (++waiting === 2) release();
+            await bothReady;
+            return target.batch(statements);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      }
+    }) as unknown as D1Database;
+
+    const results = await Promise.all([
+      createPublicReservation({ db: racingDb, request: createRequest({ customer: undefined }), line: lineContext, now: NOW_SUBMIT }),
+      createPublicReservation({
+        db: racingDb,
+        request: createRequest({ customer: undefined, idempotencyKey: "racing-second", startAt: "2026-06-02T01:00:00.000Z" }),
+        line: lineContext,
+        now: NOW_SUBMIT
+      })
+    ]);
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.find((result) => !result.ok)).toEqual({
+      ok: false,
+      reason: cap === 1 ? "reservation_limit_reached" : "duplicate_reservation_consent_required"
+    });
+    expect(count("SELECT COUNT(*) AS count FROM reservations")).toBe(1);
+    expect(count("SELECT COUNT(*) AS count FROM idempotency_keys")).toBe(1);
+    expect(count("SELECT COUNT(*) AS count FROM notification_jobs")).toBe(1);
+    expect(count("SELECT COUNT(*) AS count FROM calendar_sync_jobs")).toBe(1);
+    expect(count("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'public_reservation_created'")).toBe(1);
+    expect(count("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'public_reservation_duplicate_consent'")).toBe(0);
+  });
+
+  it.each([false, true])("handles a concurrent admin booking when acknowledgement is %s", async (acknowledged) => {
+    await seedExistingWithReservation();
+    if (!acknowledged) d1.sqlite.prepare("DELETE FROM reservations WHERE id = 'existing_resv'").run();
+    d1.sqlite.prepare("UPDATE store_settings SET max_active_reservations_per_customer = 3 WHERE store_id = 'kyoto'").run();
+    const admin = { id: "consent-owner", email: "consent@example.invalid", role: "owner", staff_member_id: null, store_id: null } as const;
+    d1.sqlite.prepare("INSERT INTO admin_users (id, email, access_subject, role) VALUES (?, ?, 'consent-subject', 'owner')")
+      .run(admin.id, admin.email);
+    const racingDb = new Proxy(d1, {
+      get(target, prop, receiver) {
+        if (prop === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            const competing = await createAdminReservation({
+              db: target as unknown as D1Database,
+              admin,
+              request: {
+                idempotencyKey: "competing-admin", source: "admin", storeId: "kyoto",
+                serviceIds: ["service_kyoto_default_60"], resourceId: "resource_kyoto_calendar",
+                startAt: "2026-06-02T01:00:00.000Z", customerId: "cust_dup"
+              },
+              now: NOW_SUBMIT
+            });
+            expect(competing.ok).toBe(true);
+            return target.batch(statements);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      }
+    }) as unknown as D1Database;
+    const request = createRequest({ customer: undefined });
+    if (acknowledged) request.consents.duplicateReservationWarningVersion = DUP_VERSION;
+
+    const result = await createPublicReservation({ db: racingDb, request, line: lineContext, now: NOW_SUBMIT });
+
+    if (acknowledged) {
+      expect(result.ok).toBe(true);
+      expect(count("SELECT COUNT(*) AS count FROM reservations")).toBe(3);
+      expect(count("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'public_reservation_duplicate_consent'")).toBe(1);
+    } else {
+      expect(result).toEqual({ ok: false, reason: "duplicate_reservation_consent_required" });
+      expect(count("SELECT COUNT(*) AS count FROM reservations")).toBe(1);
+      expect(count("SELECT COUNT(*) AS count FROM reservations WHERE source = 'web_line'")).toBe(0);
+      expect(count("SELECT COUNT(*) AS count FROM idempotency_keys WHERE scope = 'public_submit'")).toBe(0);
+      expect(count("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'public_reservation_duplicate_consent'")).toBe(0);
+    }
   });
 
   it("fails CLOSED (write_failed) when the duplicate lookup errors, never waving the booking through", async () => {

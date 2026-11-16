@@ -66,7 +66,7 @@ const fetchCustomerForMerge = async (
   db: D1Database,
   id: string
 ): Promise<CustomerMergeRow | null> => {
-  return db
+  return await db
     .prepare(
       `
         SELECT id, phone_hash, merged_into_id, block_status

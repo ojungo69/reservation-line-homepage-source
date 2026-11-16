@@ -260,7 +260,7 @@ const readReservationResult = async (
 };
 
 const fetchReservationForAction = async (db: D1Database, reservationId: string) => {
-  return db
+  return await db
     .prepare(
       `
         SELECT
@@ -596,6 +596,7 @@ const updateIdempotencySucceeded = (input: {
 };
 
 const validateAdminActionInput = (input: {
+  admin: AdminUser;
   reservationId: string;
   action: AdminReservationAction;
   request: AdminActionRequest;
@@ -617,7 +618,11 @@ const validateAdminActionInput = (input: {
       reason: "invalid_request"
     };
   }
-  return undefined;
+  if (input.admin.role === "staff" && !input.admin.store_id) {
+    return { ok: false, reason: "forbidden" };
+  }
+  // Check reservation-independent role limits before reading or replaying a reservation.
+  return validateCorrectionRole(input.admin, input.action);
 };
 
 // staff は自店舗 scope のみで認可する。2026-07-14 に当日ガードを撤廃 — 承認/却下
@@ -1460,17 +1465,6 @@ export async function runAdminReservationAction(input: {
   const validationError = validateAdminActionInput(input);
   if (validationError) {
     return validationError;
-  }
-
-  if (input.admin.role === "staff" && !input.admin.store_id) {
-    return { ok: false, reason: "forbidden" };
-  }
-
-  // 権限判定のうち予約を読まずに済む分はここで済ませる。後段の
-  // validateAdminActionAuthorization でも再判定するので防壁は二重のまま。
-  const correctionRoleError = validateCorrectionRole(input.admin, input.action);
-  if (correctionRoleError) {
-    return correctionRoleError;
   }
 
   // 成功済みキーでも現在の店舗権限を確認する。所属変更後に以前のキーを

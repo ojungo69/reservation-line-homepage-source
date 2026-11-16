@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "@/hooks/use-auth";
 import { NAV_ITEMS } from "@/lib/nav-items";
+import { DialogTitle } from "@/components/ui/dialog";
 import {
   CommandDialog,
   CommandEmpty,
@@ -40,6 +41,7 @@ export function CommandPalette({ open, onOpenChange }: Readonly<Props>) {
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
+      <DialogTitle className="sr-only">ページ移動</DialogTitle>
       <CommandInput placeholder="ページへ移動..." />
       <CommandList>
         <CommandEmpty>該当するページがありません</CommandEmpty>

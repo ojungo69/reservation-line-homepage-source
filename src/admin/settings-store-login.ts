@@ -3,6 +3,7 @@ import type { AdminUser } from "./access";
 import { safeCaptureException } from "../sentry-helpers";
 import {
   buildCreateContext,
+  expiredSettingsIdempotencyStatement,
   fetchAdminActionIdempotency,
   isActorTypeBatchError,
   isAdminPrivileged,
@@ -393,7 +394,7 @@ const fetchAdminUserByEmail = async (
   db: D1Database,
   email: string
 ): Promise<StoreLoginCandidate | null> =>
-  db
+  await db
     .prepare(
       `SELECT id, email, role, active, access_subject, staff_member_id, last_seen_at
        FROM admin_users
@@ -690,6 +691,13 @@ export const upsertStoreLogin = async (input: {
     await input.db.batch([
       adminWriteGuard(input.db, input.admin),
       storeLoginTargetGuard({ db: input.db, storeId: input.request.storeId, resolved, email: input.request.email }),
+      expiredSettingsIdempotencyStatement({
+        db: input.db,
+        key: input.request.idempotencyKey,
+        requestHash,
+        targetType: "store_login",
+        nowIso
+      }),
       startedIdempotencyStatement({
         db: input.db,
         id: idempotencyId,

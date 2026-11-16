@@ -53,6 +53,7 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
   const editing = editStoreId !== null;
 
   const hours = editHours ?? (data?.ok ? data.businessHours : null);
+  const unconfigured = data?.configured === false;
 
   const startEdit = () => {
     if (!storeId || !data?.ok) return;
@@ -107,7 +108,7 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
           {stores.find((s) => s.id === storeId)?.name ?? storeId}
         </p>
         {!editing ? (
-          <Button variant="outline" onClick={startEdit}>編集</Button>
+          <Button variant="outline" onClick={startEdit}>{unconfigured ? "営業時間を設定" : "編集"}</Button>
         ) : (
           <div className="flex gap-2">
             <Button onClick={handleSave} disabled={updateMutation.isPending}>
@@ -120,7 +121,16 @@ export function BusinessHoursTab({ stores, selectedStoreId }: Readonly<Props>) {
         )}
       </div>
 
-      <div className="grid gap-3">
+      {unconfigured && (
+        <Card role="status" className="gap-2 p-4">
+          <p className="font-medium">未設定・予約受付不可</p>
+          <p className="text-sm text-muted-foreground">
+            営業する曜日と時間を設定して保存してください。保存するまで予約は受け付けません。
+          </p>
+        </Card>
+      )}
+
+      <div className="grid gap-3" hidden={unconfigured && !editing}>
         {hours.map((h) => (
           <Card key={h.weekday} className="flex items-center justify-between p-4">
             <div className="flex items-center gap-3">

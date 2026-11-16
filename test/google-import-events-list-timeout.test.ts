@@ -23,7 +23,6 @@ const baseInput = {
   syncToken: "tok-123",
   pageToken: null,
   timeMinIso: null,
-  pageSize: null,
   accessToken: "access-token-1"
 };
 

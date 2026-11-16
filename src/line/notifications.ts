@@ -9,9 +9,8 @@ import {
   LINE_MONTHLY_QUOTA_EXHAUSTED,
   jstYearMonth,
   LINE_SHARED_CHANNEL_ENVIRONMENTS,
-  countLineSendsSince,
   readLineQuotaStatus,
-  optionalPushHeadroom
+  type LineQuotaStatus
 } from "./quota";
 import { sendOperationsNotificationEmail } from "../notifications/operations-email";
 
@@ -58,6 +57,7 @@ const LINE_OPTIONAL_TEMPLATES = new Set([
 
 type LineNotificationJobRow = {
   job_id: string;
+  dedupe_key: string;
   template_key: string;
   recipient_type: "customer" | "owner";
   recipient_id: string;
@@ -92,6 +92,7 @@ type ReservationNotificationEligibilityRow = {
   status: string;
   pending_expires_at: string | null;
   start_at: string | null;
+  version: number;
 };
 
 type LineNotificationJobClaim = {
@@ -573,6 +574,7 @@ const buildLineMessageText = async (db: D1Database, row: LineNotificationJobRow)
 const BRANCH_A_SQL = `
   SELECT
     notification_jobs.id AS job_id,
+    notification_jobs.dedupe_key AS dedupe_key,
     notification_jobs.template_key AS template_key,
     notification_jobs.recipient_type AS recipient_type,
     notification_jobs.recipient_id AS recipient_id,
@@ -591,7 +593,8 @@ const BRANCH_A_SQL = `
     notification_jobs.email_inflight_at AS email_inflight_at,
     NULL AS payload_json,
     notification_jobs.available_at AS sort_available_at,
-    notification_jobs.created_at AS sort_created_at
+    notification_jobs.created_at AS sort_created_at,
+    notification_jobs.rowid AS sort_rowid
   FROM notification_jobs
   JOIN reservations ON reservations.id = notification_jobs.reservation_id
   JOIN stores ON stores.id = reservations.store_id
@@ -637,6 +640,7 @@ const BRANCH_A_SQL = `
 const BRANCH_B_SQL = `
   SELECT
     notification_jobs.id AS job_id,
+    notification_jobs.dedupe_key AS dedupe_key,
     notification_jobs.template_key AS template_key,
     'owner' AS recipient_type,
     notification_jobs.recipient_id AS recipient_id,
@@ -652,7 +656,8 @@ const BRANCH_B_SQL = `
     notification_jobs.email_inflight_at AS email_inflight_at,
     notification_jobs.payload_json AS payload_json,
     notification_jobs.available_at AS sort_available_at,
-    notification_jobs.created_at AS sort_created_at
+    notification_jobs.created_at AS sort_created_at,
+    notification_jobs.rowid AS sort_rowid
   FROM notification_jobs
   WHERE notification_jobs.template_key IN ('google_drift_alert', 'google_conflict_burst_alert', 'daily_ops_summary')
     AND notification_jobs.recipient_type = 'owner'
@@ -699,21 +704,22 @@ const fetchNextLineNotificationJob = async (
   const idFilterClause = jobIdsFilter && jobIdsFilter.length > 0
     ? ` AND notification_jobs.id IN (${jobIdsFilter.map(() => "?").join(",")})`
     : "";
-  const branchASql = BRANCH_A_SQL + idFilterClause;
+  const branchASql = BRANCH_A_SQL + ` AND (notification_jobs.recipient_type != 'customer'
+    OR NOT EXISTS (${earlierEligibleCustomerNotificationSql("notification_jobs")}))` + idFilterClause;
   const branchBSql = BRANCH_B_SQL + idFilterClause;
   const sqlBody = branchBEnabled
     ? `${branchASql} UNION ALL ${branchBSql}`
     : branchASql;
   const sql = `
     SELECT * FROM (${sqlBody})
-    ORDER BY sort_available_at ASC, sort_created_at ASC
+    ORDER BY sort_available_at ASC, sort_created_at ASC, sort_rowid ASC
     LIMIT 1
   `;
   const filterIds = jobIdsFilter && jobIdsFilter.length > 0 ? jobIdsFilter : [];
   const binds = branchBEnabled
-    ? [nowIso, nowIso, MAX_ATTEMPTS, ...filterIds, nowIso, nowIso, MAX_ATTEMPTS, ...filterIds]
-    : [nowIso, nowIso, MAX_ATTEMPTS, ...filterIds];
-  return db
+    ? [nowIso, nowIso, MAX_ATTEMPTS, nowIso, ...filterIds, nowIso, nowIso, MAX_ATTEMPTS, ...filterIds]
+    : [nowIso, nowIso, MAX_ATTEMPTS, nowIso, ...filterIds];
+  return await db
     .prepare(sql)
     .bind(...binds)
     .first<LineNotificationJobRow>();
@@ -883,6 +889,54 @@ const SUPERSEDING_TEMPLATES: Record<string, readonly string[]> = {
   ]
 };
 
+// Closed template constants, never request input. Share this predicate between
+// ordinary eligibility, FIFO admission and the final send transaction.
+const SUPERSEDING_TEMPLATE_SQL = Object.entries(SUPERSEDING_TEMPLATES)
+  .map(([older, newer]) => `(eligible_job.template_key = '${older}' AND newer.template_key IN (${newer.map((key) => `'${key}'`).join(",")}))`)
+  .join(" OR ");
+
+const customerNotificationEligibilitySql = (jobIdSql: string): string => `
+  SELECT 1 FROM notification_jobs eligible_job
+  JOIN reservations eligible_reservation ON eligible_reservation.id = eligible_job.reservation_id
+  CROSS JOIN (SELECT ? AS now_iso) eligibility_clock
+  WHERE eligible_job.id = ${jobIdSql}
+    AND (
+      (eligible_job.template_key = 'reservation_pending_received'
+        AND eligible_reservation.status = 'pending_approval'
+        AND (eligible_reservation.pending_expires_at IS NULL
+          OR eligible_reservation.pending_expires_at > eligibility_clock.now_iso))
+      OR (eligible_job.template_key = 'reservation_confirmed' AND eligible_reservation.status = 'confirmed')
+      OR (eligible_job.template_key = 'reservation_rejected' AND eligible_reservation.status = 'rejected')
+      OR (eligible_job.template_key = 'reservation_time_changed'
+        AND eligible_reservation.status IN ('pending_approval', 'confirmed'))
+      OR (eligible_job.template_key = 'reservation_cancelled_by_admin' AND eligible_reservation.status = 'cancelled_by_admin')
+      OR (eligible_job.template_key = 'reservation_reminder'
+        AND eligible_reservation.status = 'confirmed'
+        AND eligible_reservation.start_at > eligibility_clock.now_iso
+        AND (rtrim(eligible_job.dedupe_key, '0123456789') = eligible_job.dedupe_key
+          OR substr(rtrim(eligible_job.dedupe_key, '0123456789'), -10) != ':revision:'
+          OR CAST(substr(eligible_job.dedupe_key,
+            length(rtrim(eligible_job.dedupe_key, '0123456789')) + 1) AS INTEGER) = eligible_reservation.version))
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM notification_jobs newer
+      WHERE newer.reservation_id = eligible_job.reservation_id AND newer.status != 'dead'
+        AND (newer.created_at > eligible_job.created_at
+          OR (newer.created_at = eligible_job.created_at AND newer.rowid > eligible_job.rowid))
+        AND (${SUPERSEDING_TEMPLATE_SQL})
+    )
+`;
+
+const earlierEligibleCustomerNotificationSql = (currentAlias: string): string => `
+  SELECT 1 FROM notification_jobs earlier
+  WHERE earlier.recipient_type = 'customer' AND earlier.reservation_id = ${currentAlias}.reservation_id
+    AND (earlier.status IN ('queued', 'retryable')
+      OR (earlier.status = 'processing' AND earlier.locked_until IS NOT NULL))
+    AND (earlier.created_at < ${currentAlias}.created_at
+      OR (earlier.created_at = ${currentAlias}.created_at AND earlier.rowid < ${currentAlias}.rowid))
+    AND EXISTS (${customerNotificationEligibilitySql("earlier.id")})
+`;
+
 /**
  * Returns true when a newer notification job exists for the same reservation
  * with a template_key that supersedes the current row's template. "Newer" is
@@ -944,6 +998,11 @@ const isLineNotificationStillEligible = async (
     return true;
   }
 
+  if (row.recipient_type === "customer") {
+    return (await db.prepare(`SELECT 1 WHERE EXISTS (${customerNotificationEligibilitySql("?")})`)
+      .bind(nowIso, row.job_id).first()) !== null;
+  }
+
   // Supersedence check: skip this job if a newer job with a later-lifecycle
   // template exists for the same reservation (e.g. a confirmed retry is
   // irrelevant when a time_changed or cancelled job has been enqueued since).
@@ -954,7 +1013,7 @@ const isLineNotificationStillEligible = async (
   const reservation = await db
     .prepare(
       `
-        SELECT status, pending_expires_at, start_at
+        SELECT status, pending_expires_at, start_at, version
         FROM reservations
         WHERE id = ?
         LIMIT 1
@@ -986,10 +1045,15 @@ const isLineNotificationStillEligible = async (
         reservation?.status === "pending_approval" &&
         (reservation.pending_expires_at === null || reservation.pending_expires_at > nowIso)
       );
-    case "reservation_reminder":
+    case "reservation_reminder": {
+      // Legacy reminder keys had no revision; current keys belong only to the
+      // revision that entered its reminder window, even after a reschedule.
+      const revision = row.dedupe_key?.match(/:revision:(\d+)$/)?.[1];
       return reservation?.status === "confirmed" &&
         reservation.start_at !== null &&
-        reservation.start_at > nowIso;
+        reservation.start_at > nowIso &&
+        (revision === undefined || Number(revision) === reservation.version);
+    }
     default:
       // Includes the retired change_request_* templates: any legacy row that
       // re-enters the queue is skipped, never re-sent.
@@ -1002,13 +1066,20 @@ const markJobFailure = async (
   row: LineNotificationJobRow,
   reason: string,
   claim: LineNotificationJobClaim,
-  nowMs: number
+  nowMs: number,
+  quotaReservation?: { key?: string; token?: string }
 ): Promise<"failed" | "skipped"> => {
   const nextAttempts = claim.attempts;
   const status = reason === LINE_MONTHLY_QUOTA_EXHAUSTED || nextAttempts >= MAX_ATTEMPTS ? "dead" : "retryable";
   const availableAt = status === "dead" ? toIso(nowMs) : toIso(nowMs + RETRY_DELAY_MS);
 
   const results = await db.batch([
+    ...(quotaReservation?.key && quotaReservation.token && (reason.startsWith("line-http-") || reason === LINE_MONTHLY_QUOTA_EXHAUSTED)
+      ? [db.prepare(`DELETE FROM idempotency_keys
+          WHERE id = ? AND scope = 'line_notification' AND idempotency_key = ?
+            AND EXISTS (${lineNotificationClaimExistsSql})`)
+          .bind(quotaReservation.token, quotaReservation.key, ...lineNotificationClaimBindings(row, claim))]
+      : []),
     db
       .prepare(
         `
@@ -1061,7 +1132,7 @@ const markJobFailure = async (
       )
       .bind(status, nextAttempts, availableAt, reason, toIso(nowMs), row.job_id, ...lineNotificationClaimBindings(row, claim))
   ]);
-  return hasChangedRows(results[1]) ? "failed" : "skipped";
+  return hasChangedRows(results[results.length - 1]) ? "failed" : "skipped";
 };
 
 // ── LINE message payloads ───────────────────────────────────────────
@@ -1272,9 +1343,16 @@ const markJobSuccess = async (
   providerMessageId: string | null,
   claim: LineNotificationJobClaim,
   nowMs: number,
-  sentCount = 1
+  sentCount = 1,
+  quotaReservationKey?: string
 ) => {
   const results = await db.batch([
+    ...(quotaReservationKey
+      ? [db.prepare(`UPDATE idempotency_keys SET status = 'succeeded', updated_at = ?
+          WHERE scope = 'line_notification' AND idempotency_key = ?
+            AND EXISTS (${lineNotificationClaimExistsSql})`)
+          .bind(toIso(nowMs), quotaReservationKey, ...lineNotificationClaimBindings(row, claim))]
+      : []),
     db
       .prepare(
         `
@@ -1322,10 +1400,75 @@ const markJobSuccess = async (
       )
       .bind(toIso(nowMs), row.job_id, ...lineNotificationClaimBindings(row, claim))
   ]);
-  return hasChangedRows(results[1]);
+  return hasChangedRows(results[results.length - 1]);
+};
+
+const reserveLineQuotaSlot = async (
+  db: D1Database,
+  row: LineNotificationJobRow,
+  claim: LineNotificationJobClaim,
+  status: LineQuotaStatus | null,
+  nowMs: number
+): Promise<{ outcome: "reserved"; key?: string; token?: string } | { outcome: "deferred" } | { outcome: "exhausted" }> => {
+  if (!status || status.limit === null) return { outcome: "reserved" };
+  const cap = Math.min(status.softCap, status.limit);
+  const optional = LINE_OPTIONAL_TEMPLATES.has(row.template_key);
+  const prefix = `line-quota:${jstYearMonth(nowMs)}:`;
+  const key = `${prefix}${row.job_id}`;
+  const token = crypto.randomUUID();
+  const jst = new Date(nowMs + JST_OFFSET_MS);
+  const expiresAt = toIso(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth() + 1, 1) - JST_OFFSET_MS);
+  // The insert and budget predicate share one D1 write transaction. Started
+  // reservations cover other handlers' in-flight sends until their success log
+  // replaces the reservation in the same batch. Unknown delivery keeps its slot.
+  const reserved = await db.prepare(`
+    INSERT INTO idempotency_keys
+      (id, scope, idempotency_key, status, target_type, target_id, expires_at, updated_at)
+    SELECT ?, 'line_notification', ?, 'started', 'line_notification_quota', ?, ?, ?
+    WHERE EXISTS (${lineNotificationClaimExistsSql})
+      AND (? = 0
+        OR EXISTS (SELECT 1 FROM idempotency_keys
+          WHERE scope = 'line_notification' AND idempotency_key = ? AND status = 'started')
+        OR ? + (SELECT COALESCE(SUM(sent_count), 0) FROM notification_logs
+                  WHERE datetime(created_at) >= datetime(?))
+             + (SELECT COUNT(*) FROM idempotency_keys
+                  WHERE scope = 'line_notification' AND target_type = 'line_notification_quota'
+                    AND idempotency_key LIKE ? AND status = 'started') < ?)
+    ON CONFLICT(scope, idempotency_key) DO UPDATE SET
+      expires_at = excluded.expires_at, updated_at = excluded.updated_at
+    WHERE idempotency_keys.status = 'started'
+  `).bind(token, key, row.job_id, expiresAt, toIso(nowMs),
+    ...lineNotificationClaimBindings(row, claim), optional ? 1 : 0, key,
+    status.used, status.asOf, `${prefix}%`, cap).run();
+  if (hasChangedRows(reserved)) return { outcome: "reserved", key, token };
+  // A slot occupied only by an in-flight send may become free on failure.
+  // Keep the waiting job queued instead of permanently suppressing it.
+  const sent = await db.prepare(`SELECT COALESCE(SUM(sent_count), 0) AS sent
+    FROM notification_logs WHERE datetime(created_at) >= datetime(?)`)
+    .bind(status.asOf).first<{ sent: number }>();
+  return { outcome: status.used + (sent?.sent ?? 0) >= cap ? "exhausted" : "deferred" };
 };
 
 type LineNotificationJobOutcome = "succeeded" | "failed" | "skipped";
+type LineNotificationSendGate =
+  | { outcome: "ready"; row: LineNotificationJobRow }
+  | { outcome: "ineligible" }
+  | { outcome: "claim_lost" };
+
+const releaseUnusedLineQuotaSlot = async (
+  db: D1Database,
+  row: LineNotificationJobRow,
+  claim: LineNotificationJobClaim,
+  reservation: { key?: string; token?: string }
+): Promise<void> => {
+  // An existing row can represent an earlier unknown delivery. Only this
+  // attempt's newly inserted, unused reservation may be removed.
+  if (!reservation.key || !reservation.token) return;
+  await db.prepare(`DELETE FROM idempotency_keys
+    WHERE id = ? AND scope = 'line_notification' AND idempotency_key = ?
+      AND EXISTS (${lineNotificationClaimExistsSql})`)
+    .bind(reservation.token, reservation.key, ...lineNotificationClaimBindings(row, claim)).run();
+};
 
 /**
  * Recipients for an owner notification email, or `undefined`
@@ -1376,6 +1519,76 @@ const stampEmailInflight = async (
   return hasChangedRows(result);
 };
 
+// A reservation can enter through cron, Queue and Workflow simultaneously.
+// Customer IDs and LINE identity IDs are both used by producers, so order by
+// reservation rather than the producer's recipient_id representation.
+const withCustomerNotificationPartition = async (
+  db: D1Database,
+  row: LineNotificationJobRow,
+  claim: LineNotificationJobClaim,
+  now: () => number,
+  dispatch: (row: LineNotificationJobRow, beforeSend: () => Promise<LineNotificationSendGate>) => Promise<LineNotificationJobOutcome>
+): Promise<LineNotificationJobOutcome> => {
+  if (row.recipient_type !== "customer" || !row.reservation_id) {
+    return dispatch(row, async () => ({ outcome: "ready", row }));
+  }
+  const key = `customer-line-partition:${row.reservation_id}`;
+  const token = crypto.randomUUID();
+  const nowIso = toIso(now());
+  const acquired = await db.prepare(`
+    INSERT INTO idempotency_keys (id, scope, idempotency_key, status, expires_at, updated_at)
+    SELECT ?, 'line_notification', ?, 'started', ?, ? FROM notification_jobs current_job
+    WHERE current_job.id = ? AND current_job.status = 'processing'
+      AND current_job.attempts = ? AND current_job.locked_until = ?
+      AND NOT EXISTS (${earlierEligibleCustomerNotificationSql("current_job")})
+    ON CONFLICT(scope, idempotency_key) DO UPDATE SET
+      id = excluded.id, status = 'started', expires_at = excluded.expires_at, updated_at = excluded.updated_at
+    WHERE idempotency_keys.expires_at < ?
+  `).bind(token, key, toIso(now() + LOCK_TTL_MS), nowIso,
+    ...lineNotificationClaimBindings(row, claim), nowIso, nowIso).run();
+  if (!hasChangedRows(acquired)) {
+    await releaseLineNotificationClaimsBatch(db, [{ row, claim }], now());
+    return "skipped";
+  }
+  try {
+    return await dispatch(row, async () => {
+      const checkedAtMs = now();
+      const checkedAt = toIso(checkedAtMs);
+      // Eligibility, ownership and the payload snapshot share one transaction
+      // after quota reservation. No database await follows this gate before send.
+      const checked = await db.batch([
+        db.prepare(`UPDATE idempotency_keys SET expires_at = ?, updated_at = ?
+          WHERE id = ? AND scope = 'line_notification' AND idempotency_key = ?
+            AND EXISTS (${lineNotificationClaimExistsSql})
+            AND EXISTS (${customerNotificationEligibilitySql("?")})`)
+          .bind(toIso(checkedAtMs + LOCK_TTL_MS), checkedAt, token, key,
+            ...lineNotificationClaimBindings(row, claim), checkedAt, row.job_id),
+        db.prepare(`
+          SELECT li.line_user_id, s.name AS store_name, s.timezone AS store_timezone,
+            r.start_at, r.status, r.rejection_reason, c.display_name AS customer_display_name
+          FROM reservations r JOIN stores s ON s.id = r.store_id
+          LEFT JOIN line_identities li ON li.id = r.line_identity_id
+          LEFT JOIN customers c ON c.id = r.customer_id
+          WHERE r.id = ?
+        `).bind(row.reservation_id),
+        db.prepare(`SELECT 1 FROM idempotency_keys
+          WHERE id = ? AND scope = 'line_notification' AND idempotency_key = ?
+            AND EXISTS (${lineNotificationClaimExistsSql})`)
+          .bind(token, key, ...lineNotificationClaimBindings(row, claim))
+      ]);
+      if (checked[2].results.length === 0) return { outcome: "claim_lost" };
+      if (!hasChangedRows(checked[0])) return { outcome: "ineligible" };
+      const current = checked[1].results[0] as Pick<LineNotificationJobRow,
+        "line_user_id" | "store_name" | "store_timezone" | "start_at" | "status" |
+        "rejection_reason" | "customer_display_name">;
+      return { outcome: "ready", row: { ...row, ...current } };
+    });
+  } finally {
+    await db.prepare("DELETE FROM idempotency_keys WHERE id = ? AND scope = 'line_notification' AND idempotency_key = ?")
+      .bind(token, key).run();
+  }
+};
+
 const attemptLinePush = async (
   row: LineNotificationJobRow,
   env: LineNotificationEnv,
@@ -1386,9 +1599,8 @@ const attemptLinePush = async (
   | { ok: false; reason: "line-push-unhandled"; alreadyCaptured: true }
 > => {
   try {
-    // Build inside the try so a (practically impossible) throw here still routes
-    // through the caller's failure path, releasing the soft-cap quota slot
-    // instead of leaking it for the rest of the sweep.
+    // Keep payload construction and provider errors on the same retry path.
+    // An unhandled error may follow acceptance, so its quota slot stays reserved.
     const messages = buildLineMessages(row, env, messageText);
     return await sendLinePush(row, env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN, fetcher, messages);
   } catch (error) {
@@ -1602,13 +1814,9 @@ const processClaimedLineNotificationJob = async (input: {
   claim: LineNotificationJobClaim;
   startedAtMs: number;
   now: () => number;
+  beforeLineSend: () => Promise<LineNotificationSendGate>;
   stopForMonthlyQuota: boolean;
-  /** Reserve one soft-cap slot for this send. Critical sends consume the budget
-   *  but are never denied; an optional send returns false (→ suppress) when the
-   *  per-sweep budget is exhausted. */
-  reserveQuotaSlot: (isOptional: boolean) => boolean;
-  /** Return a reserved slot when the send failed (no LINE quota was consumed). */
-  releaseQuotaSlot: () => void;
+  quotaStatus: LineQuotaStatus | null;
 }): Promise<LineNotificationJobOutcome> => {
   const eligibilityMs = input.now();
   if (!(await isLineNotificationStillEligible(input.db, input.row, toIso(eligibilityMs)))) {
@@ -1684,13 +1892,14 @@ const processClaimedLineNotificationJob = async (input: {
     return "skipped";
   }
 
-  // Monthly budget guard: reserve a soft-cap slot for this send. Critical sends
-  // consume the budget (real LINE quota) but are never denied; once the budget is
-  // exhausted, optional (non-transactional) pushes are suppressed — so a single
-  // sweep cannot overshoot the cap and critical sends are accounted for too.
-  // Suppressed jobs terminate (no retry) — an optional push is time-sensitive and
-  // irrelevant by next month's quota reset.
-  if (!input.reserveQuotaSlot(LINE_OPTIONAL_TEMPLATES.has(input.row.template_key))) {
+  const quotaReservation = await reserveLineQuotaSlot(
+    input.db, input.row, input.claim, input.quotaStatus, input.now()
+  );
+  if (quotaReservation.outcome === "deferred") {
+    await releaseLineNotificationClaimsBatch(input.db, [{ row: input.row, claim: input.claim }], input.now());
+    return "skipped";
+  }
+  if (quotaReservation.outcome === "exhausted") {
     return (await markJobSuperseded(
       input.db,
       input.row,
@@ -1702,10 +1911,28 @@ const processClaimedLineNotificationJob = async (input: {
       : "skipped";
   }
 
-  const push = await attemptLinePush(input.row, input.env, input.fetcher, messageText);
+  const sendGate = await input.beforeLineSend();
+  if (sendGate.outcome !== "ready") {
+    await releaseUnusedLineQuotaSlot(input.db, input.row, input.claim, quotaReservation);
+    if (sendGate.outcome === "ineligible") {
+      return (await markJobSuperseded(input.db, input.row, "superseded_by_reservation_state", input.claim, input.now()))
+        ? "succeeded" : "skipped";
+    }
+    await releaseLineNotificationClaimsBatch(input.db, [{ row: input.row, claim: input.claim }], input.now());
+    return "skipped";
+  }
+
+  if (input.row.recipient_type === "customer") {
+    try { messageText = await buildLineMessageText(input.db, sendGate.row); }
+    catch (error) {
+      safeCaptureException(error, { tags: { dispatcher: "line_push", reason: "line-render-failed" } });
+      await releaseUnusedLineQuotaSlot(input.db, input.row, input.claim, quotaReservation);
+      return markJobFailure(input.db, input.row, "line-render-failed", input.claim, input.now());
+    }
+  }
+  const push = await attemptLinePush(sendGate.row, input.env, input.fetcher, messageText);
   if (!push.ok) {
-    input.releaseQuotaSlot();
-    const outcome = await markJobFailure(input.db, input.row, push.reason, input.claim, input.startedAtMs);
+    const outcome = await markJobFailure(input.db, input.row, push.reason, input.claim, input.startedAtMs, quotaReservation);
     captureDeadLinePushFailure(push, input.row, input.claim, outcome === "failed");
     return outcome;
   }
@@ -1713,7 +1940,7 @@ const processClaimedLineNotificationJob = async (input: {
   // Completion time, not claim time (`startedAtMs`): the success log's
   // created_at feeds the cross-invocation quota correction, and a snapshot
   // refreshed mid-send would otherwise hide this send until the next refresh.
-  return (await markJobSuccess(input.db, input.row, push.providerMessageId, input.claim, input.now()))
+  return (await markJobSuccess(input.db, input.row, push.providerMessageId, input.claim, input.now(), 1, quotaReservation.key))
     ? "succeeded"
     : "skipped";
 };
@@ -1819,54 +2046,13 @@ export async function processDueLineNotificationJobs(input: {
     input.env.DAILY_OPS_SUMMARY_DISPATCH_ENABLED === "true";
 
   // Read the persisted monthly quota snapshot once per sweep (no LINE API call).
-  // Missing snapshot / unknown limit → Infinity headroom = no suppression
-  // (availability over accuracy). The headroom is consumed per optional send so a
-  // single large batch cannot overshoot the soft cap (e.g. usage 179/180 must not
-  // let an entire reminder sweep through).
+  // Missing snapshot / unknown limit keeps dispatch available. Known budgets
+  // are reserved atomically per send, including other handlers' in-flight work.
   const quotaStatus = await readLineQuotaStatus({ db: input.db, env: input.env, now });
   const quotaSnapshotMs = Date.parse(quotaStatus?.asOf ?? "");
   const exhaustedQuotaMonth = quotaStatus?.remaining === 0 && Number.isFinite(quotaSnapshotMs)
     ? jstYearMonth(quotaSnapshotMs)
     : null;
-  let quotaHeadroom = optionalPushHeadroom(quotaStatus);
-  // Cross-invocation accounting: the snapshot's `used` only advances on the
-  // 10-minute maintenance cron, so pushes sent by earlier sweeps / queue
-  // invocations since the snapshot was fetched are not reflected in it yet.
-  // Subtract them from the headroom (sent_count=1 log rows since asOf) so
-  // back-to-back invocations at e.g. 179/180 cannot each spend the same last
-  // optional slot. datetime() normalizes ISO 'T' timestamps against SQLite's
-  // space-separated CURRENT_TIMESTAMP rows. Boundary imprecision (a send the
-  // snapshot already counted being re-subtracted) errs toward suppressing
-  // early — never toward overshooting the cap — and the ops email mirror
-  // still covers suppressed sends. Degrades like the snapshot read:
-  // on query failure, skip the correction rather than break dispatch.
-  if (quotaStatus && Number.isFinite(quotaHeadroom)) {
-    try {
-      const sentSince = await countLineSendsSince(input.db, quotaStatus.asOf);
-      quotaHeadroom = Math.max(0, quotaHeadroom - sentSince);
-    } catch (err: unknown) {
-      safeCaptureException(err instanceof Error ? err : new Error(String(err)), {
-        tags: { dispatcher: "line_push", reason: "quota-sent-since-read-failed" }
-      });
-    }
-  }
-  // Reserve one soft-cap slot for a job about to send. Transactional/critical
-  // sends ALSO consume the shared budget (they spend real LINE quota too), but
-  // are never denied; optional sends are denied once the budget is exhausted —
-  // so an optional push cannot slip through after critical sends in the same
-  // sweep already consumed the last slot. Synchronous check+decrement is atomic
-  // across the parallel partition dispatch (JS is single-threaded between awaits).
-  const reserveQuotaSlot = (isOptional: boolean): boolean => {
-    if (isOptional && quotaHeadroom <= 0) return false;
-    quotaHeadroom -= 1;
-    return true;
-  };
-  // Restore a reserved slot when the send did not actually consume LINE quota
-  // (render/push failure), so a failed send does not needlessly suppress later
-  // optional pushes in the same sweep.
-  const releaseQuotaSlot = (): void => {
-    quotaHeadroom += 1;
-  };
 
   let claimed = 0;
   let exhausted = false;
@@ -1967,7 +2153,8 @@ export async function processDueLineNotificationJobs(input: {
     const chunkStartMs = now();
     const partitions = new Map<string, typeof chunkJobs>();
     for (const job of chunkJobs) {
-      const key = `${job.row.recipient_id}\0${job.row.reservation_id ?? ""}`;
+      const recipient = job.row.recipient_type === "customer" ? "customer" : job.row.recipient_id;
+      const key = `${recipient}\0${job.row.reservation_id ?? ""}`;
       let partition = partitions.get(key);
       if (!partition) {
         partition = [];
@@ -1986,18 +2173,19 @@ export async function processDueLineNotificationJobs(input: {
         const outcomes: Array<{ status: "fulfilled"; value: LineNotificationJobOutcome } | { status: "rejected"; reason: unknown }> = [];
         for (const job of partition) {
           try {
-            const outcome = await processClaimedLineNotificationJob({
+            const outcome = await withCustomerNotificationPartition(input.db, job.row, job.claim, now,
+              (currentRow, beforeLineSend) => processClaimedLineNotificationJob({
               db: input.db,
               env: input.env,
               fetcher,
-              row: job.row,
+              row: currentRow,
               claim: job.claim,
               startedAtMs: job.startedAtMs,
               now,
+              beforeLineSend,
               stopForMonthlyQuota,
-              reserveQuotaSlot,
-              releaseQuotaSlot
-            });
+              quotaStatus
+            }));
             if (isOwnerEmailJob(job.row)) {
               // Counted apart from `result` so the batch metric below is not
               // filed under channel "line" for a sweep that only sent email.
@@ -2049,6 +2237,12 @@ export async function processDueLineNotificationJobs(input: {
         });
         result.failed += 1;
       }
+    }
+
+    // This chunk's claims may have hidden the next jobs in their reservation.
+    // Recheck after settling them; a genuinely empty queue needs no throttle.
+    if (exhausted) {
+      exhausted = (await fetchNextLineNotificationJob(input.db, toIso(now()), branchBEnabled, input.jobIdsFilter)) === null;
     }
 
     // Phase 3: Rate-limit throttle. Sleep until CHUNK_THROTTLE_FLOOR_MS

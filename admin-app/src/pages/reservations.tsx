@@ -55,7 +55,7 @@ import {
   type ReservationSearchFilter,
 } from "@/hooks/use-reservation-search";
 import { useReservationAction } from "@/hooks/use-reservations";
-import type { ReservationSearchItem } from "@/types/api";
+import type { ReservationSearchItem, ReservationSearchResponse } from "@/types/api";
 import {
   statusLabel,
   statusColor,
@@ -125,6 +125,43 @@ const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
   { value: "status", label: "ステータス" },
 ];
 
+function reservationSearchCopy(viewMode: ReservationViewMode) {
+  if (viewMode === "pending") {
+    return {
+      label: "顧客名",
+      placeholder: "承認待ちの顧客名",
+      hint: "予約日に関係なく、選択中の店舗の承認待ちを顧客名で絞り込みます。",
+      detailsClass: "sm:hidden",
+      detailsLabel: "店舗の条件を変更",
+    };
+  }
+  return {
+    label: "顧客名・カナ・電話番号",
+    placeholder: "顧客名・カナ・電話番号",
+    hint: "名前は1文字から検索できます。検索期間は最大92日です。",
+    detailsClass: "",
+    detailsLabel: "期間・条件を変更",
+  };
+}
+
+function ReservationExportToolbar({ data, onDownload, disabled, isDownloading }: Readonly<{
+  data: ReservationSearchResponse | undefined;
+  onDownload: () => void;
+  disabled: boolean;
+  isDownloading: boolean;
+}>) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-sm text-muted-foreground">
+        {data?.ok && !data.truncated && data.totalCount !== null ? `${data.totalCount}件` : "予約の検索結果"}
+      </p>
+      <Button variant="outline" size="sm" onClick={onDownload} disabled={disabled}>
+        {isDownloading ? "出力中..." : "CSV"}
+      </Button>
+    </div>
+  );
+}
+
 export default function ReservationsPage() {
   const { user } = useAuth();
   const { data: settingsData } = useSettings();
@@ -137,6 +174,7 @@ export default function ReservationsPage() {
   const [viewMode, setViewMode] = useState<ReservationViewMode>(() =>
     location.state?.reservationView === "pending" ? "pending" : restored?.viewMode ?? "upcoming",
   );
+  const searchCopy = reservationSearchCopy(viewMode);
   const [from, setFrom] = useState(restored?.from ?? defaultRange.from);
   const [to, setTo] = useState(restored?.to ?? defaultRange.to);
   const { selectedStoreId: storeId, selectStore: setStoreId, isStoreFixed } = useStores();
@@ -333,7 +371,7 @@ export default function ReservationsPage() {
   return (
     <div ref={pageRef} className="space-y-4 p-4 sm:p-6">
       <h1 className="text-2xl font-bold">予約管理</h1>
-      <div className="flex flex-wrap gap-2" role="group" aria-label="表示する予約">
+      <fieldset className="flex min-w-0 flex-wrap gap-2 border-0 p-0" aria-label="表示する予約">
         {([
           ["today", "今日"],
           ["upcoming", "今後30日"],
@@ -350,17 +388,17 @@ export default function ReservationsPage() {
             {label}
           </Button>
         ))}
-      </div>
+      </fieldset>
       <section className="space-y-3 rounded-lg border bg-card p-3 sm:p-4" aria-label="予約を検索">
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-0 flex-1 space-y-1">
-            <Label htmlFor="keyword">{viewMode === "pending" ? "顧客名" : "顧客名・カナ・電話番号"}</Label>
+            <Label htmlFor="keyword">{searchCopy.label}</Label>
             <Input
               id="keyword"
               type="search"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder={viewMode === "pending" ? "承認待ちの顧客名" : "顧客名・カナ・電話番号"}
+              placeholder={searchCopy.placeholder}
               aria-describedby="reservation-search-hint"
             />
           </div>
@@ -379,14 +417,12 @@ export default function ReservationsPage() {
           <Button variant="outline" size="sm" onClick={resetFilters}>絞り込みを解除</Button>
         </div>
         <p id="reservation-search-hint" className="text-xs text-muted-foreground">
-          {viewMode === "pending"
-            ? "予約日に関係なく、選択中の店舗の承認待ちを顧客名で絞り込みます。"
-            : "名前は1文字から検索できます。検索期間は最大92日です。"}
+          {searchCopy.hint}
         </p>
         {(viewMode !== "pending" || (!isStoreFixed && settings && settings.stores.length > 1)) && (
-          <details className={`border-t pt-1 ${viewMode === "pending" ? "sm:hidden" : ""}`}>
+          <details className={`border-t pt-1 ${searchCopy.detailsClass}`}>
             <summary className="flex min-h-11 cursor-pointer items-center text-sm text-muted-foreground">
-              {viewMode === "pending" ? "店舗の条件を変更" : "期間・条件を変更"}
+              {searchCopy.detailsLabel}
             </summary>
             <div className="grid grid-cols-2 gap-3 pt-2 lg:grid-cols-4">
               {!isStoreFixed && settings && settings.stores.length > 1 && (
@@ -467,7 +503,7 @@ export default function ReservationsPage() {
             {dateValidationMessage}
           </p>
         )}
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="適用中の検索条件">
+        <fieldset className="flex min-w-0 flex-wrap items-center gap-2 border-0 p-0" aria-label="適用中の検索条件">
           <Badge variant="secondary">
             {viewMode === "pending" ? "予約日の指定なし・承認期限順" : `${from || "開始日未指定"} 〜 ${to || "終了日未指定"}`}
           </Badge>
@@ -483,7 +519,7 @@ export default function ReservationsPage() {
           {viewMode !== "pending" && statusFilter !== ALL_SENTINEL && (
             <Badge variant="outline">{statusLabel(statusFilter)}</Badge>
           )}
-        </div>
+        </fieldset>
       </section>
       {viewMode === "pending" ? (
         <PendingApprovalsCard
@@ -493,14 +529,12 @@ export default function ReservationsPage() {
           nameFilter={keyword}
         />
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm text-muted-foreground">
-            {data?.ok && !data.truncated && data.totalCount !== null ? `${data.totalCount}件` : "予約の検索結果"}
-          </p>
-          <Button variant="outline" size="sm" onClick={handleCsvDownload} disabled={!filter || isDebouncing || isDownloading}>
-            {isDownloading ? "出力中..." : "CSV"}
-          </Button>
-        </div>
+        <ReservationExportToolbar
+          data={data}
+          onDownload={handleCsvDownload}
+          disabled={!filter || isDebouncing || isDownloading}
+          isDownloading={isDownloading}
+        />
       )}
 
       {csvError && (

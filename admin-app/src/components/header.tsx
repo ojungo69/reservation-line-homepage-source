@@ -23,9 +23,9 @@ type Theme = "light" | "dark" | "system";
 
 // テーマ切替ボタンのクリックで次に適用するテーマを決める(循環: light→dark→system→light)。
 function getNextTheme(theme: Theme): Theme {
-  if (theme === "dark") return "light";
-  if (theme === "light") return "system";
-  return "dark";
+  if (theme === "light") return "dark";
+  if (theme === "dark") return "system";
+  return "light";
 }
 
 type ThemeMenuOption = { Icon: LucideIcon; label: string };

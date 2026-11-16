@@ -43,7 +43,7 @@ export function LinkLineFromCardDialog({ customer, onClose }: Readonly<Props>) {
   // 検索語が空のときは一覧取得しない(空文字 = 全件取得を避ける)。enabled で
   // ダイアログを開いただけ・検索語が空の間は GET /line-friends を発行しない。
   const showResults = debouncedQ.length > 0;
-  const { items, isPending, isFetching } = useLineFriends({
+  const { items, isPending, isFetching, isError, refetch } = useLineFriends({
     filter: "unlinked",
     q: debouncedQ,
     page: 1,
@@ -117,13 +117,20 @@ export function LinkLineFromCardDialog({ customer, onClose }: Readonly<Props>) {
 
         <div className="mt-2 max-h-72 space-y-1 overflow-y-auto">
           {showResults && loadingResults && <p className="text-sm text-muted-foreground">検索中...</p>}
-          {showResults && !loadingResults && items.length === 0 && (
+          {showResults && !loadingResults && isError && (
+            <div className="space-y-2" role="alert">
+              <p className="text-sm text-destructive">LINE友だちの検索に失敗しました。</p>
+              <Button variant="outline" size="sm" onClick={() => void refetch()}>再読み込み</Button>
+            </div>
+          )}
+          {showResults && !loadingResults && !isError && items.length === 0 && (
             <p className="text-sm text-muted-foreground">
               該当する未紐付けのLINE友だちがいません。先に「LINE友だち紐付け」画面で「友だちを同期」してください。
             </p>
           )}
           {showResults &&
             !loadingResults &&
+            !isError &&
             items.map((friend) => {
               // Scope the "紐付け中..." label to the row actually being linked; all rows
               // are disabled during the mutation to prevent double-submit.

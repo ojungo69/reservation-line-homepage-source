@@ -42,7 +42,8 @@ export default function LineFriendsPage() {
   const [newFor, setNewFor] = useState<LineFriendListItem | null>(null);
   const [existingFor, setExistingFor] = useState<LineFriendListItem | null>(null);
 
-  const { items, total, pageSize, isPending, isError } = useLineFriends({ filter, q: debouncedQ, page });
+  const { items, total, pageSize, isPending, isFetching, isError, refetch } = useLineFriends({ filter, q: debouncedQ, page });
+  const loadingResults = isPending || isFetching || q.trim() !== debouncedQ;
   const sync = useLineFriendSync();
   const { stores, isPending: isStoresPending } = useStores();
 
@@ -120,20 +121,23 @@ export default function LineFriendsPage() {
       )}
 
       <div className="divide-y rounded border">
-        {isPending && <p className="p-4 text-sm text-muted-foreground">読み込み中...</p>}
-        {isError && (
-          <p className="p-4 text-sm text-destructive">
-            一覧の読み込みに失敗しました。検索条件を短くするか、時間をおいて再度お試しください。
-          </p>
+        {loadingResults && <p className="p-4 text-sm text-muted-foreground">読み込み中...</p>}
+        {!loadingResults && isError && (
+          <div className="space-y-2 p-4" role="alert">
+            <p className="text-sm text-destructive">
+              一覧の読み込みに失敗しました。検索条件を短くするか、時間をおいて再度お試しください。
+            </p>
+            <Button variant="outline" size="sm" onClick={() => void refetch()}>再読み込み</Button>
+          </div>
         )}
-        {!isPending && !isError && items.length === 0 && (
+        {!loadingResults && !isError && items.length === 0 && (
           <p className="p-4 text-sm text-muted-foreground">
             {filter === "unlinked"
               ? "未紐付けの友だちはいません。「友だちを同期」で最新化できます。"
               : "該当がありません。"}
           </p>
         )}
-        {items.map((f) => {
+        {!loadingResults && !isError && items.map((f) => {
           const disabledReason = getLinkDisabledReason(f.profileStatus, effectiveStoreId, isStoresPending, stores.length > 1);
           const reasonId = disabledReason ? `link-disabled-${f.lineUserId}` : undefined;
           return (
@@ -185,7 +189,7 @@ export default function LineFriendsPage() {
         })}
       </div>
 
-      {totalPages > 1 && (
+      {!loadingResults && !isError && totalPages > 1 && (
         <div className="flex items-center justify-center gap-3">
           <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
             前へ

@@ -3,6 +3,7 @@ import type { AdminUser } from "./access";
 import { readErrorMessage } from "../outbound-timeout";
 import {
   buildCreateContext,
+  expiredSettingsIdempotencyStatement,
   MAX_ID_LENGTH,
   MAX_IDEMPOTENCY_KEY_LENGTH,
   MAX_NAME_LENGTH,
@@ -210,7 +211,7 @@ type StaffRow = {
 };
 
 const fetchStaff = async (db: D1Database, id: string): Promise<StaffRow | null> =>
-  db
+  await db
     .prepare(
       `SELECT id, store_id, display_name, role, active, version
        FROM staff_members
@@ -332,6 +333,13 @@ export const createAdminStaff = async (input: {
   try {
     await input.db.batch([
       adminWriteGuard(input.db, input.admin),
+      expiredSettingsIdempotencyStatement({
+        db: input.db,
+        key: input.request.idempotencyKey,
+        requestHash,
+        targetType: "staff_member",
+        nowIso
+      }),
       startedIdempotencyStatement({
         db: input.db,
         id: idempotencyId,
@@ -597,6 +605,36 @@ export const updateAdminStaff = async (input: {
   return { ok: true, staffId: input.staffId };
 };
 
+async function handleStaffDeleteBatchError(
+  input: Parameters<typeof softDeleteAdminStaff>[0],
+  error: unknown
+): Promise<AdminStaffDeleteResult> {
+  if (await adminWriteWasRevoked(input.db, input.admin, error)) {
+    return { ok: false, error: "forbidden" };
+  }
+  if (isActorTypeBatchError(error)) {
+    const fresh = await fetchStaff(input.db, input.staffId);
+    if (!fresh) return { ok: false, error: "not_found" };
+    if (fresh.role === "system_admin" && input.admin.role !== "system_admin") {
+      await recordForbiddenRoleEscalationAudit({
+        db: input.db,
+        admin: input.admin,
+        path: "delete",
+        targetStaffId: input.staffId,
+        targetRole: fresh.role,
+        now: input.now
+      });
+      return { ok: false, error: "forbidden_role_escalation" };
+    }
+    return { ok: false, error: "write_failed" };
+  }
+  console.error("softDeleteAdminStaff batch failed", {
+    staffId: input.staffId,
+    error: readErrorMessage(error)
+  });
+  return { ok: false, error: "write_failed" };
+}
+
 export const softDeleteAdminStaff = async (input: {
   db: D1Database;
   admin: AdminUser;
@@ -700,30 +738,7 @@ export const softDeleteAdminStaff = async (input: {
         .bind(nowIso, input.staffId)
     ]);
   } catch (error) {
-    if (await adminWriteWasRevoked(input.db, input.admin, error)) {
-      return { ok: false, error: "forbidden" };
-    }
-    if (isActorTypeBatchError(error)) {
-      const fresh = await fetchStaff(input.db, input.staffId);
-      if (!fresh) return { ok: false, error: "not_found" };
-      if (fresh.role === "system_admin" && input.admin.role !== "system_admin") {
-        await recordForbiddenRoleEscalationAudit({
-          db: input.db,
-          admin: input.admin,
-          path: "delete",
-          targetStaffId: input.staffId,
-          targetRole: fresh.role,
-          now: input.now
-        });
-        return { ok: false, error: "forbidden_role_escalation" };
-      }
-      return { ok: false, error: "write_failed" };
-    }
-    console.error("softDeleteAdminStaff batch failed", {
-      staffId: input.staffId,
-      error: readErrorMessage(error)
-    });
-    return { ok: false, error: "write_failed" };
+    return handleStaffDeleteBatchError(input, error);
   }
 
   return { ok: true, staffId: input.staffId };
