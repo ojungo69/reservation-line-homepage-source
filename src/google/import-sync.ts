@@ -804,10 +804,8 @@ const buildEventsListUrl = (input: {
   url.searchParams.set("maxResults", String(FULL_WALK_PAGE_SIZE));
   if (input.syncToken) {
     url.searchParams.set("syncToken", input.syncToken);
-  } else {
-    if (input.timeMinIso) {
-      url.searchParams.set("timeMin", input.timeMinIso);
-    }
+  } else if (input.timeMinIso) {
+    url.searchParams.set("timeMin", input.timeMinIso);
   }
   if (input.pageToken) {
     url.searchParams.set("pageToken", input.pageToken);
@@ -4280,11 +4278,7 @@ const resolveFullReconcileSweepAnchor = async (input: {
   }
 };
 
-// Post-walk full_reconcile bookkeeping: drift threshold evaluation then orphan
-// sweep. Extracted from runImportJob to bound its cognitive complexity
-// (SonarCloud S3776). Ordinary failures are captured without failing the import;
-// claim loss aborts the remaining work so a stale attempt cannot keep writing.
-const runFullReconcilePostWalk = async (input: {
+type FullReconcilePostWalkInput = {
   db: D1Database;
   env: GoogleCalendarImportEnv;
   job: ImportJobRow;
@@ -4293,53 +4287,9 @@ const runFullReconcilePostWalk = async (input: {
   driftCaptureFailed: boolean;
   processedEventCount: number;
   computeDrift: DriftDeps["computeDrift"];
-}) => {
-  if (input.driftCaptureFailed || input.sweepStartSeconds === null) {
-    logGoogleEvent({
-      event_type: "google_drift_check_failed",
-      outcome: "failure",
-      calendar_id: input.job.calendar_id,
-      store_id: input.job.store_id,
-      error_class: "unexpected"
-    });
-  } else {
-    try {
-      const counts = await (input.computeDrift ?? computeCalendarDrift)({
-        db: input.db,
-        storeId: input.job.store_id,
-        calendarId: input.job.calendar_id,
-        googleSweepCount: input.processedEventCount,
-        sweepStartSeconds: input.sweepStartSeconds
-      });
-      await input.db.batch([]);
-      // Step 3: evaluate drift against threshold and conditionally
-      // enqueue LINE notifications (feature-flagged).
-      await evaluateDriftThreshold({
-        db: input.db,
-        env: input.env,
-        storeId: input.job.store_id,
-        calendarId: input.job.calendar_id,
-        googleCount: counts.googleSweepCount,
-        d1Count: counts.d1SweepCount,
-        drift: counts.drift,
-        nowMs: input.nowMs
-      });
-    } catch (error) {
-      if (error instanceof GoogleImportClaimLostError) throw error;
-      safeCaptureException(error, {
-        tags: { google_module: "import-sync", operation: "drift_check" },
-        contexts: { d1_query: { calendar_id: input.job.calendar_id, store_id: input.job.store_id } }
-      });
-      logGoogleEvent({
-        event_type: "google_drift_check_failed",
-        outcome: "failure",
-        calendar_id: input.job.calendar_id,
-        store_id: input.job.store_id,
-        error_class: "unexpected"
-      });
-    }
-  }
+};
 
+const runFullReconcileOrphanSweep = async (input: FullReconcilePostWalkInput) => {
   // Step 7 — orphan sweep (docs/plans/orphan-detection.md Option B).
   // After the full_reconcile page walk completes, transition any
   // google_calendar_events rows last seen >ORPHAN_GRACE_SECONDS ago to
@@ -4438,6 +4388,60 @@ const runFullReconcilePostWalk = async (input: {
       store_id: input.job.store_id
     });
   }
+};
+
+// Post-walk full_reconcile bookkeeping: drift threshold evaluation then orphan
+// sweep. Extracted from runImportJob to bound its cognitive complexity
+// (SonarCloud S3776). Ordinary failures are captured without failing the import;
+// claim loss aborts the remaining work so a stale attempt cannot keep writing.
+const runFullReconcilePostWalk = async (input: FullReconcilePostWalkInput) => {
+  if (input.driftCaptureFailed || input.sweepStartSeconds === null) {
+    logGoogleEvent({
+      event_type: "google_drift_check_failed",
+      outcome: "failure",
+      calendar_id: input.job.calendar_id,
+      store_id: input.job.store_id,
+      error_class: "unexpected"
+    });
+  } else {
+    try {
+      const counts = await (input.computeDrift ?? computeCalendarDrift)({
+        db: input.db,
+        storeId: input.job.store_id,
+        calendarId: input.job.calendar_id,
+        googleSweepCount: input.processedEventCount,
+        sweepStartSeconds: input.sweepStartSeconds
+      });
+      await input.db.batch([]);
+      // Step 3: evaluate drift against threshold and conditionally
+      // enqueue LINE notifications (feature-flagged).
+      await evaluateDriftThreshold({
+        db: input.db,
+        env: input.env,
+        storeId: input.job.store_id,
+        calendarId: input.job.calendar_id,
+        googleCount: counts.googleSweepCount,
+        d1Count: counts.d1SweepCount,
+        drift: counts.drift,
+        nowMs: input.nowMs
+      });
+    } catch (error) {
+      if (error instanceof GoogleImportClaimLostError) throw error;
+      safeCaptureException(error, {
+        tags: { google_module: "import-sync", operation: "drift_check" },
+        contexts: { d1_query: { calendar_id: input.job.calendar_id, store_id: input.job.store_id } }
+      });
+      logGoogleEvent({
+        event_type: "google_drift_check_failed",
+        outcome: "failure",
+        calendar_id: input.job.calendar_id,
+        store_id: input.job.store_id,
+        error_class: "unexpected"
+      });
+    }
+  }
+
+  await runFullReconcileOrphanSweep(input);
 };
 
 const runImportJob = async (input: {
@@ -4577,7 +4581,7 @@ const runImportJob = async (input: {
   };
 };
 
-const processClaimedImportJob = async (input: {
+type ClaimedImportJobInput = {
   db: D1Database;
   env: GoogleCalendarImportEnv;
   row: ImportJobRow;
@@ -4586,7 +4590,42 @@ const processClaimedImportJob = async (input: {
   accessTokenProvider?: () => Promise<string | undefined>;
   now: () => number;
   nowMs: number;
-} & DriftDeps) => {
+} & DriftDeps;
+
+const handleClaimedImportJobFailure = async (input: ClaimedImportJobInput, error: unknown) => {
+  if (error instanceof GoogleImportClaimLostError) return { ok: false as const };
+  if (isTransientD1Error(error)) {
+    // A long-running D1 export (the backup-verify workflow's `wrangler d1
+    // export`) briefly rejects every D1 write on this database. Don't capture
+    // (expected, infra-level) and DON'T call markJobFailure — its write would
+    // throw the same error. Leave the claim to lapse so the next sweep retries,
+    // and signal the loop to stop claiming (the whole DB is export-locked for
+    // now). Sentry RESERVATION-LINE-HOMEPAGE-D.
+    return { ok: false as const, transientD1: true as const };
+  }
+  safeCaptureException(error, {
+    tags: { google_module: "import-sync", operation: "process_claimed_job" },
+    contexts: { d1_query: { store_id: input.row.store_id, job_id: input.row.job_id } }
+  });
+  try {
+    await markJobFailure(input.db, input.row, input.claim, "google-import-unhandled", input.nowMs);
+  } catch (failError) {
+    // The failure-write itself can land in the D1 export window (the original
+    // error is already captured above). Treat it like any other export-lock:
+    // stop the sweep and let the claim lapse for a clean retry next tick. A
+    // throw inside this catch would otherwise escape processClaimedImportJob and
+    // bypass the transientD1 signal. Re-throw anything that is NOT export-lock.
+    if (isTransientD1Error(failError)) {
+      return { ok: false as const, transientD1: true as const };
+    }
+    throw failError;
+  }
+  return {
+    ok: false as const
+  };
+};
+
+const processClaimedImportJob = async (input: ClaimedImportJobInput) => {
   try {
     const accessToken = input.accessTokenProvider
       ? await input.accessTokenProvider()
@@ -4637,36 +4676,7 @@ const processClaimedImportJob = async (input: {
       fullSyncQueued: importResult.fullSyncQueued
     };
   } catch (error) {
-    if (error instanceof GoogleImportClaimLostError) return { ok: false as const };
-    if (isTransientD1Error(error)) {
-      // A long-running D1 export (the backup-verify workflow's `wrangler d1
-      // export`) briefly rejects every D1 write on this database. Don't capture
-      // (expected, infra-level) and DON'T call markJobFailure — its write would
-      // throw the same error. Leave the claim to lapse so the next sweep retries,
-      // and signal the loop to stop claiming (the whole DB is export-locked for
-      // now). Sentry RESERVATION-LINE-HOMEPAGE-D.
-      return { ok: false as const, transientD1: true as const };
-    }
-    safeCaptureException(error, {
-      tags: { google_module: "import-sync", operation: "process_claimed_job" },
-      contexts: { d1_query: { store_id: input.row.store_id, job_id: input.row.job_id } }
-    });
-    try {
-      await markJobFailure(input.db, input.row, input.claim, "google-import-unhandled", input.nowMs);
-    } catch (failError) {
-      // The failure-write itself can land in the D1 export window (the original
-      // error is already captured above). Treat it like any other export-lock:
-      // stop the sweep and let the claim lapse for a clean retry next tick. A
-      // throw inside this catch would otherwise escape processClaimedImportJob and
-      // bypass the transientD1 signal. Re-throw anything that is NOT export-lock.
-      if (isTransientD1Error(failError)) {
-        return { ok: false as const, transientD1: true as const };
-      }
-      throw failError;
-    }
-    return {
-      ok: false as const
-    };
+    return handleClaimedImportJobFailure(input, error);
   }
 };
 

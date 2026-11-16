@@ -898,6 +898,25 @@ const captureCreateBatchFailure = (error: unknown, result: AdminCreateReservatio
   }
 };
 
+const resolveAdminCreateWriteFailure = async (input: {
+  db: D1Database;
+  admin: AdminUser;
+  request: AdminCreateReservationRequest;
+  requestHash: string;
+  nowIso: string;
+  error: unknown;
+  existingCustomerId?: string;
+}): Promise<AdminCreateReservationResult> => {
+  const { db, admin, request, requestHash, nowIso, error, existingCustomerId } = input;
+  if (isBookingCatalogGuardError(error)) {
+    const current = await fetchBookingContext(db, request.storeId, request.serviceIds, request.resourceId).catch(() => undefined);
+    if (current && "ok" in current) return current;
+  }
+  const result = await resolveCreateBatchFailure(db, request.idempotencyKey, requestHash, nowIso, error, admin, existingCustomerId);
+  captureCreateBatchFailure(error, result);
+  return result;
+};
+
 export async function createAdminReservation(input: {
   db: D1Database;
   admin: AdminUser;
@@ -1052,13 +1071,15 @@ export async function createAdminReservation(input: {
   try {
     await input.db.batch(statements);
   } catch (error) {
-    if (isBookingCatalogGuardError(error)) {
-      const current = await fetchBookingContext(input.db, request.storeId, request.serviceIds, request.resourceId).catch(() => undefined);
-      if (current && "ok" in current) return current;
-    }
-    const result = await resolveCreateBatchFailure(input.db, request.idempotencyKey, requestHash, nowIso, error, input.admin, existingCustomer?.id);
-    captureCreateBatchFailure(error, result);
-    return result;
+    return resolveAdminCreateWriteFailure({
+      db: input.db,
+      admin: input.admin,
+      request,
+      requestHash,
+      nowIso,
+      error,
+      existingCustomerId: existingCustomer?.id
+    });
   }
 
   return readReservationResult(input.db, reservationId, false);

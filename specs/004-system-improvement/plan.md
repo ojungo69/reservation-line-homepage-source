@@ -20,7 +20,7 @@ PASS: existing permission/store checks and D1 lock authority retained. No histor
 
 ## Completion / rollback
 
-Behavioral regressions pass including delayed search, all theme states, concurrent consent and notification dispatch. Exact changed symbols reviewed with current callers when graph is stale. Reports distinguish evidence from proposal and unverified live behavior. Production adoption follows documented pipeline; rollback is reviewed previous public/private revision via existing promotion, with applied migration history preserved.
+Behavioral regressions pass including delayed search, all theme states, concurrent consent and notification dispatch. Exact changed symbols reviewed with current callers when graph is stale. Reports distinguish evidence from proposal and unverified live behavior. Production adoption follows documented pipeline. Rollback uses a new reviewed targeted public revert R, followed by fixed-SHA adoption into a new private RB and the same CI/Sonar, staging and production promotion checks. R preserves applied DDL (including 0059/0060), query-version compatibility, watch-renewal token provenance and the approved quality configuration; it does not restore the old source lock or remove those safeguards. Database/data restoration is a separate operation.
 
 ## T015 follow-up: watch renewal query provenance
 

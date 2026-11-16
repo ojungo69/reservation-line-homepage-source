@@ -892,7 +892,10 @@ const SUPERSEDING_TEMPLATES: Record<string, readonly string[]> = {
 // Closed template constants, never request input. Share this predicate between
 // ordinary eligibility, FIFO admission and the final send transaction.
 const SUPERSEDING_TEMPLATE_SQL = Object.entries(SUPERSEDING_TEMPLATES)
-  .map(([older, newer]) => `(eligible_job.template_key = '${older}' AND newer.template_key IN (${newer.map((key) => `'${key}'`).join(",")}))`)
+  .map(([older, newer]) => {
+    const newerSql = newer.map((key) => `'${key}'`).join(",");
+    return `(eligible_job.template_key = '${older}' AND newer.template_key IN (${newerSql}))`;
+  })
   .join(" OR ");
 
 const customerNotificationEligibilitySql = (jobIdSql: string): string => `
@@ -1048,7 +1051,7 @@ const isLineNotificationStillEligible = async (
     case "reservation_reminder": {
       // Legacy reminder keys had no revision; current keys belong only to the
       // revision that entered its reminder window, even after a reschedule.
-      const revision = row.dedupe_key?.match(/:revision:(\d+)$/)?.[1];
+      const revision = /:revision:(\d+)$/.exec(row.dedupe_key ?? "")?.[1];
       return reservation?.status === "confirmed" &&
         reservation.start_at !== null &&
         reservation.start_at > nowIso &&
@@ -1410,7 +1413,7 @@ const reserveLineQuotaSlot = async (
   status: LineQuotaStatus | null,
   nowMs: number
 ): Promise<{ outcome: "reserved"; key?: string; token?: string } | { outcome: "deferred" } | { outcome: "exhausted" }> => {
-  if (!status || status.limit === null) return { outcome: "reserved" };
+  if (status?.limit === null || !status) return { outcome: "reserved" };
   const cap = Math.min(status.softCap, status.limit);
   const optional = LINE_OPTIONAL_TEMPLATES.has(row.template_key);
   const prefix = `line-quota:${jstYearMonth(nowMs)}:`;
@@ -1806,7 +1809,7 @@ const processOwnerEmailJob = async (input: {
   return settleOwnerEmailOutcome(opsEmailMirror, outcome);
 };
 
-const processClaimedLineNotificationJob = async (input: {
+type ClaimedLineNotificationInput = {
   db: D1Database;
   env: LineNotificationEnv;
   fetcher: typeof fetch;
@@ -1817,7 +1820,51 @@ const processClaimedLineNotificationJob = async (input: {
   beforeLineSend: () => Promise<LineNotificationSendGate>;
   stopForMonthlyQuota: boolean;
   quotaStatus: LineQuotaStatus | null;
-}): Promise<LineNotificationJobOutcome> => {
+};
+
+type ReservedLineQuotaSlot = Extract<Awaited<ReturnType<typeof reserveLineQuotaSlot>>, { outcome: "reserved" }>;
+
+const dispatchPreparedLineNotification = async (
+  input: ClaimedLineNotificationInput,
+  initialMessageText: string,
+  quotaReservation: ReservedLineQuotaSlot
+): Promise<LineNotificationJobOutcome> => {
+  let messageText = initialMessageText;
+  const sendGate = await input.beforeLineSend();
+  if (sendGate.outcome !== "ready") {
+    await releaseUnusedLineQuotaSlot(input.db, input.row, input.claim, quotaReservation);
+    if (sendGate.outcome === "ineligible") {
+      return (await markJobSuperseded(input.db, input.row, "superseded_by_reservation_state", input.claim, input.now()))
+        ? "succeeded" : "skipped";
+    }
+    await releaseLineNotificationClaimsBatch(input.db, [{ row: input.row, claim: input.claim }], input.now());
+    return "skipped";
+  }
+
+  if (input.row.recipient_type === "customer") {
+    try { messageText = await buildLineMessageText(input.db, sendGate.row); }
+    catch (error) {
+      safeCaptureException(error, { tags: { dispatcher: "line_push", reason: "line-render-failed" } });
+      await releaseUnusedLineQuotaSlot(input.db, input.row, input.claim, quotaReservation);
+      return markJobFailure(input.db, input.row, "line-render-failed", input.claim, input.now());
+    }
+  }
+  const push = await attemptLinePush(sendGate.row, input.env, input.fetcher, messageText);
+  if (!push.ok) {
+    const outcome = await markJobFailure(input.db, input.row, push.reason, input.claim, input.startedAtMs, quotaReservation);
+    captureDeadLinePushFailure(push, input.row, input.claim, outcome === "failed");
+    return outcome;
+  }
+
+  // Completion time, not claim time (`startedAtMs`): the success log's
+  // created_at feeds the cross-invocation quota correction, and a snapshot
+  // refreshed mid-send would otherwise hide this send until the next refresh.
+  return (await markJobSuccess(input.db, input.row, push.providerMessageId, input.claim, input.now(), 1, quotaReservation.key))
+    ? "succeeded"
+    : "skipped";
+};
+
+const processClaimedLineNotificationJob = async (input: ClaimedLineNotificationInput): Promise<LineNotificationJobOutcome> => {
   const eligibilityMs = input.now();
   if (!(await isLineNotificationStillEligible(input.db, input.row, toIso(eligibilityMs)))) {
     return (await markJobSuperseded(
@@ -1911,38 +1958,7 @@ const processClaimedLineNotificationJob = async (input: {
       : "skipped";
   }
 
-  const sendGate = await input.beforeLineSend();
-  if (sendGate.outcome !== "ready") {
-    await releaseUnusedLineQuotaSlot(input.db, input.row, input.claim, quotaReservation);
-    if (sendGate.outcome === "ineligible") {
-      return (await markJobSuperseded(input.db, input.row, "superseded_by_reservation_state", input.claim, input.now()))
-        ? "succeeded" : "skipped";
-    }
-    await releaseLineNotificationClaimsBatch(input.db, [{ row: input.row, claim: input.claim }], input.now());
-    return "skipped";
-  }
-
-  if (input.row.recipient_type === "customer") {
-    try { messageText = await buildLineMessageText(input.db, sendGate.row); }
-    catch (error) {
-      safeCaptureException(error, { tags: { dispatcher: "line_push", reason: "line-render-failed" } });
-      await releaseUnusedLineQuotaSlot(input.db, input.row, input.claim, quotaReservation);
-      return markJobFailure(input.db, input.row, "line-render-failed", input.claim, input.now());
-    }
-  }
-  const push = await attemptLinePush(sendGate.row, input.env, input.fetcher, messageText);
-  if (!push.ok) {
-    const outcome = await markJobFailure(input.db, input.row, push.reason, input.claim, input.startedAtMs, quotaReservation);
-    captureDeadLinePushFailure(push, input.row, input.claim, outcome === "failed");
-    return outcome;
-  }
-
-  // Completion time, not claim time (`startedAtMs`): the success log's
-  // created_at feeds the cross-invocation quota correction, and a snapshot
-  // refreshed mid-send would otherwise hide this send until the next refresh.
-  return (await markJobSuccess(input.db, input.row, push.providerMessageId, input.claim, input.now(), 1, quotaReservation.key))
-    ? "succeeded"
-    : "skipped";
+  return dispatchPreparedLineNotification(input, messageText, quotaReservation);
 };
 
 const applyLineNotificationOutcome = (
