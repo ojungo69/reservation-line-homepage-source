@@ -18,6 +18,7 @@ describe("linked all-day closure cancellation", () => {
   let db: SqliteD1Database;
   beforeEach(() => {
     db = createMigratedSqliteD1();
+    db.sqlite.prepare("UPDATE stores SET google_calendar_id=? WHERE id='kyoto'").run("calendar-a@example.invalid");
     db.sqlite.exec("INSERT INTO admin_users(id,email,access_subject,role) VALUES ('linked-owner','linked@example.test','linked-sub','owner')");
   });
   afterEach(() => { db.sqlite.close(); vi.restoreAllMocks(); });
