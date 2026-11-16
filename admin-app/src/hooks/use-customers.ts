@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/error-messages";
 import { useAuth } from "@/hooks/use-auth";
+import { isShortPhoneQuery } from "@/lib/customer-search-hints";
 import type {
   CustomerListResponse,
   CustomerSearchResponse,
@@ -58,7 +59,7 @@ export function useCustomerSearch(query: string, storeId: string | null = null) 
         `/api/admin/customers?q=${encodeURIComponent(query)}${storeParam}`,
       );
     },
-    enabled: query.trim().length > 0,
+    enabled: query.trim().length > 0 && !isShortPhoneQuery(query),
     staleTime: 15_000,
   });
 }

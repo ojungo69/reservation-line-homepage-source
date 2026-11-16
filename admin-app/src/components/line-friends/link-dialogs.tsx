@@ -11,6 +11,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLineFriendLink, useCustomerSearch } from "@/hooks/use-line-friends";
+import { isShortPhoneQuery } from "@/lib/customer-search-hints";
+import { CustomerSearchHints } from "@/components/customers/customer-search-hints";
 import type { LineFriendListItem } from "@/types/api";
 
 type Props = {
@@ -100,7 +102,8 @@ export function LinkExistingDialog({ friend, storeId, onClose }: Readonly<Props>
   // During the 300ms debounce gap (q has changed but debouncedQ has not caught up)
   // the results still belong to the PREVIOUS query term. Treat that as loading so
   // stale rows are not shown or clickable (mirrors LinkLineFromCardDialog).
-  const loadingResults = isPending || q.trim() !== debouncedQ;
+  const shortPhoneQuery = isShortPhoneQuery(q);
+  const loadingResults = !shortPhoneQuery && (isPending || q.trim() !== debouncedQ);
   const open = friend !== null;
 
   const choose = (customerId: string) => {
@@ -127,11 +130,12 @@ export function LinkExistingDialog({ friend, storeId, onClose }: Readonly<Props>
         </DialogHeader>
         <Input aria-label="既存のお客様を名前または電話番号で検索" placeholder="お名前 または 電話番号で検索" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
         <div className="mt-2 max-h-72 space-y-1 overflow-y-auto">
+          {shortPhoneQuery && <CustomerSearchHints showShortPhoneHint className="text-sm text-muted-foreground" />}
           {loadingResults && <p className="text-sm text-muted-foreground">検索中...</p>}
-          {!loadingResults && debouncedQ.length > 0 && results.length === 0 && (
+          {!shortPhoneQuery && !loadingResults && debouncedQ.length > 0 && results.length === 0 && (
             <p className="text-sm text-muted-foreground">該当する顧客がいません</p>
           )}
-          {!loadingResults &&
+          {!shortPhoneQuery && !loadingResults &&
             results.map((cust) => {
             const variables = link.variables;
             const isLinkingThis =

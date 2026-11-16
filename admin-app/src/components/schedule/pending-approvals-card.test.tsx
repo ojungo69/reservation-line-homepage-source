@@ -672,4 +672,12 @@ describe("PendingApprovalsCard", () => {
     }
   });
 
+  it("顧客名は英字の大小を区別せず、店舗条件を維持して絞り込む", () => {
+    mocks.reservations = [reservation("reservation-1", "store-1", "Hanako", 1), reservation("reservation-2", "store-1", "Hiroko", 2), reservation("reservation-3", "store-2", "HANAKO", 3)];
+    render(<MemoryRouter><PendingApprovalsCard selectedStoreId="store-1" onSelect={() => {}} fullList nameFilter=" hanako " /></MemoryRouter>);
+    expect(screen.getByText("Hanako")).toBeTruthy();
+    expect(screen.queryByText("Hiroko")).toBeNull();
+    expect(screen.queryByText("HANAKO")).toBeNull();
+  });
+
 });

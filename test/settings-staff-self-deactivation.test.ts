@@ -344,7 +344,8 @@ describe("F-3.3: system_admin role escalation guard", () => {
       const result = await softDeleteAdminStaff({
         db: db as unknown as D1Database,
         admin: { id: "admin_self_deact_1", email: ADMIN_EMAIL, role: "owner", staff_member_id: null, store_id: null },
-        staffId: "staff_promoted"
+        staffId: "staff_promoted",
+        now: () => Date.parse("2026-05-19T01:02:03.000Z")
       });
       expect(result).toEqual({ ok: false, error: "forbidden_role_escalation" });
       expect(db.sqlite.prepare("SELECT role,active FROM staff_members WHERE id='staff_promoted'").get())
@@ -353,6 +354,13 @@ describe("F-3.3: system_admin role escalation guard", () => {
         .toMatchObject({ role: "system_admin", active: 1 });
       expect(db.sqlite.prepare("SELECT COUNT(*) n FROM audit_logs WHERE action='settings.staff.delete'").get())
         .toMatchObject({ n: 0 });
+      const audits = db.sqlite.prepare("SELECT actor_id,target_id,metadata_json,created_at FROM audit_logs WHERE action='settings.staff.forbidden_role_escalation'")
+        .all() as { actor_id: string; target_id: string; metadata_json: string; created_at: string }[];
+      expect(audits).toHaveLength(1);
+      expect(audits[0]).toMatchObject({ actor_id: "admin_self_deact_1", target_id: "staff_promoted", created_at: "2026-05-19T01:02:03.000Z" });
+      expect(JSON.parse(audits[0].metadata_json)).toEqual({
+        path: "delete", adminRole: "owner", targetRole: "system_admin", requestedRole: null, requestedActive: null
+      });
     } finally {
       db.sqlite.close();
     }

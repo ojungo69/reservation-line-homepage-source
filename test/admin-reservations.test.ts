@@ -187,7 +187,7 @@ const insertPendingReservation = (db: SqliteD1Database, status: "pending_approva
             owner_id,
             lock_status,
             expires_at
-          ) VALUES (?, 'kyoto', 'resource_kyoto_calendar', ?, 'reservation', ?, ?, '2026-06-02T01:00:00.000Z')
+          ) VALUES (?, 'kyoto', 'resource_kyoto_calendar', ?, 'reservation', ?, ?, '2099-01-01T00:00:00.000Z')
         `
       )
       .run(`slot_lock_admin_${index}`, slotAt, RESERVATION_ID, status === "confirmed" ? "confirmed" : "pending");
@@ -202,7 +202,7 @@ const insertPendingReservation = (db: SqliteD1Database, status: "pending_approva
             owner_id,
             lock_status,
             expires_at
-          ) VALUES (?, ?, ?, 'reservation', ?, ?, '2026-06-02T01:00:00.000Z')
+          ) VALUES (?, ?, ?, 'reservation', ?, ?, '2099-01-01T00:00:00.000Z')
         `
       )
       .run(`customer_lock_admin_${index}`, CUSTOMER_ID, slotAt, RESERVATION_ID, status === "confirmed" ? "confirmed" : "pending");

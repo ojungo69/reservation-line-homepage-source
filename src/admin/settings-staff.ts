@@ -707,6 +707,14 @@ export const softDeleteAdminStaff = async (input: {
       const fresh = await fetchStaff(input.db, input.staffId);
       if (!fresh) return { ok: false, error: "not_found" };
       if (fresh.role === "system_admin" && input.admin.role !== "system_admin") {
+        await recordForbiddenRoleEscalationAudit({
+          db: input.db,
+          admin: input.admin,
+          path: "delete",
+          targetStaffId: input.staffId,
+          targetRole: fresh.role,
+          now: input.now
+        });
         return { ok: false, error: "forbidden_role_escalation" };
       }
       return { ok: false, error: "write_failed" };

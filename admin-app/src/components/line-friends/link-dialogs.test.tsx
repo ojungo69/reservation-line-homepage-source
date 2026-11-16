@@ -35,6 +35,21 @@ afterEach(() => {
 });
 
 describe("既存のお客様へのLINE紐付け", () => {
+
+  it("短い電話入力では古い顧客や該当なしを表示せず案内する", () => {
+    vi.useFakeTimers();
+    render(<LinkExistingDialog friend={friend} storeId="store-1" onClose={vi.fn()} />);
+    const search = screen.getByRole("textbox", { name: "既存のお客様を名前または電話番号で検索" });
+    fireEvent.change(search, { target: { value: "山" } });
+    act(() => vi.advanceTimersByTime(300));
+    expect(screen.getByRole("button", { name: /^山田 花子/ })).toBeTruthy();
+    fireEvent.change(search, { target: { value: "09" } });
+    expect(screen.getByText("電話番号は数字3桁以上で検索してください")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.queryByRole("button", { name: /^山田 花子/ })).toBeNull();
+    expect(screen.queryByText("検索中...")).toBeNull();
+    expect(screen.queryByText("該当する顧客がいません")).toBeNull();
+  });
   it.each(["山田", "山"])("検索欄の名前 %s からお客様を検索し、既存の紐付け操作を行える", (query) => {
     vi.useFakeTimers();
     render(<LinkExistingDialog friend={friend} storeId="store-1" onClose={vi.fn()} />);

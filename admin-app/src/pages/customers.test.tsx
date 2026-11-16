@@ -19,7 +19,7 @@ vi.mock("react-router", () => ({
 }));
 
 const authState = vi.hoisted(() => ({ isPrivileged: true, storeId: null as string | null }));
-const searchState = vi.hoisted(() => ({ empty: false, error: false, noData: false, truncated: false, refetch: vi.fn() }));
+const searchState = vi.hoisted(() => ({ empty: false, error: false, noData: false, truncated: false, pending: false, refetch: vi.fn() }));
 const listState = vi.hoisted(() => ({ error: false, noData: false, refetch: vi.fn() }));
 // 既定は空 (=セクションは描画されない)。role で出し分けていることを確かめるテストだけが
 // 非空にする。空のままだと `groups.length === 0 → null` で owner でも消えるので、
@@ -96,7 +96,7 @@ vi.mock("@/hooks/use-customers", () => ({
           }]
         : [],
     },
-    isPending: false,
+    isPending: searchState.pending,
     isError: searchState.error,
     refetch: searchState.refetch,
   }),
@@ -122,6 +122,7 @@ afterEach(() => {
   searchState.error = false;
   searchState.noData = false;
   searchState.truncated = false;
+  searchState.pending = false;
   searchState.refetch.mockClear();
   listState.error = false;
   listState.noData = false;
@@ -419,6 +420,27 @@ describe("CustomersPage", () => {
     expect(screen.getByText("全201件")).toBeTruthy();
   });
 
+
+  it.each([
+    { privileged: true, hint: "電話番号は数字3桁以上で検索してください" },
+    { privileged: false, hint: "電話番号は全桁で入力してください" },
+  ])("短い電話入力では旧行もdisabled queryのloadingも表示せず、入力方法を案内する（owner=$privileged）", ({ privileged, hint }) => {
+    vi.useFakeTimers();
+    authState.isPrivileged = privileged;
+    render(<CustomersPage />);
+    const search = screen.getByRole("textbox", { name: "顧客を検索" });
+    fireEvent.change(search, { target: { value: "検" } });
+    act(() => vi.advanceTimersByTime(300));
+    expect(screen.getByText("検証 太郎")).toBeTruthy();
+    searchState.pending = true;
+    fireEvent.change(search, { target: { value: "09" } });
+    expect(screen.getByText(hint)).toBeTruthy();
+    expect(screen.queryByText("検証 太郎")).toBeNull();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(document.querySelector(".animate-pulse")).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
   it("2文字から1文字へ消した直後は旧結果を隠し、debounce後に新しい一致を表示する", () => {
     vi.useFakeTimers();
     render(<CustomersPage />);
