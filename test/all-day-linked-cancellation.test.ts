@@ -254,7 +254,7 @@ describe("linked all-day closure cancellation", () => {
 it("upgrades populated historical tables without guessing an audit-history link", async () => {
   const sqlite = new DatabaseSync(":memory:");
   try {
-    for (const name of readdirSync("migrations").filter((name) => name.endsWith(".sql") && name !== migration).sort()) {
+    for (const name of readdirSync("migrations").filter((name) => name.endsWith(".sql") && name < migration).sort()) {
       sqlite.exec(readFileSync(join("migrations", name), "utf8"));
     }
     sqlite.exec(readFileSync("seeds/dev.sql", "utf8"));

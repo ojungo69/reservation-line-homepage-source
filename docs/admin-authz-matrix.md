@@ -110,7 +110,7 @@
 |---|---|---|---|---|---|
 | `GET /api/admin/external-blocks` | ✅ readonly | ✅ | ✅ | role 制約なし (一覧 read は全 role) | 変更なし |
 | `POST /api/admin/external-blocks` (作成) | ❌ | ✅ | ✅ | `createAdminExternalBlock` で staff forbidden (external-blocks.ts) | 変更なし |
-| `POST /api/admin/external-blocks/:id/cancel` | ❌ | ✅ | ✅ | `cancelAdminExternalBlock` で staff forbidden (external-blocks.ts) | 変更なし |
+| `POST /api/admin/external-blocks/:id/cancel` | ❌ | ✅ `admin_block` のみ | ✅ `admin_block` のみ | `cancelAdminExternalBlock` で staff forbidden。source と active 状態を事前確認し、同じ UPDATE でも照合する。Minimo/Google/system 管理ブロックは解除不可 | source 所有権ガード |
 
 ### 設定 (settings)
 
@@ -193,10 +193,12 @@
 | Endpoint | staff | owner | system_admin | 既存ガード位置 | Phase 0b 作業 |
 |---|---|---|---|---|---|
 | `GET /api/admin/sync/status` | ✅ readonly (自店舗の簡易警告) | ✅ 集計と許可済み2種の判断対象。staff紐付け時は有効な所属店舗、紐付けなしは全店舗 | ✅ 詳細 | `getAdminSyncStatus` でrole別のsafe projection (sync-status.ts)。ownerへprovider ID/raw snapshotは返さない | ✅ 2026-09-29 更新 |
+| `GET /api/admin/sync/minimo` | ❌ | ❌ | ✅ | `getAdminMinimoStatus` の system_admin gate。店舗別の安全な状態と復旧tokenのみ。認証情報・予約payloadは返さない | Minimo 状態確認 |
+| `POST /api/admin/sync/minimo/recover` | ❌ | ❌ | ✅ | `recoverAdminMinimoSync` の system_admin gate、確認・状態token・global/store lease・同一batchのactor再検証。停止解除は通信せずcooldownを維持。日別復旧はGETで再照合し枠POST・予約削除を行わない | Minimo 復旧 |
 | `POST /api/admin/sync/jobs/retry` | ❌ | ❌ | ✅ | `retryAdminSyncJob` で `role !== 'system_admin'` を 403 (sync-recovery.ts) | 変更なし |
 | `POST /api/admin/sync/jobs/acknowledge` | ❌ | ❌ | ✅ | `acknowledgeAdminSyncJob` で `role !== 'system_admin'` を 403。Google import dead / 通知 dead・failed の確認済み処理。通知は履歴保持・再送禁止 (sync-recovery.ts) | ✅ 2026-09-12 更新 |
 | `POST /api/admin/sync/conflicts/:id/ignore` | ❌ | ❌ | ✅ | `resolveAdminGoogleConflict` → system_admin gate (sync-recovery.ts) | 変更なし |
-| `POST /api/admin/sync/conflicts/:id/manual-resolve` | ❌ | ❌ | ✅ | 同上 | 変更なし |
+| `POST /api/admin/sync/conflicts/:id/manual-resolve` | ❌ | ❌ | ✅ | 同上。`cancelExternalBlock` は Minimo 管理ブロックを事前確認と同一 batch 内で拒否する。source/対象/競合状態が先に変化した場合、競合解決・ロック解除・監査・冪等記録は全て rollback | Minimo 所有権ガード |
 | `POST /api/admin/sync/all-day-candidates/:conflictId/approve` | ❌ | ✅ | ✅ | `guardConflictAction` (shared.ts) + `approveAllDayAsClosure` の `isAdminPrivileged` (conflict-resolutions.ts) | ✅ 2026-08-09 追記 |
 | `POST /api/admin/sync/all-day-candidates/:conflictId/reject` | ❌ | ✅ | ✅ | `guardConflictAction` + `rejectAllDayConflict` の `isAdminPrivileged` (conflict-resolutions.ts) | ✅ 2026-08-09 追記 |
 | `POST /api/admin/sync/conflicts/:conflictId/approve-cancel` | ❌ | ✅ | ✅ | `guardConflictAction` + `approveReservationDeleteAsCancel` の `isAdminPrivileged` (conflict-resolutions.ts) | ✅ 2026-08-09 追記 |

@@ -11,6 +11,7 @@ import {
   pruneGoogleEventHistory
 } from "./google/import-sync";
 import { processDueLineNotificationJobs } from "./line/notifications";
+import { runMinimoSync } from "./minimo/sync";
 import { notifyLowLineQuota, refreshLineQuotaSnapshot } from "./line/quota";
 import {
   CLAIM_TASK_TIMEOUT_MS,
@@ -1303,6 +1304,19 @@ const scheduled: ExportedHandler<WorkerBindings>["scheduled"] = (controller, env
           withTaskTimeout(
             "line_notifications",
             processDueLineNotificationJobs({ db: env.DB, env, maxJobs: lineMaxJobs }),
+            CLAIM_TASK_TIMEOUT_MS
+          ),
+          withTaskTimeout(
+            "minimo_sync",
+            env.MINIMO_SYNC_MODE && env.MINIMO_SYNC_MODE !== "off"
+              ? runMinimoSync({ db: env.DB, env }).then((result) => {
+                console.info("minimo_sync_complete", result);
+                if (result.stores.some((store) => store.outcome === "failed" || store.outcome === "attention"
+                  || (store.outcome === "partial" && Boolean(store.error)))) {
+                  throw new Error("minimo_sync_incomplete");
+                }
+              })
+              : Promise.resolve(),
             CLAIM_TASK_TIMEOUT_MS
           )
         ]);

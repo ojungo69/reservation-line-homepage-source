@@ -55,6 +55,7 @@
     "SENTRY_TRACES_SAMPLE_RATE_OVERRIDE": "",
     "MAINTENANCE_MODE": "",
     "D1_SESSION_ENABLED": "false",
+    "MINIMO_SYNC_MODE": "off",
     "CSV_ARCHIVE_ENABLED": "false"
   },
   "send_email": [

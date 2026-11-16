@@ -67,4 +67,10 @@ export interface WorkerBindings {
   CSV_ARCHIVE_ENABLED?: string;
   RESERVATION_WORKFLOW?: Workflow;
   WORKFLOW_ENABLED?: string;
+  /** Disabled unless explicitly set to preview/apply; rollout is separate from implementation. */
+  MINIMO_SYNC_MODE?: string;
+  /** Secret: isolated salon credentials and explicit store/staff mappings. Never log. */
+  MINIMO_ACCOUNTS_JSON?: string;
+  /** Secret: base64-encoded 32-byte AES-GCM session encryption key. */
+  MINIMO_SESSION_KEY?: string;
 }

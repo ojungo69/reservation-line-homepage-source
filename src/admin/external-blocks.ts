@@ -522,14 +522,14 @@ export async function cancelAdminExternalBlock(input: {
   const block = await input.db
     .prepare(
       `
-        SELECT id, store_id, resource_id, status, start_at, end_at
+        SELECT id, store_id, resource_id, source, status, start_at, end_at
         FROM external_blocks
         WHERE id = ?
         LIMIT 1
       `
     )
     .bind(input.externalBlockId)
-    .first<ExternalBlockRow>();
+    .first<ExternalBlockRow & { source: string }>();
 
   if (!block) {
     return {
@@ -537,7 +537,7 @@ export async function cancelAdminExternalBlock(input: {
       reason: "not_found"
     };
   }
-  if (block.status !== "active") {
+  if (block.source !== "admin_block" || block.status !== "active") {
     return {
       ok: false,
       reason: "invalid_transition"
@@ -571,6 +571,7 @@ export async function cancelAdminExternalBlock(input: {
           SET status = 'cancelled',
               updated_at = ?
           WHERE id = ?
+            AND source = 'admin_block'
             AND status = 'active'
         `
       )

@@ -326,6 +326,51 @@ describe("cancelAdminExternalBlock staff gate", () => {
   });
 });
 
+describe("cancelAdminExternalBlock source ownership", () => {
+  it.each([
+    ["google_calendar", false], ["system_revert", false], ["minimo", false], ["minimo", true]
+  ] as const)("rejects managed %s blocks (source changes during batch: %s) without cancellation effects", async (source, race) => {
+    const db = createMigratedSqliteD1();
+    try {
+      const created = await createAdminExternalBlock({
+        db: db as unknown as D1Database,
+        admin: OWNER_ADMIN,
+        request: { idempotencyKey: `source-create-${source}`, ...BASE_CREATE_REQUEST }
+      });
+      if (!created.ok) throw new Error("test setup failed");
+      const changeSource = () => db.sqlite.prepare(`UPDATE external_blocks SET source=?,google_event_id='managed_event',minimo_reservation_id=?,minimo_staff_id=? WHERE id=?`)
+        .run(source, source === "minimo" ? "booking" : null, source === "minimo" ? "staff" : null, created.externalBlockId);
+      if (!race) changeSource();
+      const cancelDb = race ? {
+        prepare: (sql: string) => db.prepare(sql),
+        batch: (statements: D1PreparedStatement[]) => {
+          changeSource();
+          return db.batch(statements);
+        }
+      } : db;
+
+      const result = await cancelAdminExternalBlock({
+        db: cancelDb as unknown as D1Database,
+        admin: OWNER_ADMIN,
+        externalBlockId: created.externalBlockId,
+        request: { idempotencyKey: `source-cancel-${source}` }
+      });
+      expect(result).toEqual({ ok: false, reason: "invalid_transition" });
+      expect(db.sqlite.prepare(`SELECT
+        (SELECT status FROM external_blocks WHERE id=?) AS status,
+        (SELECT COUNT(*) FROM slot_locks WHERE owner_id=?) AS locks,
+        (SELECT COUNT(*) FROM slot_lock_history WHERE old_owner_id=? AND action='released') AS history,
+        (SELECT COUNT(*) FROM calendar_sync_jobs WHERE owner_id=? AND google_action='delete') AS jobs,
+        (SELECT COUNT(*) FROM audit_logs WHERE target_id=? AND action='admin_external_block_cancelled') AS audits,
+        (SELECT COUNT(*) FROM idempotency_keys WHERE idempotency_key=?) AS idempotency`)
+        .get(created.externalBlockId, created.externalBlockId, created.externalBlockId, created.externalBlockId, created.externalBlockId, `source-cancel-${source}`))
+        .toEqual({ status: "active", locks: 12, history: 0, jobs: 0, audits: 0, idempotency: 0 });
+    } finally {
+      db.sqlite.close();
+    }
+  });
+});
+
 describe("external block idempotency batch failure (expired TTL)", () => {
   it("returns write_failed (not idempotency_in_progress) when an expired row collides on create", async () => {
     const db = createMigratedSqliteD1();
