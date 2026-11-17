@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import serviceCreateRequest from "../../../../test/fixtures/admin-service-create.json";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createService = vi.fn();
@@ -79,6 +80,21 @@ beforeEach(() => {
   createService.mockReset();
   createPending = false;
   createService.mockImplementation((_input, options) => options?.onSuccess?.());
+});
+
+describe("ServiceCreateDialog API contract", () => {
+  it("generates the shared request accepted by the real service-create endpoint", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.type(screen.getByLabelText("メニュー名"), serviceCreateRequest.name);
+    await user.click(screen.getByRole("button", { name: "追加" }));
+
+    expect(createService).toHaveBeenCalledWith(
+      { ...serviceCreateRequest, idempotencyKey: expect.any(String) },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
 });
 
 describe("ServiceCreateDialog 店舗の初期選択", () => {

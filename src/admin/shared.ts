@@ -145,6 +145,10 @@ export const normalizePhone = (phone: string): string | undefined => {
   return toDomesticJapanPhone(digits.replace(ITU_INTERNATIONAL_PREFIX, "+")) ?? digits;
 };
 
+// Validate new contact input after normalization; legacy reads/search keep their broader contract.
+export const isAcceptedPhoneForWrite = (normalized: string): boolean =>
+  /^(?:0[1-9]\d{8,9}|\+(?!81)[1-9]\d{7,14})$/.test(normalized);
+
 export const phoneExactSearchVariants = (raw: string): string[] => {
   const canonical = normalizePhone(raw.trim());
   if (canonical === undefined) {

@@ -1,5 +1,5 @@
 import type { AdminUser } from "./access";
-import { normalizePhone } from "./shared";
+import { isAcceptedPhoneForWrite, normalizePhone } from "./shared";
 import {
   buildCreateContext,
   fetchAdminActionIdempotency,
@@ -155,6 +155,10 @@ export async function createAdminCustomer(input: {
   const existingIdempotency = await fetchAdminActionIdempotency(input.db, idempotencyKey, nowIso);
   const idempotencyResult = resolveCreateIdempotency(existingIdempotency, requestHash);
   if (idempotencyResult) return idempotencyResult;
+
+  if (phoneNormalized !== null && !isAcceptedPhoneForWrite(phoneNormalized)) {
+    return { ok: false, reason: "invalid_request" };
+  }
 
   const customerId = crypto.randomUUID();
 

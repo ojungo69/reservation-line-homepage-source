@@ -103,7 +103,9 @@ export function AddCustomerDialog({ open, onClose, onCreated }: Readonly<Props>)
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               inputMode="tel"
+              aria-describedby="add-customer-phone-hint"
             />
+            <p id="add-customer-phone-hint" className="text-xs text-muted-foreground">国内は0から始まる10〜11桁、海外は+国番号（8〜15桁）</p>
           </div>
         </div>
         <DialogFooter>
