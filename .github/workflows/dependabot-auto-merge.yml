@@ -4,7 +4,7 @@
 # Dependabot の minor/patch 更新を自動マージする（グループ PR と、グループに
 # 入らないセキュリティ更新の両方）。major は手動レビューのまま残す。
 # 実際のマージは GitHub の auto-merge に任せる（gh pr merge --auto）。ruleset
-# (id 17377203) が required status checks を持つので、auto-merge は全要件が
+# が required status checks を持つので、auto-merge は全要件が
 # 満たされるまで待ってからマージする。
 # ここを workflow_run トリガーのまま `--auto` なしで実行していた頃は、必須チェックの
 # 1 つである SonarCloud が CI の後追いで走るため、CI 完了時点では常に
