@@ -16,6 +16,7 @@ const customerState = vi.hoisted(() => ({
 
 vi.mock("react-router", () => ({
   useSearchParams: () => [customerState.params, customerState.setParams],
+  useLocation: () => ({ state: null }),
 }));
 
 const authState = vi.hoisted(() => ({ isPrivileged: true, storeId: null as string | null }));

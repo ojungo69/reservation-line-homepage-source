@@ -1,12 +1,12 @@
-import type { ReactNode } from "react";
 import { act, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Store } from "@/types/api";
 import { TimelineGrid } from "./timeline-grid";
 
-vi.mock("@/components/ui/scroll-area", () => ({
-  ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}));
+beforeAll(() => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+});
+afterAll(() => vi.unstubAllGlobals());
 
 const props = {
   date: new Date("2026-09-29T10:00:00+09:00"),
@@ -22,6 +22,33 @@ const props = {
 afterEach(() => vi.useRealTimers());
 
 describe("TimelineGridの店舗表示", () => {
+  it.each([true, false])("取得完了後の開店位置から履歴のスクロールを復元できる (初期読み込み中: %s)", (initiallyLoading) => {
+    const openingPositions: number[] = [];
+    const onReady = () => {
+      const viewport = document.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+      assert(viewport);
+      openingPositions.push(viewport.scrollTop);
+      viewport.scrollTop = 1800;
+      viewport.scrollLeft = 120;
+    };
+    const { container, rerender } = render(<TimelineGrid {...props} isLoading={initiallyLoading} onReady={onReady} />);
+    if (initiallyLoading) {
+      expect(openingPositions).toEqual([]);
+      expect(container.querySelector("[data-schedule-scroll]")).toBeNull();
+      rerender(<TimelineGrid {...props} onReady={onReady} />);
+    }
+
+    const viewport = container.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+    assert(viewport);
+    expect(openingPositions).toEqual([1430]);
+    expect(viewport.scrollTop).toBe(1800);
+    expect(viewport.scrollLeft).toBe(120);
+    rerender(<TimelineGrid {...props} onReady={onReady} />);
+    expect(openingPositions).toEqual([1430]);
+    expect(viewport.scrollTop).toBe(1800);
+    expect(viewport.scrollLeft).toBe(120);
+  });
+
   it("全店舗では列と空き枠の名前に所属店舗を出し、単店では重複表示しない", () => {
     const { rerender } = render(<TimelineGrid {...props} />);
     expect(screen.getByText("渋谷店 · 同じ担当者")).toBeTruthy();
