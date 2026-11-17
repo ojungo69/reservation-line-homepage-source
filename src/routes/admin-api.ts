@@ -2555,6 +2555,7 @@ adminApiRoutes.put("/settings/closures/:id", async (c) => {
     store_not_found: 404,
     immutable_source: 409,
     immutable_store: 409,
+    linked_closure_dates_immutable: 409,
     overlapping_reservations: 409,
     missing_database: 500,
     write_failed: 500

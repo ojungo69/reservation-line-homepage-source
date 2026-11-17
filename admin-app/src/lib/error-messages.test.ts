@@ -47,6 +47,14 @@ describe("error message lookup", () => {
     ).toBe("入力内容に誤りがあります");
   });
 
+  it("explains how to change linked closure dates while preserving reason-only edits", () => {
+    const error = new ApiError(409, { error: "linked_closure_dates_immutable" });
+    const message = "Google予定と連動する休業の日時は変更できません。日時を変える場合は休業を取り消し、新しいGoogle予定を再承認してください。理由のみ変更できます";
+    expect(actionErrorMessage(error)).toBe(message);
+    showErrorToast(error, "休業日の更新に失敗しました");
+    expect(toast.error).toHaveBeenCalledWith(message);
+  });
+
   it.each([
     new ApiError(500, { reason: "future_error" }),
     new ApiError(500, null),

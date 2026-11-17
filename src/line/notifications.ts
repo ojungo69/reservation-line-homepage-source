@@ -1830,7 +1830,15 @@ const dispatchPreparedLineNotification = async (
   quotaReservation: ReservedLineQuotaSlot
 ): Promise<LineNotificationJobOutcome> => {
   let messageText = initialMessageText;
-  const sendGate = await input.beforeLineSend();
+  let sendGate: LineNotificationSendGate;
+  try {
+    sendGate = await input.beforeLineSend();
+  } catch (error) {
+    await releaseUnusedLineQuotaSlot(input.db, input.row, input.claim, quotaReservation).catch((releaseError) => {
+      safeCaptureException(releaseError, { tags: { dispatcher: "line_push", reason: "line-quota-release-failed" } });
+    });
+    throw error;
+  }
   if (sendGate.outcome !== "ready") {
     await releaseUnusedLineQuotaSlot(input.db, input.row, input.claim, quotaReservation);
     if (sendGate.outcome === "ineligible") {
@@ -1845,7 +1853,9 @@ const dispatchPreparedLineNotification = async (
     try { messageText = await buildLineMessageText(input.db, sendGate.row); }
     catch (error) {
       safeCaptureException(error, { tags: { dispatcher: "line_push", reason: "line-render-failed" } });
-      await releaseUnusedLineQuotaSlot(input.db, input.row, input.claim, quotaReservation);
+      await releaseUnusedLineQuotaSlot(input.db, input.row, input.claim, quotaReservation).catch((releaseError) => {
+        safeCaptureException(releaseError, { tags: { dispatcher: "line_push", reason: "line-quota-release-failed" } });
+      });
       return markJobFailure(input.db, input.row, "line-render-failed", input.claim, input.now());
     }
   }

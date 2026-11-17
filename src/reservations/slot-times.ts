@@ -118,12 +118,12 @@ export type BookingService = { id: string; name: string; durationMinutes: number
 export const isBookingCatalogGuardError = (error: unknown): boolean =>
   /CHECK constraint failed:.*scope IN/s.test(String(error));
 
-// The invalid scope CHECK rolls back the whole booking if an item was disabled after preflight.
+// The invalid scope CHECK rolls back if an item was disabled or its duration changed after preflight.
 export const bookingCatalogGuard = (input: {
   db: D1Database;
   storeId: string;
   resourceId: string;
-  serviceIds: string[];
+  services: readonly BookingService[];
   nowIso: string;
 }): D1PreparedStatement => input.db.prepare(`
   INSERT INTO idempotency_keys (id, scope, idempotency_key, status, expires_at)
@@ -132,10 +132,11 @@ export const bookingCatalogGuard = (input: {
     SELECT 1 FROM store_resources WHERE id = ? AND store_id = ? AND active = 1
   ) OR (
     SELECT COUNT(*) FROM services
-    WHERE id IN (${input.serviceIds.map(() => "?").join(", ")}) AND store_id = ? AND active = 1
+    WHERE (${input.services.map(() => "(id = ? AND duration_minutes = ?)").join(" OR ")})
+      AND store_id = ? AND active = 1
   ) <> ?
 `).bind(crypto.randomUUID(), input.nowIso, input.resourceId, input.storeId,
-  ...input.serviceIds, input.storeId, input.serviceIds.length);
+  ...input.services.flatMap((service) => [service.id, service.durationMinutes]), input.storeId, input.services.length);
 
 // Fetch and validate the active services for a booking: every requested id must
 // exist, be active, belong to `storeId`, and carry a positive duration aligned to

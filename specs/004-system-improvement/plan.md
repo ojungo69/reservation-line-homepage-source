@@ -25,3 +25,7 @@ Behavioral regressions pass including delayed search, all theme states, concurre
 ## T015 follow-up: watch renewal query provenance
 
 Scope: copy sync_token and nullable sync_query_version from the same retiring-channel snapshot in src/google/channel-watch.ts. Preserve unknown and mismatched versions without promotion; first-channel values remain NULL. No migration or importer behavior changes. Completion: real SQLite watch-to-import regressions prove validated tokens remain incremental, unknown/mismatched tokens still queue full recovery, and failed stop requests safely retire the old channel. Verify the existing Google import/webhook suites, backend typecheck and Worker suite before release review.
+
+## Review remediation
+
+Pin selected service durations at the booking write boundary, resolve concurrent admin idempotency before catalog failure, reclaim only expired exact settings keys, and keep burst count/end paired per detection bucket. Preserve definitely-unused LINE quota cleanup and Google attempt caps at selection, claim and stale recovery. Linked closures reject interval changes with a clear409/cancel-and-reapprove path while retaining reason-only and unlinked edits. No migration or Minimo code enters this follow-up. Completion requires deterministic SQLite failure reproductions, current callers, focused/Worker/type checks, independent code/security/lean reviews and final exact-source adoption proof before T012.

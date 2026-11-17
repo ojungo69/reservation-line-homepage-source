@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { processDueLineNotificationJobs } from "../src/line/notifications";
 import type { LineRateLimiter } from "../src/line/rate-limiter-do";
+import * as sentryHelpers from "../src/sentry-helpers";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 
 // NOW = 2026-08-01T00:00Z → 2026-08 in JST. Seed the snapshot for the same month.
@@ -54,7 +55,10 @@ describe("LINE notification monthly budget guard", () => {
     d1 = createMigratedSqliteD1();
     seed(d1);
   });
-  afterEach(() => d1.sqlite.close());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    d1.sqlite.close();
+  });
 
   const run = async (fetchMock: typeof fetch) =>
     processDueLineNotificationJobs({
@@ -64,6 +68,105 @@ describe("LINE notification monthly budget guard", () => {
       now: () => NOW_MS,
       maxJobs: 5
     });
+
+  it.each([false, true])("preserves a final send gate failure and returns unused quota when cleanup succeeds (cleanup fails: %s)", async (cleanupFails) => {
+    seedSnapshot(d1, 179);
+    seedJob(d1, "gate_failure", "reservation_reminder");
+    const error = new Error("D1_ERROR: send gate failed");
+    const cleanupError = new Error("D1_ERROR: quota cleanup failed");
+    const capture = vi.spyOn(sentryHelpers, "safeCaptureException");
+    const prepare = d1.prepare.bind(d1);
+    vi.spyOn(d1, "prepare").mockImplementation((sql) => {
+      if (sql.includes("UPDATE idempotency_keys SET expires_at")) throw error;
+      if (cleanupFails && sql.includes("DELETE FROM idempotency_keys") && sql.includes("AND EXISTS")) throw cleanupError;
+      return prepare(sql);
+    });
+    const fetcher = vi.fn(async () => Response.json({ sentMessages: [] }));
+
+    expect(await run(fetcher)).toEqual({ processed: 1, succeeded: 0, failed: 1 });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(d1.sqlite.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE target_type = 'line_notification_quota'").get())
+      .toEqual({ count: cleanupFails ? 1 : 0 });
+    expect(d1.sqlite.prepare("SELECT status, attempts, last_error FROM notification_jobs WHERE id = 'gate_failure'").get())
+      .toEqual({ status: "processing", attempts: 1, last_error: null });
+    expect(capture).toHaveBeenCalledWith(error, expect.objectContaining({
+      tags: { dispatcher: "line_push", reason: "chunk_job_unexpected_throw" }
+    }));
+    if (cleanupFails) expect(capture).toHaveBeenCalledWith(cleanupError, expect.objectContaining({
+      tags: { dispatcher: "line_push", reason: "line-quota-release-failed" }
+    }));
+  });
+
+  it.each([false, true])("keeps a final render failure classified when quota cleanup fails: %s", async (cleanupFails) => {
+    seedSnapshot(d1, 179);
+    seedJob(d1, "render_failure", "reservation_reminder");
+    const cleanupError = new Error("D1_ERROR: quota cleanup failed");
+    const capture = vi.spyOn(sentryHelpers, "safeCaptureException");
+    const prepare = d1.prepare.bind(d1);
+    vi.spyOn(d1, "prepare").mockImplementation((sql) => {
+      if (sql.includes("UPDATE idempotency_keys SET expires_at")) {
+        d1.sqlite.prepare("UPDATE stores SET timezone = 'invalid-timezone' WHERE id = 'store_q'").run();
+      }
+      if (cleanupFails && sql.includes("DELETE FROM idempotency_keys") && sql.includes("AND EXISTS")) throw cleanupError;
+      return prepare(sql);
+    });
+    const fetcher = vi.fn(async () => Response.json({ sentMessages: [] }));
+
+    expect(await run(fetcher)).toEqual({ processed: 1, succeeded: 0, failed: 1 });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(d1.sqlite.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE target_type = 'line_notification_quota'").get())
+      .toEqual({ count: cleanupFails ? 1 : 0 });
+    expect(d1.sqlite.prepare("SELECT status, attempts, last_error FROM notification_jobs WHERE id = 'render_failure'").get())
+      .toEqual({ status: "retryable", attempts: 1, last_error: "line-render-failed" });
+    expect(capture).toHaveBeenCalledWith(expect.any(RangeError), expect.objectContaining({
+      tags: { dispatcher: "line_push", reason: "line-render-failed" }
+    }));
+    if (cleanupFails) expect(capture).toHaveBeenCalledWith(cleanupError, expect.objectContaining({
+      tags: { dispatcher: "line_push", reason: "line-quota-release-failed" }
+    }));
+  });
+
+  it("keeps an earlier unknown delivery charged when the next attempt's send gate fails", async () => {
+    seedSnapshot(d1, 179);
+    seedJob(d1, "unknown_delivery", "reservation_reminder");
+    const fetcher = vi.fn(async () => { throw new Error("response lost after provider acceptance"); });
+    expect((await run(fetcher)).failed).toBe(1);
+    const priorQuota = d1.sqlite.prepare("SELECT id FROM idempotency_keys WHERE target_type = 'line_notification_quota'").get();
+    expect(priorQuota).toBeDefined();
+    const prepare = d1.prepare.bind(d1);
+    vi.spyOn(d1, "prepare").mockImplementation((sql) => {
+      if (sql.includes("UPDATE idempotency_keys SET expires_at")) throw new Error("D1_ERROR: send gate failed");
+      return prepare(sql);
+    });
+
+    expect((await processDueLineNotificationJobs({
+      db: d1 as unknown as D1Database, env: { LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: "tok" },
+      fetcher, now: () => NOW_MS + 5 * 60_000, maxJobs: 1, _sleep: async () => {}
+    })).failed).toBe(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(d1.sqlite.prepare("SELECT id FROM idempotency_keys WHERE target_type = 'line_notification_quota'").get()).toEqual(priorQuota);
+  });
+
+  it("does not release quota owned by a replacement claim when the old send gate fails", async () => {
+    seedSnapshot(d1, 179);
+    seedJob(d1, "replacement_claim", "reservation_reminder");
+    const prepare = d1.prepare.bind(d1);
+    vi.spyOn(d1, "prepare").mockImplementation((sql) => {
+      if (sql.includes("UPDATE idempotency_keys SET expires_at")) {
+        d1.sqlite.prepare("UPDATE notification_jobs SET attempts = 2 WHERE id = 'replacement_claim'").run();
+        throw new Error("D1_ERROR: old send gate failed");
+      }
+      return prepare(sql);
+    });
+    const fetcher = vi.fn(async () => Response.json({ sentMessages: [] }));
+
+    expect((await run(fetcher)).failed).toBe(1);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(d1.sqlite.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE target_type = 'line_notification_quota'").get())
+      .toEqual({ count: 1 });
+    expect(d1.sqlite.prepare("SELECT status, attempts FROM notification_jobs WHERE id = 'replacement_claim'").get())
+      .toEqual({ status: "processing", attempts: 2 });
+  });
 
   it.each(["reservation_confirmed", "reservation_reminder"])(
     "ends %s without sending or retrying when the monthly quota is exhausted",

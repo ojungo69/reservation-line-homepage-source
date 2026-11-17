@@ -1,11 +1,13 @@
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AdminUser } from "../src/admin/access";
+import { expiredSettingsIdempotencyStatement } from "../src/admin/settings-common";
 import { createAdminService } from "../src/admin/settings-services";
 import { createAdminResource } from "../src/admin/settings-resources";
 import { createAdminStaff } from "../src/admin/settings-staff";
 import { createAdminClosure } from "../src/admin/settings-closures";
 import { upsertStoreLogin } from "../src/admin/settings-store-login";
-import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
+import { createMigratedSqliteD1, SqliteD1Database } from "./helpers/sqlite-d1";
 
 const NOW = "2099-01-01T00:00:00.000Z";
 const key = "settings-expired-key";
@@ -21,38 +23,39 @@ const fixture = () => {
     INSERT INTO admin_users (id, email, access_subject, role, active, is_service_token)
       VALUES ('settings_expiry_owner', 'expiry@example.test', 'settings-expiry-sub', 'owner', 1, 0);
     INSERT INTO idempotency_keys (id, scope, idempotency_key, status, request_hash, expires_at)
-      VALUES ('unrelated_key', 'public_submit', 'settings-expired-key', 'started', 'unrelated', '2000-01-01T00:00:00.000Z');
+      VALUES ('unrelated_key', 'public_submit', 'settings-expired-key', 'started', 'unrelated', '2000-01-01T00:00:00.000Z'),
+        ('other_admin_key', 'admin_action', 'other-settings-key', 'succeeded', 'unrelated', '2000-01-01T00:00:00.000Z');
   `);
   return db;
 };
 
 const context = (db: SqliteD1Database) => ({ db: db as unknown as D1Database, admin, now: () => Date.parse(NOW) });
 const cases = [
-  { name: "service", run: (db: SqliteD1Database) => createAdminService({
+  { name: "service", run: (db: SqliteD1Database, changed = false) => createAdminService({
     ...context(db), request: {
-      storeId: "settings_expiry_store", name: "Test service", priceLabel: null,
+      storeId: "settings_expiry_store", name: changed ? "Changed service" : "Test service", priceLabel: null,
       durationMinutes: 60, bufferBeforeMinutes: 0, bufferAfterMinutes: 0, active: true, idempotencyKey: key
     }
   }) },
-  { name: "resource", run: (db: SqliteD1Database) => createAdminResource({
+  { name: "resource", run: (db: SqliteD1Database, changed = false) => createAdminResource({
     ...context(db), request: {
-      storeId: "settings_expiry_store", name: "Test resource", resourceType: "staff_calendar", active: true, idempotencyKey: key
+      storeId: "settings_expiry_store", name: changed ? "Changed resource" : "Test resource", resourceType: "staff_calendar", active: true, idempotencyKey: key
     }
   }) },
-  { name: "staff", run: (db: SqliteD1Database) => createAdminStaff({
+  { name: "staff", run: (db: SqliteD1Database, changed = false) => createAdminStaff({
     ...context(db), request: {
-      storeId: "settings_expiry_store", displayName: "Test staff", role: "staff", active: true, idempotencyKey: key
+      storeId: "settings_expiry_store", displayName: changed ? "Changed staff" : "Test staff", role: "staff", active: true, idempotencyKey: key
     }
   }) },
-  { name: "closure", run: (db: SqliteD1Database) => createAdminClosure({
+  { name: "closure", run: (db: SqliteD1Database, changed = false) => createAdminClosure({
     ...context(db), request: {
       storeId: "settings_expiry_store", startsAt: "2099-01-02T00:00:00.000Z", endsAt: "2099-01-02T01:00:00.000Z",
-      reason: null, idempotencyKey: key
+      reason: changed ? "Changed reason" : null, idempotencyKey: key
     }
   }) },
-  { name: "store login", run: (db: SqliteD1Database) => upsertStoreLogin({
+  { name: "store login", run: (db: SqliteD1Database, changed = false) => upsertStoreLogin({
     ...context(db), request: {
-      storeId: "settings_expiry_store", email: "store@example.test", role: "staff", idempotencyKey: key
+      storeId: "settings_expiry_store", email: changed ? "changed@example.test" : "store@example.test", role: "staff", idempotencyKey: key
     }
   }) }
 ] as const;
@@ -72,18 +75,33 @@ const expireKey = (db: SqliteD1Database, unfinished: boolean) => {
 afterEach(() => vi.restoreAllMocks());
 
 describe.each(cases)("$name expired settings request", ({ run }) => {
-  it.each([true, false])("retries the same expired key (unfinished=%s) without deleting other history", async (unfinished) => {
+  it.each([
+    { unfinished: true, changed: false }, { unfinished: true, changed: true },
+    { unfinished: false, changed: false }, { unfinished: false, changed: true }
+  ])("reuses a key at exact expiry (unfinished=$unfinished, changed=$changed) without deleting other history", async ({ unfinished, changed }) => {
     const db = fixture();
     try {
       expect(await run(db)).toMatchObject({ ok: true, replayed: false });
       const firstId = readKey(db)?.id;
       expireKey(db, unfinished);
-      const unrelated = db.sqlite.prepare("SELECT * FROM idempotency_keys WHERE id = 'unrelated_key'").get();
+      const unrelated = db.sqlite.prepare("SELECT * FROM idempotency_keys WHERE id IN ('unrelated_key', 'other_admin_key') ORDER BY id").all();
 
-      expect(await run(db)).toMatchObject({ ok: true, replayed: false });
+      expect(await run(db, changed)).toMatchObject({ ok: true, replayed: false });
       expect(readKey(db)).toMatchObject({ status: "succeeded" });
       expect(readKey(db)?.id).not.toBe(firstId);
-      expect(db.sqlite.prepare("SELECT * FROM idempotency_keys WHERE id = 'unrelated_key'").get()).toEqual(unrelated);
+      expect(db.sqlite.prepare("SELECT * FROM idempotency_keys WHERE id IN ('unrelated_key', 'other_admin_key') ORDER BY id").all()).toEqual(unrelated);
+    } finally { db.sqlite.close(); }
+  });
+
+  it.each([false, true])("preserves a live key (changed=%s)", async (changed) => {
+    const db = fixture();
+    try {
+      expect(await run(db)).toMatchObject({ ok: true, replayed: false });
+      const before = readKey(db);
+      expect(await run(db, changed)).toMatchObject(changed
+        ? { ok: false, error: "idempotency_conflict" }
+        : { ok: true, replayed: true });
+      expect(readKey(db)).toEqual(before);
     } finally { db.sqlite.close(); }
   });
 });
@@ -91,20 +109,19 @@ describe.each(cases)("$name expired settings request", ({ run }) => {
 describe("expired settings key transaction boundaries", () => {
   const run = cases[1].run;
 
-  it.each(["request_hash", "target_type"] as const)("preserves an expired key with different %s", async (column) => {
+  it("reuses an expired key from another action regardless of its hash or target", async () => {
     const db = fixture();
-    vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      expect(await run(db)).toMatchObject({ ok: true });
-      expireKey(db, false);
-      db.sqlite.prepare(`UPDATE idempotency_keys SET ${column} = 'unrelated' WHERE scope = 'admin_action' AND idempotency_key = ?`).run(key);
-      const before = readKey(db);
-      expect(await run(db)).toMatchObject({ ok: false });
-      expect(readKey(db)).toEqual(before);
+      expect(await cases[0].run(db)).toMatchObject({ ok: true });
+      db.sqlite.prepare("UPDATE idempotency_keys SET expires_at = '2098-12-31T23:59:59.000Z' WHERE scope = 'admin_action' AND idempotency_key = ?").run(key);
+      const firstId = readKey(db)?.id;
+      expect(await run(db)).toMatchObject({ ok: true, replayed: false });
+      expect(readKey(db)).toMatchObject({ status: "succeeded", target_type: "store_resource" });
+      expect(readKey(db)?.id).not.toBe(firstId);
     } finally { db.sqlite.close(); }
   });
 
-  it("does not reclaim a key renewed after the initial lookup", async () => {
+  it.each([false, true])("does not reclaim a key renewed after the initial lookup (changed=%s)", async (changed) => {
     const db = fixture();
     try {
       expect(await run(db)).toMatchObject({ ok: true });
@@ -112,10 +129,36 @@ describe("expired settings key transaction boundaries", () => {
       const originalBatch = db.batch.bind(db);
       db.batch = async (statements) => {
         db.sqlite.prepare("UPDATE idempotency_keys SET expires_at = '2099-01-03T00:00:00.000Z' WHERE scope = 'admin_action' AND idempotency_key = ?").run(key);
+        if (changed) db.sqlite.prepare("UPDATE idempotency_keys SET request_hash = 'renewed-hash' WHERE scope = 'admin_action' AND idempotency_key = ?").run(key);
         return originalBatch(statements);
       };
-      expect(await run(db)).toEqual({ ok: false, error: "idempotency_in_progress" });
+      expect(await run(db)).toEqual({ ok: false, error: changed ? "idempotency_conflict" : "idempotency_in_progress" });
       expect(readKey(db)).toMatchObject({ status: "started", expires_at: "2099-01-03T00:00:00.000Z" });
+      if (changed) expect(readKey(db)?.request_hash).toBe("renewed-hash");
+    } finally { db.sqlite.close(); }
+  });
+
+  it.each([false, true])("allows one concurrent reclaim and resolves the other request (changed=%s)", async (changed) => {
+    const db = fixture();
+    try {
+      expect(await run(db)).toMatchObject({ ok: true });
+      expireKey(db, true);
+      const originalBatch = db.batch.bind(db);
+      const waiting: (() => void)[] = [];
+      db.batch = async (statements) => {
+        await new Promise<void>((resolve) => {
+          waiting.push(resolve);
+          if (waiting.length === 2) waiting.forEach((release) => release());
+        });
+        return originalBatch(statements);
+      };
+      const [first, second] = await Promise.all([run(db), run(db, changed)]);
+      expect(first).toMatchObject({ ok: true, replayed: false });
+      expect(second).toMatchObject(changed
+        ? { ok: false, error: "idempotency_conflict" }
+        : { ok: true, replayed: true });
+      if (first.ok && second.ok) expect(second.resourceId).toBe(first.resourceId);
+      expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM store_resources WHERE store_id = 'settings_expiry_store'").get()).toMatchObject({ n: 2 });
     } finally { db.sqlite.close(); }
   });
 
@@ -130,7 +173,7 @@ describe("expired settings key transaction boundaries", () => {
         db.sqlite.prepare("UPDATE admin_users SET active = 0 WHERE id = ?").run(admin.id);
         return originalBatch(statements);
       };
-      expect(await run(db)).toEqual({ ok: false, error: "forbidden" });
+      expect(await run(db, true)).toEqual({ ok: false, error: "forbidden" });
       expect(readKey(db)).toEqual(before);
     } finally { db.sqlite.close(); }
   });
@@ -143,7 +186,23 @@ describe("expired settings key transaction boundaries", () => {
       expireKey(db, true);
       const before = readKey(db);
       db.sqlite.exec("CREATE TRIGGER reject_retry BEFORE INSERT ON store_resources BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END");
-      expect(await run(db)).toEqual({ ok: false, error: "write_failed" });
+      expect(await run(db, true)).toEqual({ ok: false, error: "write_failed" });
+      expect(readKey(db)).toEqual(before);
+    } finally { db.sqlite.close(); }
+  });
+
+  it("preserves a legacy key without an expiry", async () => {
+    const db = new SqliteD1Database(new DatabaseSync(":memory:"));
+    try {
+      // Current migrations require an expiry; the shared read also supports legacy NULL rows.
+      db.sqlite.exec(`
+        CREATE TABLE idempotency_keys (scope TEXT, idempotency_key TEXT, request_hash TEXT, status TEXT, target_type TEXT, expires_at TEXT);
+        INSERT INTO idempotency_keys VALUES ('admin_action', 'settings-expired-key', 'old-hash', 'succeeded', 'service', NULL);
+      `);
+      const before = readKey(db);
+      await expiredSettingsIdempotencyStatement({
+        ...context(db), key, requestHash: "new-hash", targetType: "store_resource", nowIso: NOW
+      }).run();
       expect(readKey(db)).toEqual(before);
     } finally { db.sqlite.close(); }
   });

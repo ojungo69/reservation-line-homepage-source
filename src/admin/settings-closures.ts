@@ -60,6 +60,7 @@ export type AdminClosureUpdateError =
   | "store_not_found"
   | "immutable_source"
   | "immutable_store"
+  | "linked_closure_dates_immutable"
   | "overlapping_reservations"
   | "write_failed";
 
@@ -162,12 +163,13 @@ type ClosureRow = {
   ends_at: string;
   reason: string | null;
   source: "admin" | "google_external_block";
+  external_block_id: string | null;
 };
 
 const fetchClosure = async (db: D1Database, id: string): Promise<ClosureRow | null> =>
   await db
     .prepare(
-      `SELECT id, store_id, starts_at, ends_at, reason, source FROM store_closures WHERE id = ?`
+      `SELECT id, store_id, starts_at, ends_at, reason, source, external_block_id FROM store_closures WHERE id = ?`
     )
     .bind(id)
     .first<ClosureRow>();
@@ -200,7 +202,9 @@ export const countOverlappingReservationsForClosure = async (input: {
 async function handleClosureUpdateBatchError(
   db: D1Database,
   error: unknown,
-  closureId: string
+  closureId: string,
+  admin: AdminUser,
+  request: AdminClosureUpdateRequest
 ): Promise<AdminClosureUpdateResult> {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("overlapping_reservations")) {
@@ -209,12 +213,19 @@ async function handleClosureUpdateBatchError(
   if (isActorTypeBatchError(error)) {
     const fresh = await fetchClosure(db, closureId);
     if (!fresh) return { ok: false, error: "not_found" };
+    if (!isAdminAllowedForStoreSettings(admin, fresh.store_id)) return { ok: false, error: "forbidden" };
     if (fresh.source !== "admin") return { ok: false, error: "immutable_source" };
+    const storeGuard = guardImmutableStore(fresh.store_id, request.storeId);
+    if (storeGuard) return storeGuard;
+    if (fresh.external_block_id !== null &&
+        (Date.parse(fresh.starts_at) !== Date.parse(request.startsAt) || Date.parse(fresh.ends_at) !== Date.parse(request.endsAt))) {
+      return { ok: false, error: "linked_closure_dates_immutable" };
+    }
     return { ok: false, error: "write_failed" };
   }
   console.error("updateAdminClosure batch failed", {
     closureId,
-    error: error instanceof Error ? error.message : String(error)
+    error: message
   });
   return { ok: false, error: "write_failed" };
 }
@@ -365,6 +376,10 @@ export const updateAdminClosure = async (input: {
   // with the other settings mutations, e.g. settings-resources/services).
   const storeGuard = guardImmutableStore(current.store_id, input.request.storeId);
   if (storeGuard) return storeGuard;
+  if (current.external_block_id !== null &&
+      (Date.parse(current.starts_at) !== Date.parse(input.request.startsAt) || Date.parse(current.ends_at) !== Date.parse(input.request.endsAt))) {
+    return { ok: false, error: "linked_closure_dates_immutable" };
+  }
   const overlapCount = await countOverlappingReservationsForClosure({
     db: input.db,
     // Check the closure's authoritative store (current.store_id), not the
@@ -382,18 +397,24 @@ export const updateAdminClosure = async (input: {
   try {
     await input.db.batch([
       adminWriteGuard(input.db, input.admin),
+      // Recheck the current link and interval here because approval can race the preflight.
       input.db
         .prepare(
           `UPDATE store_closures
            SET store_id = ?, starts_at = ?, ends_at = ?, reason = ?
-           WHERE id = ? AND source = 'admin'`
+           WHERE id = ? AND source = 'admin' AND store_id = ?
+             AND (external_block_id IS NULL OR
+               (julianday(starts_at) = julianday(?) AND julianday(ends_at) = julianday(?)))`
         )
         .bind(
           input.request.storeId,
           input.request.startsAt,
           input.request.endsAt,
           input.request.reason,
-          input.closureId
+          input.closureId,
+          current.store_id,
+          input.request.startsAt,
+          input.request.endsAt
         ),
       input.db
         .prepare(
@@ -431,7 +452,7 @@ export const updateAdminClosure = async (input: {
     if (await adminWriteWasRevoked(input.db, input.admin, error)) {
       return { ok: false, error: "forbidden" };
     }
-    return handleClosureUpdateBatchError(input.db, error, input.closureId);
+    return handleClosureUpdateBatchError(input.db, error, input.closureId, input.admin, input.request);
   }
 
   return { ok: true, closureId: input.closureId };

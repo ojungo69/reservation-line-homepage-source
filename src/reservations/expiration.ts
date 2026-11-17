@@ -37,9 +37,8 @@ export const limitBatchSize = (value: number | undefined) => {
 // (pending_expires_at) OR its appointment time has fully passed (end_at <= now).
 // The latter matters for short-lead bookings: a slot booked ~minutes before it
 // starts can end while pending_expires_at (created_at + TTL) is still in the
-// future. Such a reservation cannot be approved and is hidden by the customer
-// page's `end_at > now` filter. Expiring it releases its holds and active-booking
-// capacity instead of leaving an unreachable pending reservation.
+// future. The customer page hides it with its `end_at > now` filter. This sweep
+// expires the pending row and releases its remaining slot and customer-time locks.
 const fetchExpiringReservations = async (
   db: D1Database,
   nowIso: string,
