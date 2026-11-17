@@ -1,0 +1,16 @@
+.github/workflows/dependabot-auto-merge.yml
+  h_c2efce2f38e110 7
+scripts/browser-verification/fixtures/api-states.mjs
+  h_c2efce2f38e110 146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2a6c545cd5ec68a5fa1244c9eae3c8223e350a91",
+  "prompts": {},
+  "humans": {
+    "h_c2efce2f38e110": {
+      "author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
