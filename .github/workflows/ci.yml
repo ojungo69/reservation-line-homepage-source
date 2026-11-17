@@ -24,7 +24,17 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           package-manager-cache: false
-          node-version: 24
+          node-version-file: package.json
+      - name: Bootstrap job-local npm
+        id: npm-toolchain
+        shell: bash
+        run: node .github/scripts/npm-toolchain.mjs bootstrap
+      - name: Verify project toolchain
+        shell: bash
+        env:
+          TOOLCHAIN_DIRECTORY: ${{ steps.npm-toolchain.outputs.directory }}
+        run: node .github/scripts/npm-toolchain.mjs verify
+
       - run: npm ci --ignore-scripts
       - run: npm ci --ignore-scripts --prefix admin-app
       - run: npm run cf:types
@@ -47,3 +57,10 @@ jobs:
             admin-app/coverage/lcov.info
           if-no-files-found: error
           retention-days: 14
+
+      - name: Cleanup job-local npm
+        if: always()
+        shell: bash
+        env:
+          TOOLCHAIN_DIRECTORY: ${{ steps.npm-toolchain.outputs.directory }}
+        run: node .github/scripts/npm-toolchain.mjs cleanup

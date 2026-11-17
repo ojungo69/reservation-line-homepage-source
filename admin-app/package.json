@@ -44,5 +44,23 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.1"
   },
-  "license": "AGPL-3.0-only"
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=24.15.0 <25",
+    "npm": "12.2.2"
+  },
+  "packageManager": "npm@12.2.2",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=24.15.0 <25",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": "12.2.2",
+      "onFail": "error"
+    }
+  },
+  "allowScripts": {}
 }

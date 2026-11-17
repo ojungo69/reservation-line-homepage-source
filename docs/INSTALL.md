@@ -4,7 +4,7 @@
 
 ## 1. 架空の1店舗をローカルで確認する
 
-Node.js 24、npm、sh 互換シェル（Windows では WSL 等）を用意し、新しい checkout で作業します。以下は同じ `.wrangler/oss-install` を migrations、bootstrap、`wrangler dev` に指定します。このパスと `.dev.vars` は gitignored です。
+[対応 Node/npm](TOOLCHAIN.md)、sh 互換シェル（Windows では WSL 等）を用意し、新しい checkout で作業します。以下は同じ `.wrangler/oss-install` を migrations、bootstrap、`wrangler dev` に指定します。このパスと `.dev.vars` は gitignored です。
 
 ```sh
 set -eu
