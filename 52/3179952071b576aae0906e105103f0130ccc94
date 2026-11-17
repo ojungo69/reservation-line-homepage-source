@@ -1,0 +1,18 @@
+.github/scripts/npm-toolchain.mjs
+  h_c2efce2f38e110 22-23
+.github/scripts/npm-toolchain.test.mjs
+  h_c2efce2f38e110 208-236
+test/toolchain-policy.test.ts
+  h_c2efce2f38e110 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "523179952071b576aae0906e105103f0130ccc94",
+  "prompts": {},
+  "humans": {
+    "h_c2efce2f38e110": {
+      "author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
