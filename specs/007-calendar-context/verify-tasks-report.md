@@ -6,7 +6,7 @@
 |---|---|---|
 | T001 | ✅ VERIFIED | `schedule.tsx` の開始日・詳細設定と `schedule.test.tsx` を照合。 |
 | T002 | ✅ VERIFIED | 日付、表示、詳細、スクロールの保存・復元と、直接カルテの既存経路を照合。 |
-| T003 | ✅ VERIFIED | 各追加テストと境界検証を照合。admin全体 89 files / 965 tests、typecheck、build が成功。 |
+| T003 | ✅ VERIFIED | 各追加テストと境界検証を照合。admin coverage 全体 89 files / 974 tests、typecheck、build が成功。 |
 | T004 | ✅ VERIFIED | 3幅の画面画像、ブラウザー手順と実行報告、独立 Spec/Standards review を照合。 |
 
 既存のブラウザー戻る時の未保存入力保護は今回の実装範囲外。画面内復帰ボタンの確認は対象に含む。

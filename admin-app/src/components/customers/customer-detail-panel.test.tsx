@@ -113,14 +113,13 @@ beforeEach(() => {
 describe("CustomerDetailPanel の書きかけ保護", () => {
   it("カルテから予約画面に戻るときも下書き破棄の確認を通す", async () => {
     const user = userEvent.setup();
-    const onReturnToSchedule = vi.fn();
-    render(<CustomerDetailPanel customerId="customer-1" onClose={() => {}} originReservationId="reservation-1" onReturnToSchedule={onReturnToSchedule} />);
+    render(<CustomerDetailPanel customerId="customer-1" onClose={() => {}} originReservationId="reservation-1" returnToSchedule />);
     await user.click(screen.getByRole("button", { name: "編集" }));
     await user.type(screen.getByRole("textbox"), "書きかけ");
     await user.click(screen.getByRole("button", { name: "予約詳細に戻る" }));
-    expect(onReturnToSchedule).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "破棄して閉じる" }));
-    expect(onReturnToSchedule).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith(-1);
   });
   const withVisit = (treatmentNotes: string | null) => ({
     ...customer,

@@ -60,7 +60,7 @@ type Props = {
   customerId: string | null;
   onClose: () => void;
   originReservationId?: string | null;
-  onReturnToSchedule?: () => void;
+  returnToSchedule?: boolean;
 };
 
 const CONSENT_TYPE_LABELS: Record<string, string> = {
@@ -163,7 +163,7 @@ function CustomerAdminActions({
   );
 }
 
-export function CustomerDetailPanel({ customerId, onClose, originReservationId = null, onReturnToSchedule }: Readonly<Props>) {
+export function CustomerDetailPanel({ customerId, onClose, originReservationId = null, returnToSchedule = false }: Readonly<Props>) {
   const { isPrivileged } = useAuth();
   const navigate = useNavigate();
   const detailQuery = useCustomerDetail(customerId);
@@ -1093,9 +1093,9 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
               <ArrowLeft aria-hidden="true" /> 顧客一覧に戻る
             </Button>
             {originReservationId && <Button variant="outline" onClick={() => {
-              if (!onReturnToSchedule) setSelectedReservationId(originReservationId);
+              if (!returnToSchedule) setSelectedReservationId(originReservationId);
               else if (hasUnsavedDraft()) setDiscardDraftNext("schedule");
-              else onReturnToSchedule();
+              else navigate(-1);
             }}>予約詳細に戻る</Button>}
             <span className="text-sm text-muted-foreground">顧客 / 顧客カルテ</span>
           </div>
@@ -1459,7 +1459,7 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
         cancelLabel="編集に戻る"
         destructive
         onOpenChange={() => setDiscardDraftNext(null)}
-        onConfirm={discardDraftNext === "quickBook" ? quickBook : discardDraftNext === "schedule" ? () => onReturnToSchedule?.() : closePanel}
+        onConfirm={{ close: closePanel, quickBook, schedule: () => navigate(-1) }[discardDraftNext ?? "close"]}
       />
 
       <PendingConfirmDialog
@@ -1477,7 +1477,7 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
       {/* key で顧客毎に remount → 前回の検索語が次の顧客へ持ち越されない。 */}
       <LinkLineFromCardDialog
         key={`link-line-${linkLineOpen ? customer?.id ?? "open" : "closed"}`}
-        customer={linkLineOpen && customer ? { id: customer.id, displayName: customer.displayName } : null}
+        customer={linkLineOpen ? customer : null}
         onClose={() => setLinkLineOpen(false)}
       />
     </>
