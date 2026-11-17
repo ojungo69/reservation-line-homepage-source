@@ -161,7 +161,7 @@ export type SettingsResponse = {
     services: Service[];
     businessHours: BusinessHour[];
     closures: Closure[];
-    staff: StaffMember[];
+    staff?: StaffMember[]; // Omitted by the staff-role settings allowlist.
     reminderOffsets?: ReminderOffset[];
   };
 };

@@ -1,7 +1,7 @@
 import { adminWriteGuard, adminWriteWasRevoked, assertAdminWriteCurrent } from "./write-authorization";
 import type { AdminUser } from "./access";
 import { isActorTypeBatchError, isAdminPrivileged, storeExists, sha256Hex, trimAndCap, MAX_ID_LENGTH } from "./settings-common";
-import { escapeLikePattern, exceedsLikePatternBudget, normalizePhone } from "./shared";
+import { escapeLikePattern, exceedsLikePatternBudget, isAcceptedPhoneForWrite, normalizePhone } from "./shared";
 import { fetchLineFollowerIds, fetchLineProfile } from "../line/friends-api";
 
 // U + 32 hex（LINE user id）。紐付け対象を厳格に検証する。
@@ -384,7 +384,7 @@ const resolveLinkCustomer = async (
     let normalized: string | undefined;
     if (input.request.newCustomer.phone) {
       normalized = normalizePhone(input.request.newCustomer.phone);
-      if (!normalized) return { ok: false, error: "invalid_request" }; // 非空だが正規化不能
+      if (!normalized || !isAcceptedPhoneForWrite(normalized)) return { ok: false, error: "invalid_request" };
     }
     const phoneHash = normalized ? await sha256Hex(normalized) : null;
     const insert = input.db

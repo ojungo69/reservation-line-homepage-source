@@ -2,7 +2,7 @@ import type { AdminUser } from "./access";
 import { isNonEmptyString, toIso, addMinutes, parseStartAt } from "./reservation-time-utils";
 import { IDEMPOTENCY_TTL_MS, isActorTypeBatchError, sha256Hex } from "./settings-common";
 import { adminWriteGuard, adminWriteWasRevoked } from "./write-authorization";
-import { normalizePhone } from "./shared";
+import { isAcceptedPhoneForWrite, normalizePhone } from "./shared";
 import { OWN_STORE_MEMBERSHIP_ARMS, staffCanAccessCustomer } from "./customers";
 import { ensureBusinessTime } from "../reservations/business-hours";
 import { captureBatchWriteFailure } from "../sentry-helpers";
@@ -984,6 +984,10 @@ export async function createAdminReservation(input: {
   );
   if (idempotencyResult) {
     return idempotencyResult;
+  }
+
+  if (request.customer && normalizedPhone !== null && !isAcceptedPhoneForWrite(normalizedPhone)) {
+    return { ok: false, reason: "invalid_request" };
   }
 
   if (request.origin === "phone") {

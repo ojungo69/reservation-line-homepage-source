@@ -1,0 +1,14 @@
+{
+  "storeId": "store-1",
+  "name": "新メニュー",
+  "durationMinutes": 60,
+  "bufferBeforeMinutes": 0,
+  "bufferAfterMinutes": 0,
+  "priceLabel": null,
+  "priceAmount": null,
+  "comboPriceAmount": null,
+  "comboWithPrefix": null,
+  "active": true,
+  "mensMenu": false,
+  "idempotencyKey": "service-contract-key"
+}

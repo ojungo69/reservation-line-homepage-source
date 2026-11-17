@@ -1,4 +1,6 @@
 import type { PropsWithChildren } from "react";
+import type { SettingsResponse } from "@/types/api";
+import serviceCreateRequest from "../../../test/fixtures/admin-service-create.json";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -267,35 +269,8 @@ const mutationCases = [
     name: "service create",
     useHook: useServiceCreate,
     method: "post",
-    variables: {
-      storeId: "store-1",
-      name: "新メニュー",
-      durationMinutes: 45,
-      bufferBeforeMinutes: 0,
-      bufferAfterMinutes: 5,
-      priceLabel: null,
-      priceAmount: null,
-      comboPriceAmount: null,
-      comboWithPrefix: null,
-      active: true,
-      idempotencyKey: "service-key",
-    },
-    call: [
-      "/api/admin/settings/services",
-      {
-        storeId: "store-1",
-        name: "新メニュー",
-        durationMinutes: 45,
-        bufferBeforeMinutes: 0,
-        bufferAfterMinutes: 5,
-        priceLabel: null,
-        priceAmount: null,
-        comboPriceAmount: null,
-        comboWithPrefix: null,
-        active: true,
-        idempotencyKey: "service-key",
-      },
-    ],
+    variables: serviceCreateRequest,
+    call: ["/api/admin/settings/services", serviceCreateRequest],
     invalidates: [["settings"]],
     success: "メニューを追加しました",
     error: "メニューの追加に失敗しました",
@@ -759,6 +734,32 @@ describe("shared settings queries", () => {
     expect(reminders.result.current.offsets).toEqual(
       settingsResponse.settings.reminderOffsets,
     );
+  });
+
+  it("accepts a staff snapshot that omits privileged staff data", async () => {
+    const response = {
+      ok: true,
+      settings: {
+        stores: [],
+        resources: [],
+        services: [],
+        businessHours: [],
+        closures: [],
+      },
+    } satisfies SettingsResponse;
+    mocks.api.get.mockResolvedValue(response);
+    const client = createClient();
+    const wrapper = createWrapper(client, staffAuth);
+    const settings = renderHook(() => useSettings(), { wrapper });
+    const staff = renderHook(() => useStaffList("store-1"), { wrapper });
+
+    await waitFor(() => expect(settings.result.current.isSuccess).toBe(true));
+    expect(settings.result.current.data).toBe(response);
+    expect(staff.result.current).toMatchObject({
+      staffList: [],
+      isPending: false,
+      isError: false,
+    });
   });
 
   it("returns all rows when a settings list has no store filter", async () => {

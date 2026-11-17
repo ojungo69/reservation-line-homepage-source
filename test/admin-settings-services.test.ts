@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../src/app";
+import serviceCreateRequest from "./fixtures/admin-service-create.json";
 import { createAccessJwksFetchMock, createAccessJwtFixture as createSignedAccessJwtFixture, insertAdminUser as insertAdminUserHelper, type AdminRole } from "./helpers/admin-access";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
 
@@ -191,6 +192,32 @@ describe("admin settings services endpoints", () => {
   });
 
   describe("POST /api/admin/settings/services", () => {
+    it("accepts the shared UI create request and rejects a nonzero post-buffer", async () => {
+      const db = createMigratedSqliteD1();
+      try {
+        insertAdminUser(db, "owner");
+        seedStore(db, serviceCreateRequest.storeId);
+        const access = createAccessJwtFixture();
+        vi.stubGlobal("fetch", createFetchMock(access.jwk));
+
+        const response = await adminRequest(db, access.token, "POST", "/api/admin/settings/services", serviceCreateRequest);
+        expect(response.status).toBe(201);
+        await expect(readJson(response)).resolves.toEqual({
+          ok: true, serviceId: expect.any(String), replayed: false
+        });
+
+        const invalid = await adminRequest(db, access.token, "POST", "/api/admin/settings/services", {
+          ...serviceCreateRequest,
+          bufferAfterMinutes: 5,
+          idempotencyKey: "invalid-buffer-contract-key"
+        });
+        expect(invalid.status).toBe(400);
+        await expect(readJson(invalid)).resolves.toEqual({ ok: false, error: "invalid_request" });
+      } finally {
+        db.sqlite.close();
+      }
+    });
+
     it("creates a service, writes audit_logs + idempotency rows, and returns 201 for owner", async () => {
       const db = createMigratedSqliteD1();
       try {

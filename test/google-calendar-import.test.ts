@@ -4982,6 +4982,78 @@ describe("Google Calendar import jobs", () => {
     expect(revertJobs.count).toBe(1);
   });
 
+  it.each([
+    ["ISO earlier same day", "2026-11-17T11:59:59.000Z", "echo", "echo", 1],
+    ["ISO equal", "2026-11-17T12:00:00.000Z", "echo", "echo", 1],
+    ["ISO later same day", "2026-11-17T12:00:00.500Z", "echo", "echo", 0],
+    ["ISO previous day", "2026-11-16T23:59:59.999Z", "echo", "echo", 1],
+    ["ISO next day", "2026-11-18T00:00:00.000Z", "echo", "echo", 0],
+    ["SQLite earlier", "2026-11-17 11:59:59", "echo", "echo", 1],
+    ["SQLite equal", "2026-11-17 12:00:00", "echo", "echo", 1],
+    ["SQLite later", "2026-11-17 12:00:01", "echo", "echo", 0],
+    ["offset earlier", "2026-11-17T14:59:59+03:00", "echo", "echo", 1],
+    ["invalid expiry", "zz-invalid", "echo", "echo", 1],
+    ["different etag", "2026-11-18T00:00:00.000Z", "other", "echo", 1],
+    ["null stored etag", "2026-11-18T00:00:00.000Z", null, "echo", 1],
+    ["null incoming etag", "2026-11-18T00:00:00.000Z", "echo", null, 1]
+  ])("checks outbound expiry during import: %s", async (_name, expiry, storedEtag, incomingEtag, expectedReverts) => {
+    const reservationId = await createConfirmedReservationWithGoogleEvent();
+    insertActiveChannel(null);
+    insertImportJob("full_reconcile");
+    d1.sqlite.prepare(`
+      INSERT INTO google_calendar_outbound_writes (
+        id, dedupe_key, calendar_id, google_event_id, owner_type, owner_id,
+        action, expected_fingerprint, google_etag_after, expires_at
+      ) VALUES ('expiry-test', 'expiry-test', ?, 'google_reservation_event_deleted_1',
+        'reservation', ?, 'upsert', 'fingerprint', ?, ?)
+    `).run(CALENDAR_ID, reservationId, storedEtag, expiry);
+
+    // Pin only the SQLite clock in the importer's actual lookup for boundary cases.
+    const prepare = d1.prepare.bind(d1);
+    let clockPinned = false;
+    vi.spyOn(d1, "prepare").mockImplementation((sql) => {
+      if (sql.includes("FROM google_calendar_outbound_writes")) {
+        clockPinned = sql.includes("CURRENT_TIMESTAMP");
+        return prepare(sql.replace("CURRENT_TIMESTAMP", "'2026-11-17 12:00:00'"));
+      }
+      return prepare(sql);
+    });
+    const fetchMock = vi.fn(async () => Response.json({
+      items: [{
+        id: "google_reservation_event_deleted_1",
+        etag: incomingEtag,
+        status: "confirmed",
+        start: { dateTime: "2026-06-01T01:00:00.000Z" },
+        end: { dateTime: "2026-06-01T02:00:00.000Z" },
+        extendedProperties: { private: { owner_type: "reservation", reservation_id: reservationId, store_id: "kyoto" } }
+      }],
+      nextSyncToken: "sync_token_expiry"
+    })) as unknown as typeof fetch;
+
+    const result = await processDueGoogleCalendarImportJobs({
+      db: d1 as unknown as D1Database,
+      env: IMPORT_ENV,
+      fetcher: fetchMock,
+      accessTokenProvider: async () => "google_access_token",
+      now: () => 1_800_000_000_000
+    });
+    expect(result.succeeded).toBe(1);
+    expect(clockPinned).toBe(incomingEtag !== null);
+    const jobs = d1.sqlite.prepare(
+      "SELECT COUNT(*) AS count FROM calendar_sync_jobs WHERE owner_id = ? AND google_action = 'upsert'"
+    ).get(reservationId) as { count: number };
+    expect(jobs.count).toBe(expectedReverts);
+  });
+
+  it("rejects a null outbound expiry at the schema boundary", () => {
+    expect(() => d1.sqlite.prepare(`
+      INSERT INTO google_calendar_outbound_writes (
+        id, dedupe_key, calendar_id, google_event_id, owner_type, owner_id,
+        action, expected_fingerprint, expires_at
+      ) VALUES ('expiry-null', 'expiry-null', ?, 'event', 'reservation', 'reservation', 'upsert', 'fingerprint', NULL)
+    `).run(CALENDAR_ID)).toThrow(/NOT NULL/);
+  });
+
   it("ignores system patch echoes for unchanged reservation events", async () => {
     const reservationId = await createConfirmedReservationWithGoogleEvent();
     insertActiveChannel(null);

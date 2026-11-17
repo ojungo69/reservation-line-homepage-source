@@ -297,6 +297,28 @@ describe("CustomerDetailPanel の混在バージョン耐性", () => {
 });
 
 describe("CustomerDetailPanel", () => {
+  it("omits the unchanged legacy phone when editing other profile fields", async () => {
+    customer.phoneNormalized = "81912345678";
+    const user = userEvent.setup();
+    render(<CustomerDetailPanel customerId="customer-1" onClose={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "基本情報を編集" }));
+    await user.clear(screen.getByRole("textbox", { name: /^名前$/ }));
+    await user.type(screen.getByRole("textbox", { name: /^名前$/ }), "変更した名前");
+    await user.click(screen.getByRole("button", { name: /^保存$/ }));
+    expect(noOpMutation).toHaveBeenCalledWith(expect.objectContaining({ displayName: "変更した名前" }), expect.anything());
+    expect(noOpMutation.mock.calls[0][0]).not.toHaveProperty("phone");
+  });
+
+  it.each([["", null], ["+1 812-555-1234", "+1 812-555-1234"]])("submits an intentional phone edit %j", async (value, expected) => {
+    const user = userEvent.setup();
+    render(<CustomerDetailPanel customerId="customer-1" onClose={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "基本情報を編集" }));
+    await user.clear(screen.getByRole("textbox", { name: "電話番号" }));
+    if (value) await user.type(screen.getByRole("textbox", { name: "電話番号" }), value);
+    await user.click(screen.getByRole("button", { name: /^保存$/ }));
+    expect(noOpMutation).toHaveBeenCalledWith(expect.objectContaining({ phone: expected }), expect.anything());
+  });
+
   it("保存済みの通常同意が無い状態を表示する", () => {
     render(<CustomerDetailPanel customerId="customer-1" onClose={() => {}} />);
 

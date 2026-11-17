@@ -114,7 +114,7 @@ import {
   updateAdminStaff
 } from "../admin/settings-staff";
 import { isAdminPrivileged, sha256Hex } from "../admin/settings-common";
-import { escapeLikePattern, exceedsLikePatternBudget, normalizePhone } from "../admin/shared";
+import { escapeLikePattern, exceedsLikePatternBudget, isAcceptedPhoneForWrite, normalizePhone } from "../admin/shared";
 import {
   listStoreLogins,
   parseStoreLoginUpsertRequest,
@@ -1799,7 +1799,7 @@ async function buildPhoneUpdate(
   let phoneNormalized: string | null = null;
   if (typeof rawPhone === "string" && rawPhone.trim().length > 0) {
     const normalized = normalizePhone(rawPhone);
-    if (!normalized) return { error: "invalid_phone" };
+    if (!normalized || !isAcceptedPhoneForWrite(normalized)) return { error: "invalid_phone" };
     phoneNormalized = normalized;
   }
   const phoneHash = phoneNormalized ? await sha256Hex(phoneNormalized) : null;

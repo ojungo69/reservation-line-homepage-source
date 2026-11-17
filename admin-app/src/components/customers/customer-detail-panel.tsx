@@ -537,7 +537,8 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
         customerId,
         displayName,
         displayNameKana: profileForm.displayNameKana.trim() || null,
-        phone: profileForm.phone.trim() || null,
+        ...(profileForm.phone.trim() === (customer?.phoneNormalized ?? "")
+          ? {} : { phone: profileForm.phone.trim() || null }),
       },
       { onSuccess: () => setEditingProfile(false), onError: (error) => handleWriteError(error) },
     );
@@ -776,7 +777,9 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
                         onChange={(e) => setProfileForm((f) => ({ ...f, phone: e.target.value }))}
                         placeholder="例: 090-1234-5678"
                         aria-label="電話番号"
+                        aria-describedby="profile-phone-hint"
                       />
+                      <p id="profile-phone-hint" className="text-xs text-muted-foreground">国内は0から始まる10〜11桁、海外は+国番号（8〜15桁）</p>
                     </div>
                     <div className="flex gap-2">
                       <Button

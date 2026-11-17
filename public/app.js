@@ -2450,6 +2450,15 @@ const reasonMessage = (reason) => {
 // that NFKC leaves intact. Send the same digits we validated to the server.
 const normalizePhoneInput = (value) => value.normalize("NFKC").replace(/[\s\-‐().]/g, "");
 
+const isAcceptedPhoneInput = (value) => {
+  const digits = normalizePhoneInput(value);
+  if (!/^\+?\d{8,16}$/.test(digits)) return false;
+  const domestic = digits.replace(/^(?:\+81|0081)0*/, "0");
+  return /^0[1-9]\d{8,9}$/.test(domestic)
+    || /^810*[56789]0\d{8}$/.test(digits)
+    || /^\+(?!81)[1-9]\d{7,14}$/.test(digits);
+};
+
 const buildReservationPayload = () => {
   const consentVersions = state.options.consentVersions;
   const serviceIds = selectedServiceIds();
@@ -2957,12 +2966,11 @@ elements.form.addEventListener("submit", (event) => {
   if (!elements.displayName.disabled) {
     elements.displayName.setCustomValidity(elements.displayName.value.trim() ? "" : "お名前を入力してください");
   }
-  // Match the server's 8-16 digit range after normalizing Japanese IME input.
+  // Validate new input only; recognized legacy contacts skip these disabled fields.
   // Disabled contact inputs are excluded from reportValidity in recognized mode.
   if (elements.phone && !elements.phone.disabled) {
-    const normalizedPhone = normalizePhoneInput(elements.phone.value);
     elements.phone.setCustomValidity(
-      /^\+?\d{8,16}$/.test(normalizedPhone) ? "" : "電話番号は数字8〜16桁で入力してください（例: 09012345678）"
+      isAcceptedPhoneInput(elements.phone.value) ? "" : "国内の電話番号は0から始まる10〜11桁、海外の番号は+国番号を付けて8〜15桁で入力してください"
     );
   }
   if (!elements.form.reportValidity()) {

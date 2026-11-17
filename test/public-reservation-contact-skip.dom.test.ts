@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isAcceptedPhoneForWrite, normalizePhone } from "../src/admin/shared";
 
 // Behavioural test (JSDOM) for the LINE-recognized existing-customer "skip mode":
 // after the form-stage gate returns a masked on-file contact, the booking page hides
@@ -202,6 +203,28 @@ const selectSlot = async (): Promise<void> => {
 describe("recognized existing-customer skip mode (JSDOM)", () => {
   beforeEach(setup);
   afterEach(() => dom?.window.close());
+
+  it.each([
+    ["00312345678", false], ["009012345678", false], ["0009012345678", false],
+    ["+0819012345678", false], ["810819012345678", false], ["81912345678", false],
+    ["010819012345678", false], ["+1234567890123456", false], ["+8125551234", false],
+    ["090-1234-5678", true], ["+81 3-1234-5678", true], ["0081 90-1234-5678", true],
+    ["819012345678", true], ["+1 812-555-1234", true], ["０９０１２３４５６７８", true],
+    ["+123456789012345", true]
+  ] satisfies [string, boolean][])("validates new contact %s before showing confirmation", async (phone, accepted) => {
+    await selectSlot();
+    (q("step1-next") as HTMLButtonElement).click();
+    await loginWith(null);
+    input("display-name").value = "架空 新規";
+    input("phone").value = phone;
+    input("required-consent").checked = true;
+    fireChange(input("required-consent"));
+    q("reservation-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    expect(input("phone").validationMessage === "").toBe(accepted);
+    expect(q("confirm-panel").hidden).toBe(!accepted);
+    const canonical = normalizePhone(phone.normalize("NFKC"));
+    expect(canonical !== undefined && isAcceptedPhoneForWrite(canonical)).toBe(accepted);
+  });
 
   it("keeps confirmation usable when a background result arrives after time selection", async () => {
     await loadSlots();

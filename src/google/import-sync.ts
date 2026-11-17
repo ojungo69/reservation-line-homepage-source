@@ -2361,7 +2361,7 @@ const hasActiveReservationOutboundWrite = async (input: {
           AND owner_type = 'reservation'
           AND owner_id = ?
           AND action = 'upsert'
-          AND expires_at > CURRENT_TIMESTAMP
+          AND julianday(expires_at) > julianday(CURRENT_TIMESTAMP)
           AND google_etag_after IS NOT NULL
           AND google_etag_after = ?
         LIMIT 1

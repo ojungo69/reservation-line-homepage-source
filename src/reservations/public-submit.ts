@@ -19,7 +19,7 @@ import {
 import { OWNER_EMAIL_RECIPIENT_ID } from "../notifications/operations-email";
 // 電話番号の正規化は admin 側と同一実装でなければならない。ここに複製を持つと、
 // 公開フォームだけが表記ゆれを別ハッシュとして保存し、ブロックが素通りする (issue #639)。
-import { normalizePhone } from "../admin/shared";
+import { isAcceptedPhoneForWrite, normalizePhone } from "../admin/shared";
 import { sha256Hex } from "../crypto-utils";
 import { toIso, addMinutes } from "../time-utils";
 import { safeCaptureException } from "../sentry-helpers";
@@ -1218,6 +1218,10 @@ export async function createPublicReservation(input: {
   const idempotencyResult = await resolvePublicIdempotency(input.db, idempotencyStorageKey, requestHash, checkedAt);
   if (idempotencyResult) {
     return idempotencyResult;
+  }
+
+  if (input.request.customer && !isAcceptedPhoneForWrite(normalizedPhone)) {
+    return { ok: false, reason: "invalid_request" };
   }
 
   const context = await fetchBookingContext(
