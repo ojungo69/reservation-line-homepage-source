@@ -1,0 +1,22 @@
+.github/workflows/ci.yml
+  h_c2efce2f38e110 26
+.github/workflows/dependency-stall.yml
+  h_c2efce2f38e110 32,35
+.github/workflows/sonarqube.yml
+  h_c2efce2f38e110 104
+docs/TOOLCHAIN.md
+  h_c2efce2f38e110 28-29
+test/toolchain-policy.test.ts
+  h_c2efce2f38e110 2,41-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1f8b01cb0076cae11bee7f23beef9bee47b333a1",
+  "prompts": {},
+  "humans": {
+    "h_c2efce2f38e110": {
+      "author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
