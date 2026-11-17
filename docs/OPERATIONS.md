@@ -1,5 +1,7 @@
 # 導入後の更新・バックアップ・復旧
 
+依存導入の前に [対応 Node/npm と隔離導入](TOOLCHAIN.md) を確認してください。
+
 対象は、[INSTALL](INSTALL.md)で運営者自身が導入した環境です。新規導入用の `seeds/bootstrap.sql` や4店舗用の `seeds/dev.sql` を既存 DB に再適用しません。公開リポジトリには個別事業者の運用 workflow、設定、Secret は含みません。
 
 ## 更新前に記録する

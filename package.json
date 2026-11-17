@@ -78,5 +78,22 @@
     "fsevents@2.3.3": false,
     "workerd@1.20260815.1": true,
     "workerd@1.20261104.1": true
+  },
+  "engines": {
+    "node": ">=24.15.0 <25",
+    "npm": "12.2.2"
+  },
+  "packageManager": "npm@12.2.2",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=24.15.0 <25",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": "12.2.2",
+      "onFail": "error"
+    }
   }
 }

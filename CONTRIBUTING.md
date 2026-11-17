@@ -1,5 +1,7 @@
 # Contributing
 
+依存導入の前に [対応 Node/npm と隔離導入](docs/TOOLCHAIN.md) を確認してください。
+
 ## 現在受け付けるもの
 
 不具合報告、架空データによる再現手順、導入時に不足した説明、改善提案を Issue で受け付けます。対象 commit/tag、Node.js・Wrangler・OS、期待する挙動と実際の挙動を添えてください。機密性のある問題は [SECURITY.md](SECURITY.md) の非公開窓口を使います。
