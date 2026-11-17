@@ -1,0 +1,29 @@
+admin-app/src/components/customers/add-customer-dialog.tsx
+  s_52c3955e48bff4::t_555ada3660335e 108
+admin-app/src/components/customers/customer-detail-panel.tsx
+  s_52c3955e48bff4::t_df00bf33271522 782
+admin-app/src/components/line-friends/link-dialogs.tsx
+  s_52c3955e48bff4::t_bb9269109e31d1 82
+admin-app/src/components/schedule/reservation-create-panel.tsx
+  s_52c3955e48bff4::t_8d22a5d120fdcf 433
+public/app.js
+  s_52c3955e48bff4::t_b6eac783402a25 2973
+public/index.html
+  s_52c3955e48bff4::t_38ecc4811983ad 139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "db1d996b14329ec893af1ffd38f94686598a0933",
+  "prompts": {},
+  "sessions": {
+    "s_52c3955e48bff4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71325e2b-fe13-4768-9035-42503a99e9fb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
