@@ -10,6 +10,8 @@ Node.js 24 を使い、[導入手順のローカル手順](docs/INSTALL.md#1-架
 
 ## 開発時の確認
 
+画面の設計基準は [DESIGN.md](DESIGN.md)、Googleカレンダーに近い管理画面・スマホとMacの操作計画は [specs/005-admin-calendar-ux](specs/005-admin-calendar-ux/spec.md) を参照してください。これらは目標仕様であり、文書の追加だけで新しい操作が実装されたことを意味しません。
+
 ```sh
 npm ci --ignore-scripts
 npm ci --ignore-scripts --prefix admin-app
@@ -36,3 +38,4 @@ npm run audit:admin
 ## ライセンスと対応するソース
 
 Original software copyright 2026 ojungo69. GNU Affero General Public License version 3 only. [LICENSE](LICENSE) と [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。対応する公開ソースは https://github.com/ojungo69/reservation-line-homepage-source です。自分の改変版を配備する場合は、配備版に対応するソースを公開し、[公開ソースへのリンク](public/source.html)もその版に合わせて確認してください。
+
