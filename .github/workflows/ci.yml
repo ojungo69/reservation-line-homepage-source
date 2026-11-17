@@ -23,8 +23,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
+          package-manager-cache: false
           node-version-file: package.json
-          cache: npm
       - name: Bootstrap job-local npm
         id: npm-toolchain
         shell: bash

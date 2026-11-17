@@ -25,3 +25,5 @@ Node 24 を用意した後、global npm を変更せずにこの checkout 用の
 CI も同じ standalone helper を使います。取得済み npm の lock に記録された exact version、公式 tarball URL と承認済み SHA-512 SRI を照合してから npm を実行し、PATH を公開します。cleanup はジョブ固有ディレクトリと所有記録を検証して実行します。SIGTERM と通常の失敗を試験していますが、runner の強制終了や電源断で cleanup の実行まで保証するものではありません。
 
 この変更で @types/node 26、Wrangler compatibility_date、override や AST alias の判断を解決済みとは扱いません。Linux x64 のローカル検証と ARM64 の実 CI 証拠は別に扱います。
+
+すべての setup-node ステップは `package-manager-cache: false` を指定し、明示的な `cache` 入力も省略します。Node 単独の Sonar / 監視ジョブも対象です。配布版に同梱された npm が helper より前に `npm config get cache` を実行すると、プロジェクトの npm 12.2.2 契約で拒否されるためです。Node バイナリを再利用する runner の tool cache は引き続き使います。

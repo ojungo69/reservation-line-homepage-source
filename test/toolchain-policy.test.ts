@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { parse } from "yaml";
 import { expect, it } from "vitest";
 
@@ -37,4 +37,32 @@ it("attests the standalone bootstrap and its complete CI call structure", () => 
   expect(steps.at(-1)).toEqual({ name: "Cleanup job-local npm", if: "always()", shell: "bash", env, run: "node " + path + " cleanup" });
   const executableReferences = JSON.stringify(doc).replaceAll("--test-coverage-include='.github/scripts/npm-toolchain.mjs'", "");
   expect(executableReferences.split(path).length - 1).toBe(3);
+});
+
+function attestSetupNodeCache(content: string): number {
+  const doc = parse(content);
+  const steps = Object.keys(doc.jobs ?? {}).flatMap(name => doc.jobs[name].steps ?? []);
+  const setup = steps.filter(step => step.uses?.startsWith("actions/setup-node@"));
+  for (const step of setup) {
+    expect(step.with?.["package-manager-cache"], "Automatic package cache must be disabled").toBe(false);
+    expect(step.with?.cache, "Explicit package cache must be absent").toBeUndefined();
+  }
+  return setup.length;
+}
+
+it("disables both package cache paths in every setup-node step", () => {
+  const files = readdirSync(new URL("../.github/workflows/", import.meta.url)).filter(file => /\.ya?ml$/.test(file));
+  const count = files.reduce((sum, file) => sum + attestSetupNodeCache(read(".github/workflows/" + file)), 0);
+  expect(count).toBe(3);
+});
+
+it.each([
+  {}, { "package-manager-cache": true },
+  { "package-manager-cache": false, cache: "npm" },
+  { "package-manager-cache": false, cache: "yarn" },
+])("rejects package cache inputs before the pinned npm exists: %j", inputs => {
+  const doc = parse(read(".github/workflows/sonarqube.yml"));
+  const setup = doc.jobs.analyze.steps.find((step: { uses?: string }) => step.uses?.startsWith("actions/setup-node@"));
+  setup.with = { "node-version": 24, ...inputs };
+  expect(() => attestSetupNodeCache(JSON.stringify(doc))).toThrow(/package cache/);
 });
