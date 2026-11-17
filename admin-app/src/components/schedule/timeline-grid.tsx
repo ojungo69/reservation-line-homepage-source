@@ -18,6 +18,7 @@ type TimelineGridProps = {
   isLoading: boolean;
   // 15分スロット1行の高さ(px)。use-timeline-density の standard=40 / compact=24。
   slotPx: number;
+  onReady?: () => void;
   onReservationClick: (id: string) => void;
   onSlotClick: (resourceId: string, minutes: number) => void;
   onBlockClick?: (blockId: string) => void;
@@ -33,6 +34,7 @@ export function TimelineGrid({
   storeId,
   isLoading,
   slotPx,
+  onReady,
   onReservationClick,
   onSlotClick,
   onBlockClick,
@@ -114,7 +116,8 @@ export function TimelineGrid({
       0,
       (openMinutes / 15) * slotPx + HEADER_PX - Math.max(slotPx, HEADER_PX),
     );
-  }, [businessHours, weekday, storeId, dateKey, isLoading, slotPx]);
+    onReady?.();
+  }, [businessHours, weekday, storeId, dateKey, isLoading, slotPx, onReady]);
 
   if (isLoading) {
     return <TimelineSkeleton columns={3} rows={8} />;
@@ -129,7 +132,7 @@ export function TimelineGrid({
   }
 
   return (
-    <ScrollArea className="flex-1" ref={scrollRootRef}>
+    <ScrollArea data-schedule-scroll="" className="flex-1" ref={scrollRootRef}>
       <div className="flex min-w-max">
         <TimeLabels slots={slots} slotPx={slotPx} />
         <div className="relative flex flex-1">

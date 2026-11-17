@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, type KeyboardEvent } from "react";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import {
   Table,
   TableBody,
@@ -74,6 +74,9 @@ function pickBestMergeTarget(
 const PAGE_SIZE = 200;
 
 export default function CustomersPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [fromSchedule] = useState(() => location.state?.fromSchedule === true);
   const { isPrivileged, user } = useAuth();
   // 店舗に紐付いていない staff アカウントはサーバー側で全部 403 になる
   // (createAdminCustomer / staffMayActOnCustomer とも store_id 無しで fail-closed)。
@@ -291,6 +294,7 @@ export default function CustomersPage() {
         key={`${user.email}:${user.storeId ?? ""}:${user.role}:${selectedCustomerId ?? ""}`}
         customerId={selectedCustomerId}
         originReservationId={originReservationId}
+        onReturnToSchedule={fromSchedule ? () => navigate(-1) : undefined}
         onClose={() => { setSelectedCustomerId(null); setOriginReservationId(null); }}
       />
 

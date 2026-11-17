@@ -13,6 +13,7 @@ let privileged = true;
 let isNarrow = false;
 let selectedStoreId: string | null = "store-1";
 let renderRealCreatePanel = false;
+let pendingReservations: Array<{ id: string; startAt: string; storeId: string }> = [];
 // WeekView の読み込み中・失敗分岐を切り替えるため可変にする (7日分の
 // useReservations が同一オブジェクトを共有する)。
 const reservationsQuery = {
@@ -56,7 +57,7 @@ vi.mock("@/hooks/use-stores", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ isPrivileged: privileged }),
+  useAuth: () => ({ isPrivileged: privileged, user: { email: "staff@example.test", role: "staff", storeId: "store-1" } }),
 }));
 
 vi.mock("@/hooks/use-media-query", () => ({
@@ -67,7 +68,7 @@ vi.mock("@/hooks/use-media-query", () => ({
 vi.mock("@/hooks/use-reservations", () => ({
   useReservations: vi.fn(() => reservationsQuery),
   usePendingReservations: () => ({
-    data: { ok: true, reservations: [] },
+    data: { ok: true, reservations: pendingReservations },
   }),
   useCreateReservation: () => ({ mutate: vi.fn(), isPending: false }),
   useAvailableSlots: () => ({ data: { ok: true, slots: [] }, isFetching: false, isError: false }),
@@ -94,6 +95,7 @@ vi.mock("@/components/schedule/schedule-header", () => ({
     onMobileViewChange,
     mobileView,
     onDateChange,
+    date,
   }: {
     onCreateBlockClick?: () => void;
     onCreateClick: () => void;
@@ -101,8 +103,10 @@ vi.mock("@/components/schedule/schedule-header", () => ({
     onMobileViewChange?: (mode: "agenda" | "timeline") => void;
     mobileView?: "agenda" | "timeline";
     onDateChange: (date: Date) => void;
+    date: Date;
   }) => (
     <>
+      <span data-testid="selected-date">{date.toISOString()}</span>
       <button onClick={onCreateBlockClick} disabled={!onCreateBlockClick}>ブロック作成</button>
       <button onClick={onCreateClick}>予約作成</button>
       <button onClick={() => onViewModeChange("week")}>週表示へ</button>
@@ -131,7 +135,9 @@ vi.mock("@/components/schedule/timeline-grid", () => ({
 }));
 
 vi.mock("@/components/schedule/pending-approvals-card", () => ({
-  PendingApprovalsCard: () => null,
+  PendingApprovalsCard: ({ onSelect }: { onSelect: (id: string) => void }) => pendingReservations.map((reservation) => (
+    <button key={reservation.id} onClick={() => onSelect(reservation.id)}>承認待ちを選択</button>
+  )),
 }));
 
 vi.mock("@/components/schedule/reservation-detail-panel", () => ({
@@ -186,6 +192,7 @@ beforeEach(() => {
   isNarrow = false;
   selectedStoreId = "store-1";
   renderRealCreatePanel = false;
+  pendingReservations = [];
   reservationsQuery.isPending = false;
   reservationsQuery.data = { ok: true, reservations: [] };
   reservationsQuery.isError = false;
@@ -210,6 +217,13 @@ afterEach(() => {
 });
 
 describe("SchedulePage", () => {
+  it("別日の承認待ちを選ぶとその日の予約詳細を開く", async () => {
+    pendingReservations = [{ id: "pending-1", startAt: "2026-08-03T00:30:00Z", storeId: "store-1" }];
+    render(<SchedulePage />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "承認待ちを選択" }));
+    expect(useReservations).toHaveBeenLastCalledWith("2026-08-03");
+    expect(screen.getByText(/予約詳細: pending-1/)).toBeTruthy();
+  });
   it("表示日の変更を外部ブロックの取得範囲にも反映する", async () => {
     render(<SchedulePage />);
     expect(useExternalBlocks).toHaveBeenLastCalledWith("2026-07-24");

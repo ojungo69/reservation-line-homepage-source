@@ -7,6 +7,7 @@ import { useExternalBlocks, useExternalBlockCancel } from "@/hooks/use-external-
 import { formatJstDate, addDays, jstWeekday, toJstDate, statusColor, statusLabel, formatTime, formatDateTime, formatDateDisplay, formatFullJstDate, isScheduleVisibleReservationStatus } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import { displayServiceName } from "@/lib/service-pricing";
+import { readScheduleContext } from "@/lib/schedule-context";
 import { ScheduleHeader } from "@/components/schedule/schedule-header";
 import { ReservationListCard } from "@/components/schedule/reservation-list-card";
 import { TimelineGrid } from "@/components/schedule/timeline-grid";
@@ -26,13 +27,15 @@ export default function SchedulePage() {
   const { selectedStoreId } = useStores();
   // One-off external blocks are owner/system_admin only (the backend rejects
   // staff), so only privileged users get the create action.
-  const { isPrivileged } = useAuth();
+  const { isPrivileged, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const [date, setDate] = useState(() => new Date());
+  const scope = JSON.stringify([user.email, user.role, user.storeId, selectedStoreId]);
+  const saved = useRef(readScheduleContext(location.state, scope)).current;
+  const [date, setDate] = useState(() => saved ? new Date(saved.date) : new Date());
   // 今日の日付を明示的に選び直したら追従へ戻す。手動で選んだ未来の日が
   // 時間の経過で「今日」になっただけでは、勝手に追従を再開しない。
-  const followToday = useRef(true);
+  const followToday = useRef(!saved || formatJstDate(new Date(saved.date)) === formatJstDate(new Date()));
   const handleDateChange = useCallback((nextDate: Date) => {
     followToday.current = formatJstDate(nextDate) === formatJstDate(new Date());
     setDate(nextDate);
@@ -58,8 +61,8 @@ export default function SchedulePage() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
-  const [viewMode, setViewMode] = useState<"day" | "week">("day");
-  const [mobileView, setMobileView] = useState<"agenda" | "timeline">("agenda");
+  const [viewMode, setViewMode] = useState<"day" | "week">(saved?.viewMode ?? "day");
+  const [mobileView, setMobileView] = useState<"agenda" | "timeline">(saved?.mobileView ?? "agenda");
   // スマホ幅 (Tailwind sm 未満) では週表示が横7分割で読めないため日表示に固定する。
   const isNarrow = useMediaQuery(NARROW_QUERY);
   // 狭幅では選択値に関わらず日表示へ強制 (state は保持し、広幅へ戻れば週表示が復元される)
@@ -68,7 +71,9 @@ export default function SchedulePage() {
   // タイムラインの表示密度 (標準 40px / コンパクト 24px)。localStorage 永続。
   // 週表示はスロットグリッドを持たないためトグルは日表示のみに配線する。
   const { density, setDensity, slotPx } = useTimelineDensity();
-  const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);
+  const [selectedReservationId, setSelectedReservationId] = useState<string | null>(saved?.reservationId ?? null);
+  const scheduleRef = useRef<HTMLDivElement>(null);
+  const restoreScroll = useRef(saved);
   const [createOpen, setCreateOpen] = useState(false);
   const [blockCreateOpen, setBlockCreateOpen] = useState(false);
   // The dialog keeps the block it opened for: the day can roll over (F32) or a refetch can drop
@@ -170,6 +175,33 @@ export default function SchedulePage() {
     setSelectedReservationId(id);
   }, []);
 
+  const handlePendingSelect = useCallback((id: string) => {
+    const reservation = pendingData?.ok ? pendingData.reservations.find((item) => item.id === id) : undefined;
+    if (reservation) handleDateChange(new Date(reservation.startAt));
+    setSelectedReservationId(id);
+  }, [handleDateChange, pendingData]);
+
+  const restorePosition = useCallback(() => {
+    if (!restoreScroll.current) return;
+    const scroller = scheduleRef.current?.querySelector<HTMLElement>("[data-schedule-scroll]");
+    const viewport = scroller?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? scroller;
+    const main = document.getElementById("main-content");
+    if (viewport) {
+      viewport.scrollTop = restoreScroll.current.scheduleScroll;
+      viewport.scrollLeft = restoreScroll.current.scheduleScrollLeft;
+    }
+    if (main) main.scrollTop = restoreScroll.current.mainScroll;
+    restoreScroll.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (showAgenda && !scheduleLoading) restorePosition();
+  }, [showAgenda, scheduleLoading, restorePosition]);
+
+  useEffect(() => {
+    if (saved) navigate(".", { replace: true, state: null });
+  }, [saved, navigate]);
+
   const handleRebook = useCallback((info: { customerId?: string | null; customerName: string; customerKana?: string | null; phone?: string | null; serviceIds: string[]; storeId?: string; resourceId?: string }) => {
     setCreateDefaults({
       resourceId: info.resourceId ?? null,
@@ -255,7 +287,16 @@ export default function SchedulePage() {
   const overlays = (
     <>
       <ReservationDetailPanel
-        onOpenChart={(customerId, reservationId) => navigate(`/customers?customerId=${encodeURIComponent(customerId)}&reservationId=${encodeURIComponent(reservationId)}`)}
+        onOpenChart={(customerId, reservationId) => {
+          const scroller = scheduleRef.current?.querySelector<HTMLElement>("[data-schedule-scroll]");
+          const viewport = scroller?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? scroller;
+          navigate(".", { replace: true, state: { scheduleContext: {
+            scope, date: date.toISOString(), viewMode, mobileView, reservationId,
+            mainScroll: document.getElementById("main-content")?.scrollTop ?? 0,
+            scheduleScroll: viewport?.scrollTop ?? 0, scheduleScrollLeft: viewport?.scrollLeft ?? 0,
+          } } });
+          navigate(`/customers?customerId=${encodeURIComponent(customerId)}&reservationId=${encodeURIComponent(reservationId)}`, { state: { fromSchedule: true } });
+        }}
         reservationId={selectedReservationId}
         onClose={() => setSelectedReservationId(null)}
         onRebook={handleRebook}
@@ -301,18 +342,19 @@ export default function SchedulePage() {
 
   if (effectiveViewMode === "week") {
     return (
-      <div className="flex h-full flex-col">
+      <div ref={scheduleRef} className="flex h-full flex-col">
         {header}
         <ScheduleSyncAttention />
         <PendingApprovalsCard
           selectedStoreId={selectedStoreId}
-          onSelect={handleReservationClick}
+          onSelect={handlePendingSelect}
         />
         {/* 週の各日の予約失敗は WeekView 内で表示する。 */}
         {(settingsError || blocksError) && renderDataStatus()}
         <WeekView
           date={date}
           storeId={selectedStoreId}
+          onReady={restorePosition}
           onReservationClick={handleReservationClick}
           onDayClick={(d) => { handleDateChange(d); setViewMode("day"); }}
         />
@@ -322,12 +364,12 @@ export default function SchedulePage() {
   }
 
   return (
-    <div className={showAgenda ? "flex min-h-full flex-col" : "flex h-full flex-col"}>
+    <div ref={scheduleRef} className={showAgenda ? "flex min-h-full flex-col" : "flex h-full flex-col"}>
       {header}
       <ScheduleSyncAttention />
       <PendingApprovalsCard
         selectedStoreId={selectedStoreId}
-        onSelect={handleReservationClick}
+        onSelect={handlePendingSelect}
       />
       {/* 取得失敗を「予約ゼロの日」と区別し、空き枠クリックも止める (issue #467)。 */}
       {renderDataStatus()}
@@ -352,6 +394,7 @@ export default function SchedulePage() {
           storeId={selectedStoreId}
           isLoading={scheduleLoading}
           slotPx={slotPx}
+          onReady={restorePosition}
           onReservationClick={handleReservationClick}
           onSlotClick={handleSlotClick}
           onBlockClick={privilegedBlockClick}
@@ -417,11 +460,13 @@ const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 function WeekView({
   date,
   storeId,
+  onReady,
   onReservationClick,
   onDayClick,
 }: Readonly<{
   date: Date;
   storeId: string | null;
+  onReady: () => void;
   onReservationClick: (id: string) => void;
   onDayClick: (date: Date) => void;
 }>) {
@@ -449,9 +494,13 @@ function WeekView({
   const day6 = useReservations(dayKeys[6]);
 
   const dayQueries = [day0, day1, day2, day3, day4, day5, day6];
+  const ready = dayQueries.every((query) => !query.isPending);
+  useEffect(() => {
+    if (ready) onReady();
+  }, [ready, onReady]);
 
   return (
-    <div className="flex flex-1 overflow-auto">
+    <div data-schedule-scroll="" className="flex flex-1 overflow-auto">
       {days.map((d, i) => {
         const dayKey = dayKeys[i];
         const query = dayQueries[i];
