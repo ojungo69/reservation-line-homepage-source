@@ -1,0 +1,38 @@
+admin-app/src/components/customers/customer-detail-panel.test.tsx
+  h_c2efce2f38e110 114-124
+admin-app/src/components/customers/customer-detail-panel.tsx
+  h_c2efce2f38e110 63,166,218,1095-1099,1462
+admin-app/src/components/schedule/timeline-grid.tsx
+  h_c2efce2f38e110 21,37,119-120,135
+admin-app/src/lib/schedule-context.test.ts
+  h_c2efce2f38e110 1-22
+admin-app/src/lib/schedule-context.ts
+  h_c2efce2f38e110 1-27
+admin-app/src/pages/customers.test.tsx
+  h_c2efce2f38e110 19-20
+admin-app/src/pages/customers.tsx
+  h_c2efce2f38e110 3,77-79,297
+admin-app/src/pages/schedule.test.tsx
+  h_c2efce2f38e110 16,60,71,98,106,109,138-140,195,220-226
+admin-app/src/pages/schedule.tsx
+  h_c2efce2f38e110 10,30,33-35,38,64-65,74-76,178-204,290-299,345,350,357,367,372,397,463,469,497-500,503
+specs/007-calendar-context/plan.md
+  h_c2efce2f38e110 1-5
+specs/007-calendar-context/spec.md
+  h_c2efce2f38e110 1-7
+specs/007-calendar-context/tasks.md
+  h_c2efce2f38e110 1-6
+specs/007-calendar-context/verify-tasks-report.md
+  h_c2efce2f38e110 1-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f8a7ff51e6d270eef6753465848e9a177674e27d",
+  "prompts": {},
+  "humans": {
+    "h_c2efce2f38e110": {
+      "author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
