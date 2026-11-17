@@ -1,0 +1,18 @@
+.github/workflows/ci.yml
+  h_c2efce2f38e110 26
+.github/workflows/dependency-stall.yml
+  h_c2efce2f38e110 32,34
+.github/workflows/sonarqube.yml
+  h_c2efce2f38e110 104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "caa2180b0342eb8156bea9d6359b62a5644007b2",
+  "prompts": {},
+  "humans": {
+    "h_c2efce2f38e110": {
+      "author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
