@@ -779,7 +779,7 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
                         aria-label="電話番号"
                         aria-describedby="profile-phone-hint"
                       />
-                      <p id="profile-phone-hint" className="text-xs text-muted-foreground">国内は0から始まる10〜11桁、海外は+国番号（8〜15桁）</p>
+                      <p id="profile-phone-hint" className="text-xs text-muted-foreground">国内は01〜09で始まる10〜11桁、海外は+国番号（8〜15桁）</p>
                     </div>
                     <div className="flex gap-2">
                       <Button

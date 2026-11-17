@@ -2970,7 +2970,7 @@ elements.form.addEventListener("submit", (event) => {
   // Disabled contact inputs are excluded from reportValidity in recognized mode.
   if (elements.phone && !elements.phone.disabled) {
     elements.phone.setCustomValidity(
-      isAcceptedPhoneInput(elements.phone.value) ? "" : "国内の電話番号は0から始まる10〜11桁、海外の番号は+国番号を付けて8〜15桁で入力してください"
+      isAcceptedPhoneInput(elements.phone.value) ? "" : "国内の電話番号は01〜09で始まる10〜11桁、海外の番号は+国番号を付けて8〜15桁で入力してください"
     );
   }
   if (!elements.form.reportValidity()) {

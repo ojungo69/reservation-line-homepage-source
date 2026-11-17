@@ -79,7 +79,7 @@ export function LinkNewDialog({ friend, storeId, onClose }: Readonly<Props>) {
             電話番号（任意）
             <Input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" aria-describedby="link-new-phone-hint" />
           </label>
-          <p id="link-new-phone-hint" className="text-xs text-muted-foreground">国内は0から始まる10〜11桁、海外は+国番号（8〜15桁）</p>
+          <p id="link-new-phone-hint" className="text-xs text-muted-foreground">国内は01〜09で始まる10〜11桁、海外は+国番号（8〜15桁）</p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={link.isPending}>

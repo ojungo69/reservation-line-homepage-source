@@ -430,7 +430,7 @@ function CustomerFields({
               placeholder="090-1234-5678"
               aria-describedby="rcp-phone-hint"
             />
-            <p id="rcp-phone-hint" className="text-xs text-muted-foreground">国内は0から始まる10〜11桁、海外は+国番号（8〜15桁）</p>
+            <p id="rcp-phone-hint" className="text-xs text-muted-foreground">国内は01〜09で始まる10〜11桁、海外は+国番号（8〜15桁）</p>
           </Field>
         </>
       )}
