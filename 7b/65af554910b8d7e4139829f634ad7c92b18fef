@@ -1,0 +1,86 @@
+admin-app/src/components/customers/add-customer-dialog.tsx
+  h_c2efce2f38e110 106,108
+admin-app/src/components/customers/customer-detail-panel.test.tsx
+  h_c2efce2f38e110 300-321
+admin-app/src/components/customers/customer-detail-panel.tsx
+  h_c2efce2f38e110 540-541,780,782
+admin-app/src/components/line-friends/link-dialogs.tsx
+  h_c2efce2f38e110 80,82
+admin-app/src/components/menu/service-create-dialog.test.tsx
+  h_c2efce2f38e110 3,85-99
+admin-app/src/components/schedule/reservation-create-panel.tsx
+  h_c2efce2f38e110 431,433
+admin-app/src/hooks/use-settings-hooks.test.tsx
+  h_c2efce2f38e110 2-3,272-273,739-764
+admin-app/src/types/api.ts
+  h_c2efce2f38e110 164
+public/app.js
+  h_c2efce2f38e110 2453-2461,2969,2973
+public/index.html
+  h_c2efce2f38e110 139
+specs/005-issue-followups/combined-verification.md
+  h_c2efce2f38e110 1-32
+specs/005-issue-followups/contracts/behavior.md
+  h_c2efce2f38e110 1-5
+specs/005-issue-followups/data-model.md
+  h_c2efce2f38e110 1-5
+specs/005-issue-followups/local-verification.md
+  h_c2efce2f38e110 1-17
+specs/005-issue-followups/plan.md
+  h_c2efce2f38e110 1-31
+specs/005-issue-followups/quickstart.md
+  h_c2efce2f38e110 1-5
+specs/005-issue-followups/release-scope.md
+  h_c2efce2f38e110 1-29
+specs/005-issue-followups/research.md
+  h_c2efce2f38e110 1-6
+specs/005-issue-followups/review.md
+  h_c2efce2f38e110 1-5
+specs/005-issue-followups/spec.md
+  h_c2efce2f38e110 1-26
+specs/005-issue-followups/tasks.md
+  h_c2efce2f38e110 1-13
+specs/005-issue-followups/verify-tasks-report.md
+  h_c2efce2f38e110 1-125
+specs/006-phone-input-policy/plan.md
+  h_c2efce2f38e110 1-26
+specs/006-phone-input-policy/spec.md
+  h_c2efce2f38e110 1-35
+specs/006-phone-input-policy/tasks.md
+  h_c2efce2f38e110 1-18
+src/admin/customer-create.ts
+  h_c2efce2f38e110 2,159-162
+src/admin/line-friends.ts
+  h_c2efce2f38e110 4,387
+src/admin/reservation-create.ts
+  h_c2efce2f38e110 5,989-992
+src/admin/shared.ts
+  h_c2efce2f38e110 148-151
+src/google/import-sync.ts
+  h_c2efce2f38e110 2364
+src/reservations/public-submit.ts
+  h_c2efce2f38e110 22,1223-1226
+src/routes/admin-api.ts
+  h_c2efce2f38e110 117,1802
+test/admin-settings-services.test.ts
+  h_c2efce2f38e110 6,195-220
+test/fixtures/admin-service-create.json
+  h_c2efce2f38e110 1-14
+test/google-calendar-import.test.ts
+  h_c2efce2f38e110 4985-5056
+test/phone-input-policy.test.ts
+  h_c2efce2f38e110 1-225
+test/public-reservation-contact-skip.dom.test.ts
+  h_c2efce2f38e110 6,207-228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7b65af554910b8d7e4139829f634ad7c92b18fef",
+  "prompts": {},
+  "humans": {
+    "h_c2efce2f38e110": {
+      "author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
