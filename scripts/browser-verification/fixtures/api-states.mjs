@@ -143,7 +143,7 @@ export const buildApiStates = (now, query = {}) => {
     submit: { body: submitBody(timestamp) },
     myReservations: { body: myBody([]) }
   };
-  const form = (description, routes = {}, stub) => ({
+  const form = (description, routes, stub) => ({
     page: "/",
     description,
     ...(stub ? { stub } : {}),
