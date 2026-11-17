@@ -1,0 +1,14 @@
+test/toolchain-policy.test.ts
+  h_c2efce2f38e110 56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f6ec554b3a80de7f9f8f4e52819ae4f52a545506",
+  "prompts": {},
+  "humans": {
+    "h_c2efce2f38e110": {
+      "author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
