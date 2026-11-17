@@ -138,27 +138,51 @@ describe("expired settings key transaction boundaries", () => {
     } finally { db.sqlite.close(); }
   });
 
-  it.each([false, true])("allows one concurrent reclaim and resolves the other request (changed=%s)", async (changed) => {
+  it.each([
+    { changed: false, firstArrivesFirst: true }, { changed: false, firstArrivesFirst: false },
+    { changed: true, firstArrivesFirst: true }, { changed: true, firstArrivesFirst: false }
+  ])("allows one concurrent reclaim and resolves the other request (changed=$changed, firstArrivesFirst=$firstArrivesFirst)", async ({ changed, firstArrivesFirst }) => {
     const db = fixture();
     try {
       expect(await run(db)).toMatchObject({ ok: true });
       expireKey(db, true);
+      const expiredId = readKey(db)?.id;
+      const unrelated = db.sqlite.prepare("SELECT * FROM idempotency_keys WHERE id IN ('unrelated_key', 'other_admin_key') ORDER BY id").all();
       const originalBatch = db.batch.bind(db);
       const waiting: (() => void)[] = [];
+      let markFirstArrival!: () => void;
+      const firstBatchArrived = new Promise<void>((resolve) => { markFirstArrival = resolve; });
       db.batch = async (statements) => {
         await new Promise<void>((resolve) => {
           waiting.push(resolve);
+          if (waiting.length === 1) markFirstArrival();
           if (waiting.length === 2) waiting.forEach((release) => release());
         });
         return originalBatch(statements);
       };
-      const [first, second] = await Promise.all([run(db), run(db, changed)]);
-      expect(first).toMatchObject({ ok: true, replayed: false });
-      expect(second).toMatchObject(changed
+      // Both requests must reach the batch before either commits; hash completion need not follow call order.
+      const leadingRun = firstArrivesFirst ? run(db) : run(db, changed);
+      await firstBatchArrived;
+      const trailingRun = firstArrivesFirst ? run(db, changed) : run(db);
+      const [first, second] = await Promise.all(firstArrivesFirst ? [leadingRun, trailingRun] : [trailingRun, leadingRun]);
+      const creators = [first, second].filter((result) => result.ok && !result.replayed);
+      expect(creators).toHaveLength(1);
+      const [creator] = creators;
+      const other = creator === first ? second : first;
+      expect(other).toMatchObject(changed
         ? { ok: false, error: "idempotency_conflict" }
         : { ok: true, replayed: true });
-      if (first.ok && second.ok) expect(second.resourceId).toBe(first.resourceId);
+      if (creator.ok) {
+        if (other.ok) expect(other.resourceId).toBe(creator.resourceId);
+        expect(readKey(db)).toMatchObject({ status: "succeeded", target_type: "store_resource", target_id: creator.resourceId });
+        expect(db.sqlite.prepare("SELECT name FROM store_resources WHERE id = ?").get(creator.resourceId)).toMatchObject({
+          name: creator === second && changed ? "Changed resource" : "Test resource"
+        });
+      }
+      expect(readKey(db)?.id).not.toBe(expiredId);
+      expect(db.sqlite.prepare("SELECT * FROM idempotency_keys WHERE id IN ('unrelated_key', 'other_admin_key') ORDER BY id").all()).toEqual(unrelated);
       expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM store_resources WHERE store_id = 'settings_expiry_store'").get()).toMatchObject({ n: 2 });
+      expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_logs WHERE action = 'settings.resources.create' AND actor_id = ?").get(admin.id)).toMatchObject({ n: 2 });
     } finally { db.sqlite.close(); }
   });
 
