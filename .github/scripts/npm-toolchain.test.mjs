@@ -205,3 +205,32 @@ for (const name of ['GITHUB_OUTPUT', 'GITHUB_PATH']) {
     assert.deepEqual(readdirSync(f.env.RUNNER_TEMP), []);
   });
 }
+
+for (const runtime of ['24.15.0-rc.1', '24.16.0-nightly20261117', '24.15', '24.15.0.1', '24.14.99', '25.0.0']) {
+  test('rejects unsupported Node before any install or tool state: ' + runtime, t => {
+    const f = fixture(t);
+    const preload = join(f.root, 'runtime.cjs');
+    writeFileSync(preload, 'Object.defineProperty(process.versions, "node", { value: ' + JSON.stringify(runtime) + ' });');
+    f.env.NODE_OPTIONS = '--require=' + preload;
+    for (const args of [['bootstrap'], ['bootstrap', '--legacy'], ['verify'], ['verify', '--legacy']]) {
+      const result = f.run(...args);
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /Node must be >=24\.15\.0 <25/);
+    }
+    for (const path of [f.env.PROBE_ARGS, f.env.PROBE_MARKER, f.env.GITHUB_OUTPUT, f.env.GITHUB_PATH]) assert.equal(existsSync(path), false);
+    assert.deepEqual(readdirSync(f.env.RUNNER_TEMP), []);
+  });
+}
+
+test('accepts the minimum stable Node runtime through bootstrap and verify', t => {
+  const f = fixture(t);
+  const preload = join(f.root, 'runtime.cjs');
+  writeFileSync(preload, 'Object.defineProperty(process.versions, "node", { value: "24.15.0" });');
+  f.env.NODE_OPTIONS = '--require=' + preload;
+  const result = f.run('bootstrap');
+  assert.equal(result.status, 0, result.stderr);
+  f.env.TOOLCHAIN_DIRECTORY = f.directory();
+  f.env.PATH = join(f.directory(), 'node_modules/.bin') + ':' + f.env.PATH;
+  assert.equal(f.run('verify').status, 0);
+  assert.equal(f.run('cleanup').status, 0);
+});

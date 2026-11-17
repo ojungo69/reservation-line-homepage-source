@@ -25,7 +25,7 @@ it("enforces the same native Node/npm policy at both install roots", () => {
 
 it("attests the standalone bootstrap and its complete CI call structure", () => {
   const path = ".github/scripts/npm-toolchain.mjs";
-  expect(createHash("sha256").update(read(path)).digest("hex")).toBe("ce11049ef8c5a24dbca3ae58255be8a223ec19187925ea50f565b4b6d7b83f25");
+  expect(createHash("sha256").update(read(path)).digest("hex")).toBe("10b03ce7f2a1e796dc7ca39c0f06aa61f816d6b5684047065316a211eb7ee6d7");
   const doc = parse(read(".github/workflows/ci.yml"));
   const steps = doc.jobs.validate.steps;
   const setup = steps.findIndex((step: { uses?: string }) => step.uses?.startsWith("actions/setup-node@"));

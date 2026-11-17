@@ -19,8 +19,8 @@ const json = path => JSON.parse(readFileSync(path, 'utf8'));
 const owner = () => ({ run: process.env.GITHUB_RUN_ID ?? 'local', attempt: process.env.GITHUB_RUN_ATTEMPT ?? '1', job: process.env.GITHUB_JOB ?? 'local' });
 
 function projectContract(legacy) {
-  const [major, minor] = process.versions.node.split('.').map(Number);
-  assert(major === 24 && minor >= 15, 'Node must be >=24.15.0 <25');
+  const runtime = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(process.versions.node);
+  assert(runtime && Number(runtime[1]) === 24 && Number(runtime[2]) >= 15, 'Node must be >=24.15.0 <25');
   const manifests = ['package.json', 'admin-app/package.json'].map(json);
   if (legacy && manifests.every(manifest => Object.keys(contract).every(key => !Object.hasOwn(manifest, key)) && !Object.hasOwn(manifests[1], 'allowScripts'))) return;
   for (const manifest of manifests) {
