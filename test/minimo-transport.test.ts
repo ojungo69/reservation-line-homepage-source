@@ -302,11 +302,37 @@ describe("Minimo HTTP boundary", () => {
       .toEqual([["/api/v1/salontool/schedule", "POST"]]);
   });
 
+  it.each([1, 2])("never retries a schedule read when reauthentication step %i expires the lease", async (expiredStep) => {
+    let clock = 1000;
+    const requests: Request[] = [];
+    const responses = [
+      new Response("expired session", { status: 401 }),
+      new Response('<input name="csrf_token" value="csrf-test">'),
+      new Response(null, { status: 302, headers: {
+        location: "/salontool/home", "set-cookie": "minimo_salontool=renewed"
+      } }),
+      Response.json({ date: "2026-10-01", entries: [] })
+    ];
+    const client = testClient({ account: { ...account, intervalMinutes: 30 },
+      cookie: "minimo_salontool=old", now: () => clock,
+      fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push(new Request(input, init));
+        if (requests.length - 1 === expiredStep) clock = 6000;
+        else clock += 1000;
+        return responses.shift()!;
+      }) as typeof fetch });
+    await expect(client.getSchedule("2026-10-01", 6000)).rejects.toMatchObject({ code: "aborted", message: "aborted" });
+    expect(requests.map((request) => [new URL(request.url).pathname, request.method])).toEqual([
+      ["/api/v1/salontool/schedule", "GET"], ["/salontool/login", "GET"],
+      ...(expiredStep === 2 ? [["/salontool/login", "POST"]] : [])
+    ]);
+  });
+
   it("treats a rate limit that carries a challenge as a challenge", async () => {
     const client = testClient({ account: { ...account, intervalMinutes: 30 }, cookie: "minimo_salontool=old",
       fetchImpl: (async () => new Response(null, { status: 429,
         headers: { "cf-mitigated": "challenge", "retry-after": "60" } })) as typeof fetch });
-    await expect(client.getSchedule("2026-10-01")).rejects.toMatchObject({ code: "challenge", status: 429 });
+    await expect(client.getSchedule("2026-10-01")).rejects.toMatchObject({ code: "challenge", status: 429, retryAfterMs: 600_000 });
   });
 
   it("rejects expired write and read-back deadlines before any login or HTTP dispatch", async () => {

@@ -228,6 +228,21 @@ describe("Minimo four-store synchronization", () => {
     f.db.sqlite.close();
   });
 
+  it("keeps a challenged 429's Retry-After as a cooldown that resuming the hold cannot shorten", async () => {
+    const f = fixture("apply");
+    f.throttle("7200", true);
+    const first = await runMinimoSync({ ...f, db: f.db as unknown as D1Database });
+    expect(first.stores[0]).toMatchObject({ outcome: "failed", error: "challenge" });
+    // Same column the operator's resume clears in src/admin/minimo-sync.ts; the cooldown must survive it.
+    f.db.sqlite.prepare("UPDATE minimo_sync_state SET paused_reason = NULL").run();
+    const count = f.requests.length;
+    f.advance(60 * 60_000);
+    const second = await runMinimoSync({ ...f, db: f.db as unknown as D1Database });
+    expect(second.stores.every((store) => store.error === "rate_limited")).toBe(true);
+    expect(f.requests).toHaveLength(count);
+    f.db.sqlite.close();
+  });
+
   it("honors a long Retry-After even when its ISO timestamp uses an extended year", async () => {
     const f = fixture("apply");
     f.throttle("999999999999");

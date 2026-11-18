@@ -226,9 +226,10 @@ export class MinimoClient {
   }
 
   private validateStatus(response: Response, method: string | undefined, login: boolean): void {
-    // A challenge needs operator review, so it outranks a rate limit that only waits for a cooldown.
-    if (response.headers.get("cf-mitigated") === "challenge") throw new MinimoClientError("challenge", response.status);
-    if (response.status === 429) throw new MinimoClientError("rate_limited", 429, retryAfter(response.headers.get("retry-after"), this.now()));
+    const cooldown = response.status === 429 ? retryAfter(response.headers.get("retry-after"), this.now()) : null;
+    // A challenge needs operator review, so it outranks a rate limit; a 429's cooldown still applies after that review.
+    if (response.headers.get("cf-mitigated") === "challenge") throw new MinimoClientError("challenge", response.status, cooldown);
+    if (response.status === 429) throw new MinimoClientError("rate_limited", 429, cooldown);
     if (response.status === 403) throw new MinimoClientError("forbidden", 403);
     if (response.redirected) throw new MinimoClientError("redirect", response.status);
     if (response.status >= 300 && response.status < 400) validateLoginRedirect(response, method, login);

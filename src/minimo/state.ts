@@ -115,7 +115,7 @@ export async function recordMinimoFailure(input: {
     Math.min(6 * 60 * 60_000, 10 * 60_000 * 2 ** Math.min(failures - 1, 6)));
   const paused = MINIMO_RESTRICTION_CODES.has(error.code) ? error.code : null;
   const next = Math.max(Date.parse(state?.next_attempt_at ?? "") || 0, nowMs + delay);
-  const rateLimit = error.code === "rate_limited"
+  const rateLimit = error.code === "rate_limited" || error.status === 429
     ? new Date(Math.max(next, Date.parse(state?.rate_limited_until ?? "") || 0)).toISOString() : null;
   // Restriction evidence must survive a staff mapping change during HTTP.
   await fencedBatch(db, { ...lease, resourceIds: [] }, [db.prepare(`UPDATE minimo_sync_state SET next_attempt_at = ?,

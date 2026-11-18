@@ -22,6 +22,7 @@ export function createMinimoFixture(mode: "preview" | "apply") {
   const remote = new Map<string, string[]>();
   const requests: { salon: string; path: string; method: string }[] = [];
   let throttle = false;
+  let throttleChallenge = false;
   let uncertainPost = false;
   let retryAfter = "3600";
   let bookingTime = "10:00";
@@ -47,7 +48,8 @@ export function createMinimoFixture(mode: "preview" | "apply") {
     requests.push({ salon, path: url.pathname, method });
     const account = accounts.find((value) => value.salonId === salon);
     if (!account) return new Response(null, { status: 401 });
-    if (throttle) return new Response(null, { status: 429, headers: { "Retry-After": retryAfter } });
+    if (throttle) return new Response(null, { status: 429, headers: { "Retry-After": retryAfter,
+      ...(throttleChallenge ? { "cf-mitigated": "challenge" } : {}) } });
     if (url.pathname === "/api/v1/salontool/accounts") return Response.json({ current_account: { salon_id: account.salonId } });
     if (url.pathname === "/api/v1/salontool/staffs") return Response.json({ staffs: [{ staff_id: account.staff[0].rimaUserId }] });
     if (url.pathname.endsWith("/recruitment/menus")) return Response.json({ menus: [{ is_open: true, is_enable: true, time_required: 90 }] });
@@ -77,6 +79,7 @@ export function createMinimoFixture(mode: "preview" | "apply") {
   const env = { MINIMO_SYNC_MODE: mode, MINIMO_ACCOUNTS_JSON: JSON.stringify(accounts), MINIMO_SESSION_KEY: key };
   return { db, accounts, remote, requests, fetchImpl, env, pace: async () => {},
     now: () => clock, advance: (ms: number) => { clock += ms; },
-    throttle: (delay = "3600") => { throttle = true; retryAfter = delay; }, uncertain: () => { uncertainPost = true; },
+    throttle: (delay = "3600", challenge = false) => { throttle = true; retryAfter = delay; throttleChallenge = challenge; },
+    uncertain: () => { uncertainPost = true; },
     booking: (time: string, status = 1, present = true) => { bookingTime = time; bookingStatus = status; bookingPresent = present; } };
 }
