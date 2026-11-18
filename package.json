@@ -18,8 +18,8 @@
     "d1:migrations:list": "wrangler d1 migrations list DB --local",
     "d1:migrations:apply": "wrangler d1 migrations apply DB --local",
     "d1:seed": "wrangler d1 execute DB --local --file seeds/dev.sql",
-    "audit:root": "npm_config_allow_scripts= npm audit --userconfig=/dev/null --audit-level=high",
-    "audit:admin": "npm_config_allow_scripts= npm audit --userconfig=/dev/null --audit-level=high --package-lock-only --prefix admin-app",
+    "audit:root": "node .github/scripts/audit-gate.mjs root",
+    "audit:admin": "node .github/scripts/audit-gate.mjs admin-app",
     "admin:dev": "cd admin-app && npm run dev",
     "admin:build": "cd admin-app && npm run build",
     "admin:typecheck": "cd admin-app && npm run typecheck",
@@ -78,5 +78,22 @@
     "fsevents@2.3.3": false,
     "workerd@1.20260815.1": true,
     "workerd@1.20261104.1": true
+  },
+  "engines": {
+    "node": ">=24.15.0 <25",
+    "npm": "12.2.2"
+  },
+  "packageManager": "npm@12.2.2",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=24.15.0 <25",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": "12.2.2",
+      "onFail": "error"
+    }
   }
 }

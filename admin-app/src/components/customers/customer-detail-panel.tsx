@@ -60,6 +60,7 @@ type Props = {
   customerId: string | null;
   onClose: () => void;
   originReservationId?: string | null;
+  returnToSchedule?: boolean;
 };
 
 const CONSENT_TYPE_LABELS: Record<string, string> = {
@@ -162,7 +163,7 @@ function CustomerAdminActions({
   );
 }
 
-export function CustomerDetailPanel({ customerId, onClose, originReservationId = null }: Readonly<Props>) {
+export function CustomerDetailPanel({ customerId, onClose, originReservationId = null, returnToSchedule = false }: Readonly<Props>) {
   const { isPrivileged } = useAuth();
   const navigate = useNavigate();
   const detailQuery = useCustomerDetail(customerId);
@@ -214,7 +215,7 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
   const [clearNoteVisitId, setClearNoteVisitId] = useState<string | null>(null);
   // 下書きを持ったまま Esc / 一覧へ戻る操作でカルテを閉じようとしたとき。
   // 破棄確認のあとに何をするか。閉じる以外に「次回予約へ移動する」があるので真偽値では足りない。
-  const [discardDraftNext, setDiscardDraftNext] = useState<"close" | "quickBook" | null>(null);
+  const [discardDraftNext, setDiscardDraftNext] = useState<"close" | "quickBook" | "schedule" | null>(null);
   // 来店日のインライン編集 (手動 visit のみ)。idempotencyKey は編集開始時に採番。
   const [editingDateId, setEditingDateId] = useState<string | null>(null);
   const [dateValue, setDateValue] = useState("");
@@ -779,7 +780,7 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
                         aria-label="電話番号"
                         aria-describedby="profile-phone-hint"
                       />
-                      <p id="profile-phone-hint" className="text-xs text-muted-foreground">国内は0から始まる10〜11桁、海外は+国番号（8〜15桁）</p>
+                      <p id="profile-phone-hint" className="text-xs text-muted-foreground">国内は01〜09で始まる10〜11桁、海外は+国番号（8〜15桁）</p>
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -1091,7 +1092,11 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
             <Button variant="outline" onClick={() => { if (hasUnsavedDraft()) setDiscardDraftNext("close"); else closePanel(); }}>
               <ArrowLeft aria-hidden="true" /> 顧客一覧に戻る
             </Button>
-            {originReservationId && <Button variant="outline" onClick={() => setSelectedReservationId(originReservationId)}>予約詳細に戻る</Button>}
+            {originReservationId && <Button variant="outline" onClick={() => {
+              if (!returnToSchedule) setSelectedReservationId(originReservationId);
+              else if (hasUnsavedDraft()) setDiscardDraftNext("schedule");
+              else navigate(-1);
+            }}>予約詳細に戻る</Button>}
             <span className="text-sm text-muted-foreground">顧客 / 顧客カルテ</span>
           </div>
           {isPending && <DetailSkeleton />}
@@ -1454,7 +1459,7 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
         cancelLabel="編集に戻る"
         destructive
         onOpenChange={() => setDiscardDraftNext(null)}
-        onConfirm={discardDraftNext === "quickBook" ? quickBook : closePanel}
+        onConfirm={{ close: closePanel, quickBook, schedule: () => navigate(-1) }[discardDraftNext ?? "close"]}
       />
 
       <PendingConfirmDialog
@@ -1472,7 +1477,7 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
       {/* key で顧客毎に remount → 前回の検索語が次の顧客へ持ち越されない。 */}
       <LinkLineFromCardDialog
         key={`link-line-${linkLineOpen ? customer?.id ?? "open" : "closed"}`}
-        customer={linkLineOpen && customer ? { id: customer.id, displayName: customer.displayName } : null}
+        customer={linkLineOpen ? customer : null}
         onClose={() => setLinkLineOpen(false)}
       />
     </>

@@ -1,12 +1,13 @@
-import type { ReactNode } from "react";
 import { act, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Store } from "@/types/api";
 import { TimelineGrid } from "./timeline-grid";
 
-vi.mock("@/components/ui/scroll-area", () => ({
-  ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}));
+beforeAll(() => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+});
+afterAll(() => vi.unstubAllGlobals());
 
 const props = {
   date: new Date("2026-09-29T10:00:00+09:00"),
@@ -22,6 +23,87 @@ const props = {
 afterEach(() => vi.useRealTimers());
 
 describe("TimelineGridの店舗表示", () => {
+  it("StrictModeでeffectが再実行されても復元済みのスクロール位置を保つ", () => {
+    let savedPosition: number | null = 1800;
+    const onReady = vi.fn(() => {
+      const viewport = document.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+      assert(viewport);
+      if (savedPosition !== null) {
+        viewport.scrollTop = savedPosition;
+        savedPosition = null;
+      }
+    });
+    const { container } = render(<StrictMode><TimelineGrid {...props} onReady={onReady} /></StrictMode>);
+    const viewport = container.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+    assert(viewport);
+    expect(onReady).toHaveBeenCalledTimes(2);
+    expect(viewport.scrollTop).toBe(1800);
+  });
+
+  it("準備通知の変更だけでは利用者が動かした位置を戻さない", () => {
+    const { container, rerender } = render(<TimelineGrid {...props} onReady={() => {}} />);
+    const viewport = container.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+    assert(viewport);
+    viewport.scrollTop = 2100;
+    const onReady = vi.fn();
+    rerender(<TimelineGrid {...props} onReady={onReady} />);
+    expect(onReady).toHaveBeenCalledOnce();
+    expect(viewport.scrollTop).toBe(2100);
+  });
+
+  it("日付・店舗・営業時間・密度変更と読み込み後の再描画で開店位置に戻る", () => {
+    const onReady = vi.fn();
+    const { container, rerender } = render(<StrictMode><TimelineGrid {...props} onReady={onReady} /></StrictMode>);
+    const viewport = () => {
+      const element = container.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+      assert(element);
+      return element;
+    };
+    viewport().scrollTop = 2000;
+    const date = new Date("2026-09-30T10:00:00+09:00");
+    rerender(<StrictMode><TimelineGrid {...props} date={date} onReady={onReady} /></StrictMode>);
+    expect(viewport().scrollTop).toBe(1430);
+    viewport().scrollTop = 2000;
+    rerender(<StrictMode><TimelineGrid {...props} date={date} storeId="store-1" onReady={onReady} /></StrictMode>);
+    expect(viewport().scrollTop).toBe(1430);
+    const businessHours = [{ id: "bh-1", storeId: "store-1", weekday: 3, opensAt: "11:00", closesAt: "19:00", active: true }];
+    rerender(<StrictMode><TimelineGrid {...props} date={date} storeId="store-1" businessHours={businessHours} onReady={onReady} /></StrictMode>);
+    expect(viewport().scrollTop).toBe(1750);
+    rerender(<StrictMode><TimelineGrid {...props} date={date} storeId="store-1" businessHours={businessHours} slotPx={24} onReady={onReady} /></StrictMode>);
+    expect(viewport().scrollTop).toBe(1056);
+    viewport().scrollTop = 2000;
+    rerender(<StrictMode><TimelineGrid {...props} date={date} storeId="store-1" businessHours={businessHours} slotPx={24} isLoading onReady={onReady} /></StrictMode>);
+    rerender(<StrictMode><TimelineGrid {...props} date={date} storeId="store-1" businessHours={businessHours} slotPx={24} onReady={onReady} /></StrictMode>);
+    expect(viewport().scrollTop).toBe(1056);
+  });
+
+  it.each([true, false])("取得完了後の開店位置から履歴のスクロールを復元できる (初期読み込み中: %s)", (initiallyLoading) => {
+    const openingPositions: number[] = [];
+    const onReady = () => {
+      const viewport = document.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+      assert(viewport);
+      openingPositions.push(viewport.scrollTop);
+      viewport.scrollTop = 1800;
+      viewport.scrollLeft = 120;
+    };
+    const { container, rerender } = render(<TimelineGrid {...props} isLoading={initiallyLoading} onReady={onReady} />);
+    if (initiallyLoading) {
+      expect(openingPositions).toEqual([]);
+      expect(container.querySelector("[data-schedule-scroll]")).toBeNull();
+      rerender(<TimelineGrid {...props} onReady={onReady} />);
+    }
+
+    const viewport = container.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+    assert(viewport);
+    expect(openingPositions).toEqual([1430]);
+    expect(viewport.scrollTop).toBe(1800);
+    expect(viewport.scrollLeft).toBe(120);
+    rerender(<TimelineGrid {...props} onReady={onReady} />);
+    expect(openingPositions).toEqual([1430]);
+    expect(viewport.scrollTop).toBe(1800);
+    expect(viewport.scrollLeft).toBe(120);
+  });
+
   it("全店舗では列と空き枠の名前に所属店舗を出し、単店では重複表示しない", () => {
     const { rerender } = render(<TimelineGrid {...props} />);
     expect(screen.getByText("渋谷店 · 同じ担当者")).toBeTruthy();

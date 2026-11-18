@@ -6,7 +6,7 @@ Cloudflare Workers / Hono / D1、LINE、Google Calendar、React 管理画面で�
 
 ## ローカルで最初に確認する
 
-Node.js 24 を使い、[導入手順のローカル手順](docs/INSTALL.md#1-架空の1店舗をローカルで確認する)に従って、すべての D1 migration と `seeds/bootstrap.sql` を新しいローカル DB に適用してください。既存の `seeds/dev.sql` は4店舗の開発用 fixture です。ローカルの画面や API が動いても、Cloudflare Access、LINE、Google、Turnstile、通知の実接続は証明されません。
+[対応 Node/npm](docs/TOOLCHAIN.md) を用意し、[導入手順のローカル手順](docs/INSTALL.md#1-架空の1店舗をローカルで確認する)に従って、すべての D1 migration と `seeds/bootstrap.sql` を新しいローカル DB に適用してください。既存の `seeds/dev.sql` は4店舗の開発用 fixture です。ローカルの画面や API が動いても、Cloudflare Access、LINE、Google、Turnstile、通知の実接続は証明されません。
 
 ## 開発時の確認
 

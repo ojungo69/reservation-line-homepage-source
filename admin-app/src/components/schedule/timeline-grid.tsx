@@ -18,6 +18,7 @@ type TimelineGridProps = {
   isLoading: boolean;
   // 15分スロット1行の高さ(px)。use-timeline-density の standard=40 / compact=24。
   slotPx: number;
+  onReady?: () => void;
   onReservationClick: (id: string) => void;
   onSlotClick: (resourceId: string, minutes: number) => void;
   onBlockClick?: (blockId: string) => void;
@@ -33,6 +34,7 @@ export function TimelineGrid({
   storeId,
   isLoading,
   slotPx,
+  onReady,
   onReservationClick,
   onSlotClick,
   onBlockClick,
@@ -92,6 +94,7 @@ export function TimelineGrid({
   // The Radix ScrollArea viewport (the scrollable node) carries
   // data-radix-scroll-area-viewport; the ref lands on the Root, so we query down.
   const scrollRootRef = useRef<HTMLDivElement>(null);
+  const lastAnchor = useRef<{ viewport: HTMLElement; dateKey: string; storeId: string | null; slotPx: number; businessHours: BusinessHour[] } | null>(null);
   useEffect(() => {
     // While loading, the component returns <TimelineSkeleton> (below) and the
     // ScrollArea (which holds scrollRootRef) is not mounted. isLoading MUST stay
@@ -106,15 +109,23 @@ export function TimelineGrid({
       "[data-radix-scroll-area-viewport]",
     );
     if (!viewport) return;
-    const openMinutes = getInitialScrollMinutes(businessHours, weekday, storeId);
-    // 開店スロットの上に1スロット分の余白を置くが、sticky ヘッダー (HEADER_PX) より
-    // 小さい slotPx (compact=24px) だと開店スロット先頭がヘッダー裏に隠れるため、
-    // 余白は最低でも HEADER_PX を確保する。
-    viewport.scrollTop = Math.max(
-      0,
-      (openMinutes / 15) * slotPx + HEADER_PX - Math.max(slotPx, HEADER_PX),
-    );
-  }, [businessHours, weekday, storeId, dateKey, isLoading, slotPx]);
+    // StrictMode の effect 再実行や onReady だけの変更で、onReady が復元した位置を開店位置で上書きしないよう、同じ条件では再アンカーしない。
+    const previous = lastAnchor.current;
+    const alreadyAnchored = previous?.viewport === viewport && previous.dateKey === dateKey &&
+      previous.storeId === storeId && previous.slotPx === slotPx && previous.businessHours === businessHours;
+    if (!alreadyAnchored) {
+      const openMinutes = getInitialScrollMinutes(businessHours, weekday, storeId);
+      // 開店スロットの上に1スロット分の余白を置くが、sticky ヘッダー (HEADER_PX) より
+      // 小さい slotPx (compact=24px) だと開店スロット先頭がヘッダー裏に隠れるため、
+      // 余白は最低でも HEADER_PX を確保する。
+      viewport.scrollTop = Math.max(
+        0,
+        (openMinutes / 15) * slotPx + HEADER_PX - Math.max(slotPx, HEADER_PX),
+      );
+      lastAnchor.current = { viewport, dateKey, storeId, slotPx, businessHours };
+    }
+    onReady?.();
+  }, [businessHours, weekday, storeId, dateKey, isLoading, slotPx, onReady]);
 
   if (isLoading) {
     return <TimelineSkeleton columns={3} rows={8} />;
@@ -129,7 +140,7 @@ export function TimelineGrid({
   }
 
   return (
-    <ScrollArea className="flex-1" ref={scrollRootRef}>
+    <ScrollArea data-schedule-scroll="" className="flex-1" ref={scrollRootRef}>
       <div className="flex min-w-max">
         <TimeLabels slots={slots} slotPx={slotPx} />
         <div className="relative flex flex-1">

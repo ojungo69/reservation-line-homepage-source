@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import type { Reservation } from "@/types/api";
+import type { ScheduleContext } from "@/lib/schedule-context";
 import { useSettings } from "@/hooks/use-settings";
 import { useExternalBlocks } from "@/hooks/use-external-blocks";
 import { useReservations } from "@/hooks/use-reservations";
@@ -8,12 +9,18 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const cancelBlock = vi.fn();
+const routerState = vi.hoisted(() => {
+  const location: { state: unknown } = { state: null };
+  return { location, navigate: vi.fn() };
+});
 vi.mock("@/components/schedule/sync-attention", () => ({ ScheduleSyncAttention: () => null }));
 let privileged = true;
 let isNarrow = false;
 let selectedStoreId: string | null = "store-1";
 let renderRealCreatePanel = false;
-// WeekView の読み込み中・失敗分岐を切り替えるため可変にする (7日分の
+let pendingReservations: Array<{ id: string; startAt: string; storeId: string }> = [];
+let loadingReservationDate: string | null = null;
+// WeekView の読み込み中・失敗分岐を切り替えるため可変にする (通常は7日分の
 // useReservations が同一オブジェクトを共有する)。
 const reservationsQuery = {
   data: { ok: true, reservations: [] } as { ok: true; reservations: Reservation[] } | undefined,
@@ -47,8 +54,8 @@ const blocksQuery = {
 };
 
 vi.mock("react-router", () => ({
-  useLocation: () => ({ state: null }),
-  useNavigate: () => vi.fn(),
+  useLocation: () => routerState.location,
+  useNavigate: () => routerState.navigate,
 }));
 
 vi.mock("@/hooks/use-stores", () => ({
@@ -56,7 +63,7 @@ vi.mock("@/hooks/use-stores", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ isPrivileged: privileged }),
+  useAuth: () => ({ isPrivileged: privileged, user: { email: "staff@example.test", role: "staff", storeId: "store-1" } }),
 }));
 
 vi.mock("@/hooks/use-media-query", () => ({
@@ -65,9 +72,9 @@ vi.mock("@/hooks/use-media-query", () => ({
 }));
 
 vi.mock("@/hooks/use-reservations", () => ({
-  useReservations: vi.fn(() => reservationsQuery),
+  useReservations: vi.fn((date: string) => date === loadingReservationDate ? { ...reservationsQuery, isPending: true } : reservationsQuery),
   usePendingReservations: () => ({
-    data: { ok: true, reservations: [] },
+    data: { ok: true, reservations: pendingReservations },
   }),
   useCreateReservation: () => ({ mutate: vi.fn(), isPending: false }),
   useAvailableSlots: () => ({ data: { ok: true, slots: [] }, isFetching: false, isError: false }),
@@ -94,6 +101,7 @@ vi.mock("@/components/schedule/schedule-header", () => ({
     onMobileViewChange,
     mobileView,
     onDateChange,
+    date,
   }: {
     onCreateBlockClick?: () => void;
     onCreateClick: () => void;
@@ -101,8 +109,10 @@ vi.mock("@/components/schedule/schedule-header", () => ({
     onMobileViewChange?: (mode: "agenda" | "timeline") => void;
     mobileView?: "agenda" | "timeline";
     onDateChange: (date: Date) => void;
+    date: Date;
   }) => (
     <>
+      <span data-testid="selected-date">{date.toISOString()}</span>
       <button onClick={onCreateBlockClick} disabled={!onCreateBlockClick}>ブロック作成</button>
       <button onClick={onCreateClick}>予約作成</button>
       <button onClick={() => onViewModeChange("week")}>週表示へ</button>
@@ -115,28 +125,39 @@ vi.mock("@/components/schedule/schedule-header", () => ({
 }));
 
 vi.mock("@/components/schedule/timeline-grid", () => ({
-  TimelineGrid: ({ externalBlocks, onBlockClick, onSlotClick, isLoading }: {
+  TimelineGrid: ({ externalBlocks, onBlockClick, onSlotClick, isLoading, onReady }: {
     externalBlocks: Array<{ id: string }>;
     onBlockClick?: (id: string) => void;
     onSlotClick: (resourceId: string, minutes: number) => void;
     isLoading: boolean;
-  }) => (
-    isLoading ? <div role="status">予定を読み込み中</div> : <>
+    onReady?: () => void;
+  }) => {
+    useEffect(() => { if (!isLoading) onReady?.(); }, [isLoading, onReady]);
+    return isLoading ? <div role="status">予定を読み込み中</div> : <div data-schedule-scroll="">
+      <div data-radix-scroll-area-viewport="" data-testid="timeline-viewport">
       {externalBlocks.some((block) => block.id === "block-1") && (
         <button disabled={!onBlockClick} onClick={() => onBlockClick?.("block-1")}>既存ブロック</button>
       )}
       <button onClick={() => onSlotClick("resource-2", 690)}>新宿店の空き枠</button>
-    </>
-  ),
+      </div>
+    </div>;
+  },
 }));
 
 vi.mock("@/components/schedule/pending-approvals-card", () => ({
-  PendingApprovalsCard: () => null,
+  PendingApprovalsCard: ({ onSelect }: { onSelect: (id: string) => void }) => pendingReservations.map((reservation) => (
+    <button key={reservation.id} onClick={() => onSelect(reservation.id)}>承認待ちを選択</button>
+  )),
 }));
 
 vi.mock("@/components/schedule/reservation-detail-panel", () => ({
-  ReservationDetailPanel: ({ reservationId }: { reservationId: string | null }) => (
-    <div>予約詳細: {reservationId ?? "閉じています"}<input aria-label="編集中の詳細メモ" /></div>
+  ReservationDetailPanel: ({ reservationId, onOpenChart }: {
+    reservationId: string | null;
+    onOpenChart: (customerId: string, reservationId: string) => void;
+  }) => (
+    <div>予約詳細: {reservationId ?? "閉じています"}<input aria-label="編集中の詳細メモ" />
+      {reservationId && <button onClick={() => onOpenChart("customer-1", reservationId)}>カルテを開く</button>}
+    </div>
   ),
 }));
 
@@ -182,10 +203,14 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-07-24T01:00:00Z"));
   cancelBlock.mockReset();
+  routerState.location.state = null;
+  routerState.navigate.mockReset();
   privileged = true;
   isNarrow = false;
   selectedStoreId = "store-1";
   renderRealCreatePanel = false;
+  pendingReservations = [];
+  loadingReservationDate = null;
   reservationsQuery.isPending = false;
   reservationsQuery.data = { ok: true, reservations: [] };
   reservationsQuery.isError = false;
@@ -210,6 +235,117 @@ afterEach(() => {
 });
 
 describe("SchedulePage", () => {
+  const savedScheduleContext: ScheduleContext = {
+    scope: JSON.stringify(["staff@example.test", "staff", "store-1", "store-1"]),
+    date: "2026-08-03T00:30:00.000Z", viewMode: "week", mobileView: "timeline",
+    reservationId: "pending-1", mainScroll: 45, scheduleScroll: 625, scheduleScrollLeft: 80,
+  };
+
+  it.each(["day", "week"])("承認待ちからカルテを開くと%s表示の日付・詳細・縦横スクロールを元の履歴に保存する", async (viewMode) => {
+    const user = userEvent.setup();
+    pendingReservations = [{ id: "pending-1", startAt: savedScheduleContext.date, storeId: "store-1" }];
+    render(<main id="main-content"><SchedulePage /></main>);
+    if (viewMode === "week") await user.click(screen.getByRole("button", { name: "週表示へ" }));
+    await user.click(screen.getByRole("button", { name: "承認待ちを選択" }));
+    const main = screen.getByRole("main");
+    const viewport = main.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? main.querySelector<HTMLElement>("[data-schedule-scroll]");
+    if (!viewport) throw new Error("カレンダーのスクロール領域がありません");
+    main.scrollTop = 45;
+    viewport.scrollTop = 625;
+    viewport.scrollLeft = 80;
+
+    await user.click(screen.getByRole("button", { name: "カルテを開く" }));
+
+    expect(routerState.navigate).toHaveBeenNthCalledWith(1, ".", { replace: true, state: {
+      scheduleContext: { ...savedScheduleContext, viewMode, mobileView: "agenda" },
+    } });
+    expect(routerState.navigate).toHaveBeenNthCalledWith(2, "/customers?customerId=customer-1&reservationId=pending-1", { state: { fromSchedule: true } });
+  });
+
+  it("カルテから時間軸に戻ると読込完了後に日付・詳細・縦横スクロールを復元する", () => {
+    routerState.location.state = { scheduleContext: { ...savedScheduleContext, viewMode: "day" } };
+    reservationsQuery.isPending = true;
+    const { rerender } = render(<main id="main-content"><SchedulePage /></main>);
+    expect(screen.getByTestId("selected-date").textContent).toBe(savedScheduleContext.date);
+    expect(screen.getByText("予約詳細: pending-1")).toBeTruthy();
+    expect(screen.getByRole("main").scrollTop).toBe(0);
+    expect(screen.queryByTestId("timeline-viewport")).toBeNull();
+    expect(routerState.navigate).toHaveBeenCalledExactlyOnceWith(".", { replace: true, state: null });
+
+    reservationsQuery.isPending = false;
+    rerender(<main id="main-content"><SchedulePage /></main>);
+
+    expect(screen.getByRole("main").scrollTop).toBe(45);
+    expect(screen.getByTestId("timeline-viewport").scrollTop).toBe(625);
+    expect(screen.getByTestId("timeline-viewport").scrollLeft).toBe(80);
+  });
+
+  it("週表示への復帰は最後の曜日の読込完了を待ってスクロールを復元する", () => {
+    routerState.location.state = { scheduleContext: savedScheduleContext };
+    loadingReservationDate = "2026-08-08";
+    const { rerender } = render(<main id="main-content"><SchedulePage /></main>);
+    const main = screen.getByRole("main");
+    const scroller = main.querySelector<HTMLElement>("[data-schedule-scroll]");
+    if (!scroller) throw new Error("週表示のスクロール領域がありません");
+    expect(screen.getAllByRole("button", { name: /の日表示を開く/ })).toHaveLength(7);
+    expect(screen.getByText("予約詳細: pending-1")).toBeTruthy();
+    expect(main.scrollTop).toBe(0);
+    expect(scroller.scrollLeft).toBe(0);
+
+    loadingReservationDate = null;
+    rerender(<main id="main-content"><SchedulePage /></main>);
+
+    expect(main.scrollTop).toBe(45);
+    expect(scroller.scrollTop).toBe(625);
+    expect(scroller.scrollLeft).toBe(80);
+  });
+
+  it("狭幅の一覧に戻ると読込後に本文スクロールを一度だけ復元し、広幅では元の週表示へ戻る", () => {
+    isNarrow = true;
+    routerState.location.state = { scheduleContext: { ...savedScheduleContext, mobileView: "agenda", mainScroll: 180 } };
+    settingsQuery.isPending = true;
+    const { rerender } = render(<main id="main-content"><SchedulePage /></main>);
+    const main = screen.getByRole("main");
+    expect(main.scrollTop).toBe(0);
+
+    settingsQuery.isPending = false;
+    rerender(<main id="main-content"><SchedulePage /></main>);
+    expect(main.scrollTop).toBe(180);
+    expect(screen.getByRole("heading", { name: /8月3日.*渋谷店/ })).toBeTruthy();
+    expect(screen.queryByTestId("timeline-viewport")).toBeNull();
+    main.scrollTop = 70;
+    settingsQuery.isPending = true;
+    rerender(<main id="main-content"><SchedulePage /></main>);
+    settingsQuery.isPending = false;
+    rerender(<main id="main-content"><SchedulePage /></main>);
+    expect(main.scrollTop).toBe(70);
+    isNarrow = false;
+    rerender(<main id="main-content"><SchedulePage /></main>);
+    expect(screen.getAllByRole("button", { name: /の日表示を開く/ })).toHaveLength(7);
+    expect(screen.getByText("予約詳細: pending-1")).toBeTruthy();
+  });
+
+  it.each([
+    { label: "別ログイン", scope: JSON.stringify(["other@example.test", "staff", "store-1", "store-1"]) },
+    { label: "別店舗", scope: JSON.stringify(["staff@example.test", "staff", "store-1", "store-2"]) },
+  ])("$labelの履歴から予約詳細やカレンダー位置を復元しない", ({ scope }) => {
+    routerState.location.state = { scheduleContext: { ...savedScheduleContext, scope } };
+    render(<main id="main-content"><SchedulePage /></main>);
+
+    expect(screen.getByTestId("selected-date").textContent).toBe("2026-07-24T01:00:00.000Z");
+    expect(screen.getByText("予約詳細: 閉じています")).toBeTruthy();
+    expect(screen.getByRole("main").scrollTop).toBe(0);
+    expect(screen.getByTestId("timeline-viewport").scrollTop).toBe(0);
+    expect(routerState.navigate).not.toHaveBeenCalled();
+  });
+
+  it("別日の承認待ちを選ぶとその日の予約詳細を開く", async () => {
+    pendingReservations = [{ id: "pending-1", startAt: "2026-08-03T00:30:00Z", storeId: "store-1" }];
+    render(<SchedulePage />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "承認待ちを選択" }));
+    expect(useReservations).toHaveBeenLastCalledWith("2026-08-03");
+    expect(screen.getByText(/予約詳細: pending-1/)).toBeTruthy();
+  });
   it("表示日の変更を外部ブロックの取得範囲にも反映する", async () => {
     render(<SchedulePage />);
     expect(useExternalBlocks).toHaveBeenLastCalledWith("2026-07-24");
