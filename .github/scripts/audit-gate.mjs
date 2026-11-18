@@ -247,7 +247,7 @@ export function evaluateAudit(report, { target, today, allowlist }) {
   if (blocking.size > 0) {
     return [...blocking.values()]
       .sort((a, b) => a.advisory.localeCompare(b.advisory))
-      .map(found => ({ ...found, packages: [...found.packages].sort() }));
+      .map(found => ({ ...found, packages: [...found.packages].sort((a, b) => a.localeCompare(b)) }));
   }
   // Only once nothing else is wrong: a leftover entry is standing permission
   // to ignore that advisory the next time it turns up somewhere else.
@@ -293,7 +293,7 @@ export function main(argv, {
     log(`::error::${severity} advisory ${advisory} affects ${packages.join(', ')}`);
   }
   if (blocking.length > 0) throw new Error(`${blocking.length} unlisted high/critical advisories in the ${target} audit`);
-  const allowed = allowlist.filter(entry => entry.targets.includes(target)).map(entry => entry.id).sort().join(', ') || 'none';
+  const allowed = allowlist.filter(entry => entry.targets.includes(target)).map(entry => entry.id).sort((a, b) => a.localeCompare(b)).join(', ') || 'none';
   log(`no unlisted high/critical advisories for ${target} (allowed: ${allowed})`);
 }
 
