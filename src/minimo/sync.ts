@@ -27,7 +27,8 @@ const dateKey = (ms: number) => ISO(ms + 9 * 60 * 60_000).slice(0, 10);
 const safeCodes = new Set(["minimo_remote_changed", "minimo_staff_missing", "minimo_config_changed",
   "minimo_duration_exceeds_mapping", "minimo_catalogue_changed", "minimo_reservation_unresolved",
   "minimo_resource_invalid", "minimo_invalid_state", "minimo_local_changed", "minimo_lease_lost",
-  "minimo_write_review_required", "minimo_inbound_conflict", "minimo_write_unverified"]);
+  "minimo_write_review_required", "minimo_inbound_conflict", "minimo_write_unverified",
+  "minimo_unknown_reservation_status"]);
 
 function safeError(error: unknown): string {
   if (error instanceof MinimoClientError) return error.code;

@@ -278,6 +278,17 @@ describe("Minimo HTTP boundary", () => {
     expect(client.sessionCookie).toBe("minimo_salontool=renewed");
   });
 
+  it("stops on a challenge 401 instead of logging in again", async () => {
+    const requests: Request[] = [];
+    const client = testClient({ account: { ...account, intervalMinutes: 30 },
+      cookie: "minimo_salontool=old", fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push(new Request(input, init));
+        return new Response("challenge", { status: 401, headers: { "cf-mitigated": "challenge" } });
+      }) as typeof fetch });
+    await expect(client.getSchedule("2026-10-01")).rejects.toMatchObject({ code: "challenge", status: 401 });
+    expect(requests).toHaveLength(1);
+  });
+
   it.each([1, 2])("never retries a schedule POST when reauthentication step %i expires the lease", async (expiredStep) => {
     let clock = 1000;
     const requests: Request[] = [];

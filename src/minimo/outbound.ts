@@ -43,6 +43,10 @@ export function planOutboundDay(
     if (!entry) {
       throw new Error("minimo_staff_missing");
     }
+    // A status other than confirmed 1/2 or cancelled 11/12 may still hold the slot, so stop before reopening it.
+    if (entry.reservations.some((reservation) => reservation.status === "ignored")) {
+      throw new Error("minimo_unknown_reservation_status");
+    }
     if (entry.reservations.some((reservation) => reservation.status === "confirmed"
       && reservation.startAt && reservation.endAt
       && Date.parse(reservation.endAt) - Date.parse(reservation.startAt) > mapping.maxDurationMinutes * 60_000)) {

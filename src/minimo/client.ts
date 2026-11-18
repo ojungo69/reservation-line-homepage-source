@@ -295,7 +295,8 @@ export class MinimoClient {
     } }, false, deadlineMs);
     try { return await send(); }
     catch (error) {
-      if (!(error instanceof MinimoClientError) || error.status !== 401 || this.reauthenticated) throw error;
+      // Only a plain 401 reauthenticates; a challenge also arrives as 401 and must stop every account.
+      if (!(error instanceof MinimoClientError) || error.code !== "auth_failed" || this.reauthenticated) throw error;
       this.reauthenticated = true;
       this.cookies.clear();
       this.verifiedAccount = null;

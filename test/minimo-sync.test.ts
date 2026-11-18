@@ -289,6 +289,16 @@ describe("Minimo four-store synchronization", () => {
     f.db.sqlite.close();
   });
 
+  it("stops availability writes when a day reservation has a status it does not know", async () => {
+    const f = fixture("apply");
+    f.booking("13:00", 3);
+    const result = await runMinimoSync({ ...f, db: f.db as unknown as D1Database });
+    for (const store of result.stores) expect(store).toMatchObject({ outcome: "attention",
+      error: "minimo_unknown_reservation_status" });
+    expect(f.requests.filter((request) => request.path.includes("/api/") && request.method === "POST")).toHaveLength(0);
+    f.db.sqlite.close();
+  });
+
   it("does not dispatch a stale POST after a delayed pending-write database response", async () => {
     const f = fixture("apply");
     let delayed = false;

@@ -56,6 +56,15 @@ describe("Minimo availability ownership", () => {
       .toThrow("minimo_staff_missing");
   });
 
+  it("stops the day when a mapped staff reservation has an unknown or missing status", () => {
+    const withReservation = (staffId: string) => ({ ...schedule, entries: schedule.entries.map((entry) => entry.staffId === staffId
+      ? { ...entry, reservations: [{ id: "remote-unknown", staffId, status: "ignored" as const, startAt: null, endAt: null }] }
+      : entry) });
+    expect(() => planOutboundDay(account, withReservation("artist-1"), { ...inputs, intervals: [] }, null, now))
+      .toThrow("minimo_unknown_reservation_status");
+    expect(planOutboundDay(account, withReservation("unmapped"), { ...inputs, intervals: [] }, null, now).changed).toBe(false);
+  });
+
   it("honors closed days and ignores another resource's busy interval", () => {
     expect(planOutboundDay(account, schedule, { intervals: [], hours: [] }, null, now).closed).toBe(2);
     expect(planOutboundDay(account, schedule,
