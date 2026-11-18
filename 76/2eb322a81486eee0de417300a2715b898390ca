@@ -1,0 +1,29 @@
+docs/TOOLCHAIN.md
+  s_915ac6f557639e::t_8b4e15b2fea609 30-44
+.github/scripts/audit-gate.test.mjs
+  s_915ac6f557639e::t_fb9a73a87904d5 1-2,4-274,286-294
+  s_915ac6f557639e::t_0e28a8e6d2b692 3
+  s_915ac6f557639e::t_422f96176a2a10 275-285
+.github/scripts/audit-gate.mjs
+  s_915ac6f557639e::t_c61b315fa4fcbd 1-15,17,19-218,230-236
+  s_915ac6f557639e::t_1d095834558db7 16,18
+  s_915ac6f557639e::t_e2eb49a7357765 219-229
+package.json
+  s_915ac6f557639e::t_6f9d3be1bcad42 21-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "762eb322a81486eee0de417300a2715b898390ca",
+  "prompts": {},
+  "sessions": {
+    "s_915ac6f557639e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "81c2d7e1-5c31-46e2-b576-161ecf8c3681",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
