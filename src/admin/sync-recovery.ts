@@ -1158,6 +1158,19 @@ const canCancelConflictBlock = async (
   return Boolean(block && block.source !== "minimo");
 };
 
+// Repeats canCancelConflictBlock inside the conflict UPDATE, so a block that turns Minimo-owned meanwhile is not resolved.
+const conflictBlockGuard = (cancelExternalBlock: boolean, blockId: string | null): { sql: string; binds: (string | null)[] } =>
+  cancelExternalBlock ? {
+    sql: `
+                AND conflict_type = 'external_block_event_deleted'
+                AND external_block_id = ?
+                AND EXISTS (
+                  SELECT 1 FROM external_blocks
+                  WHERE id = ? AND source != 'minimo'
+                )`,
+    binds: [blockId, blockId]
+  } : { sql: "", binds: [] };
+
 export async function resolveAdminGoogleConflict(input: {
   db: D1Database;
   admin: AdminUser;
@@ -1210,6 +1223,7 @@ export async function resolveAdminGoogleConflict(input: {
 
   const idempotencyId = crypto.randomUUID();
   const expiresAt = toIso(new Date(nowMs + IDEMPOTENCY_TTL_MS));
+  const blockGuard = conflictBlockGuard(cancelExternalBlock, conflict.external_block_id);
   const action =
     input.resolutionStatus === "ignored"
       ? "admin_google_conflict_ignored"
@@ -1235,18 +1249,10 @@ export async function resolveAdminGoogleConflict(input: {
                 resolved_by = ?
             WHERE id = ?
               AND resolution_status = 'open'
-              ${cancelExternalBlock ? `
-                AND conflict_type = 'external_block_event_deleted'
-                AND external_block_id = ?
-                AND EXISTS (
-                  SELECT 1 FROM external_blocks
-                  WHERE id = ? AND source != 'minimo'
-                )
-              ` : ""}
+              ${blockGuard.sql}
           `
         )
-        .bind(input.resolutionStatus, nowIso, input.admin.id, input.conflictId,
-          ...(cancelExternalBlock ? [conflict.external_block_id, conflict.external_block_id] : [])),
+        .bind(input.resolutionStatus, nowIso, input.admin.id, input.conflictId, ...blockGuard.binds),
       ...guardConflictTransitionApplied({
         db: input.db,
         idempotencyId,
