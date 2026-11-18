@@ -226,8 +226,9 @@ export class MinimoClient {
   }
 
   private validateStatus(response: Response, method: string | undefined, login: boolean): void {
-    if (response.status === 429) throw new MinimoClientError("rate_limited", 429, retryAfter(response.headers.get("retry-after"), this.now()));
+    // A challenge needs operator review, so it outranks a rate limit that only waits for a cooldown.
     if (response.headers.get("cf-mitigated") === "challenge") throw new MinimoClientError("challenge", response.status);
+    if (response.status === 429) throw new MinimoClientError("rate_limited", 429, retryAfter(response.headers.get("retry-after"), this.now()));
     if (response.status === 403) throw new MinimoClientError("forbidden", 403);
     if (response.redirected) throw new MinimoClientError("redirect", response.status);
     if (response.status >= 300 && response.status < 400) validateLoginRedirect(response, method, login);
@@ -295,8 +296,11 @@ export class MinimoClient {
     } }, false, deadlineMs);
     try { return await send(); }
     catch (error) {
-      // Only a plain 401 reauthenticates; a challenge also arrives as 401 and must stop every account.
-      if (!(error instanceof MinimoClientError) || error.code !== "auth_failed" || this.reauthenticated) throw error;
+      // Only a plain 401 on a read reauthenticates: a challenge also arrives as 401 and must stop every account,
+      // and a write planned before the 401 must not be resent without re-reading both sides.
+      if (!(error instanceof MinimoClientError) || error.code !== "auth_failed" || method === "POST" || this.reauthenticated) {
+        throw error;
+      }
       this.reauthenticated = true;
       this.cookies.clear();
       this.verifiedAccount = null;
