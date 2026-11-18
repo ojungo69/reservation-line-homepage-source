@@ -233,12 +233,28 @@ describe("Minimo four-store synchronization", () => {
     f.throttle("7200", true);
     const first = await runMinimoSync({ ...f, db: f.db as unknown as D1Database });
     expect(first.stores[0]).toMatchObject({ outcome: "failed", error: "challenge" });
+    expect(f.db.sqlite.prepare("SELECT paused_reason, rate_limited_until FROM minimo_sync_state WHERE paused_reason IS NOT NULL").all())
+      .toEqual([{ paused_reason: "challenge", rate_limited_until: new Date(f.now() + 7_200_000).toISOString() }]);
     // Same column the operator's resume clears in src/admin/minimo-sync.ts; the cooldown must survive it.
     f.db.sqlite.prepare("UPDATE minimo_sync_state SET paused_reason = NULL").run();
     const count = f.requests.length;
     f.advance(60 * 60_000);
     const second = await runMinimoSync({ ...f, db: f.db as unknown as D1Database });
     expect(second.stores.every((store) => store.error === "rate_limited")).toBe(true);
+    expect(f.requests).toHaveLength(count);
+    f.db.sqlite.close();
+  });
+
+  it("records a challenged 429 hold even when Retry-After names the last instant a Date can hold", async () => {
+    const f = fixture("apply");
+    f.throttle("Sat, 13 Sep 275760 00:00:00 GMT", true);
+    // Every clock read moves 1 ms, so the failure is saved after the Retry-After was read.
+    const ticking = { ...f, now: () => { f.advance(1); return f.now(); } };
+    const first = await runMinimoSync({ ...ticking, db: f.db as unknown as D1Database });
+    expect(first.stores[0]).toMatchObject({ outcome: "failed", error: "challenge" });
+    const count = f.requests.length;
+    const second = await runMinimoSync({ ...ticking, db: f.db as unknown as D1Database });
+    expect(second.stores.every((store) => store.outcome === "attention" && store.error === "provider_paused")).toBe(true);
     expect(f.requests).toHaveLength(count);
     f.db.sqlite.close();
   });

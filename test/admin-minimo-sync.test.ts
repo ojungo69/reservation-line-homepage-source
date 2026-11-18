@@ -99,7 +99,8 @@ describe("Minimo operator recovery", () => {
 
   it("shows safe state and explicitly resumes a provider hold without HTTP or shortening cooldown", async () => {
     const { f, input } = await fixture();
-    f.db.sqlite.exec("UPDATE minimo_sync_state SET paused_reason = 'forbidden', last_error = 'forbidden'");
+    f.db.sqlite.exec(`UPDATE minimo_sync_state SET paused_reason = 'forbidden', last_error = 'forbidden',
+      rate_limited_until = '2030-01-01T00:00:00.000Z'`);
     const before = await status(input);
     expect(JSON.stringify(before)).not.toMatch(/synthetic-|password|session_ciphertext|salon-kyoto/);
     expect(before.stores[0]).toMatchObject({ storeId: "kyoto", pausedReason: "forbidden" });
@@ -108,7 +109,8 @@ describe("Minimo operator recovery", () => {
     expect(await recoverAdminMinimoSync({ ...input, fetchImpl, request })).toMatchObject({ ok: true });
     expect(fetchImpl).not.toHaveBeenCalled();
     const after = await status(input);
-    expect(after.stores[0]).toMatchObject({ pausedReason: null, nextAttemptAt: before.stores[0].nextAttemptAt });
+    expect(after.stores[0]).toMatchObject({ pausedReason: null, nextAttemptAt: before.stores[0].nextAttemptAt,
+      rateLimitedUntil: "2030-01-01T00:00:00.000Z" });
     expect(await recoverAdminMinimoSync({ ...input, fetchImpl, request })).toMatchObject({ ok: false });
     expect(f.db.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_logs WHERE action = 'minimo_sync_resume'").get()).toEqual({ n: 1 });
     f.db.sqlite.close();

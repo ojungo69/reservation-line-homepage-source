@@ -114,7 +114,8 @@ export async function recordMinimoFailure(input: {
   const delay = Math.max(error.retryAfterMs ?? 0, account.intervalMinutes * 60_000,
     Math.min(6 * 60 * 60_000, 10 * 60_000 * 2 ** Math.min(failures - 1, 6)));
   const paused = MINIMO_RESTRICTION_CODES.has(error.code) ? error.code : null;
-  const next = Math.max(Date.parse(state?.next_attempt_at ?? "") || 0, nowMs + delay);
+  // An HTTP-date Retry-After can name the last instant a Date holds; adding elapsed time must not overflow toISOString.
+  const next = Math.min(8_640_000_000_000_000, Math.max(Date.parse(state?.next_attempt_at ?? "") || 0, nowMs + delay));
   const rateLimit = error.code === "rate_limited" || error.status === 429
     ? new Date(Math.max(next, Date.parse(state?.rate_limited_until ?? "") || 0)).toISOString() : null;
   // Restriction evidence must survive a staff mapping change during HTTP.

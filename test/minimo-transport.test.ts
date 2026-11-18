@@ -326,6 +326,8 @@ describe("Minimo HTTP boundary", () => {
       ["/api/v1/salontool/schedule", "GET"], ["/salontool/login", "GET"],
       ...(expiredStep === 2 ? [["/salontool/login", "POST"]] : [])
     ]);
+    // A login response that arrives after the deadline must not install its session.
+    expect(client.sessionCookie).toBeNull();
   });
 
   it("treats a rate limit that carries a challenge as a challenge", async () => {
