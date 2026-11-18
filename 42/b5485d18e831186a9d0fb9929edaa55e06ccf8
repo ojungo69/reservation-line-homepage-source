@@ -1,0 +1,23 @@
+docs/minimo-four-store-sync.md
+  s_915ac6f557639e::t_08d24eada691e1 21
+test/minimo-sync.test.ts
+  s_915ac6f557639e::t_2f3ba556f62430 327-328
+test/minimo-inbound.test.ts
+  s_915ac6f557639e::t_7c939d626742d7 50-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "42b5485d18e831186a9d0fb9929edaa55e06ccf8",
+  "prompts": {},
+  "sessions": {
+    "s_915ac6f557639e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "81c2d7e1-5c31-46e2-b576-161ecf8c3681",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
