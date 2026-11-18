@@ -1,0 +1,21 @@
+src/admin/sync-recovery.ts
+  s_915ac6f557639e::t_43aeed26ccdbfb 1161-1173
+  s_915ac6f557639e::t_cc0df639acaf79 1226
+  s_915ac6f557639e::t_7ae7a5811ab8f4 1252,1255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d45c83c3cdcf31834d51bc07a6055dca50477f30",
+  "prompts": {},
+  "sessions": {
+    "s_915ac6f557639e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "81c2d7e1-5c31-46e2-b576-161ecf8c3681",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
