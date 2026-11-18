@@ -232,8 +232,12 @@ test('pins the npm audit arguments for each target', () => {
   // and a persistent cache, whose advisory entries keep an old severity.
   // An explicit --prefix also keeps npm from auditing a parent directory whose package.json
   // lists this checkout as a workspace (measured: the parent's lockfile was audited instead).
+  // With --prefix, npm's global config defaults to <prefix>/etc/npmrc, a repository file that
+  // could set a proxy (measured), so it must name a file that does not exist; npm refuses
+  // /dev/null because the user config already uses it.
   const base = [
     'audit', '--json', '--userconfig=/dev/null', '--registry=https://registry.npmjs.org/', '--offline=false', '--cache=/fresh',
+    '--globalconfig=/fresh/no-global-npmrc',
     '--audit-level=high', '--include=dev', '--include=optional', '--include=peer', '--package-lock-only', '--prefix',
   ];
   assert.deepEqual(auditArguments('root', '/fresh'), [...base, repositoryRoot]);
@@ -361,7 +365,9 @@ test('the CLI prints each blocking advisory and fails', t => {
   const stub = withStubNpm(t, { status: 1, stdout: JSON.stringify(report(tree)) });
   const result = stub.run('admin-app');
   assert.equal(result.status, 1);
-  assert.match(result.stdout, /::error::/);
+  // The real allowlist and date apply here: until an entry expires the gate names the
+  // advisory; from the expiry date it fails on the expired entry first.
+  assert.match(result.stdout, /::error::(high advisory GHSA-mh99-v99m-4gvg affects undici|allowlist entry GHSA-\S+ expired on )/);
   const { argv } = stub.probe();
   assert.deepEqual(argv, auditArguments('admin-app', cacheOf(argv)));
 });

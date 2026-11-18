@@ -77,8 +77,13 @@ export function auditArguments(target, cache) {
   // unchanged, so a persistent cache reports a raised severity at its old level.
   // The explicit --prefix stops npm from switching to a parent directory whose
   // package.json lists this checkout as a workspace, and auditing its lockfile.
+  // It also moves the default global config to <prefix>/etc/npmrc, a file in
+  // this repository that could set a proxy, so the global config must name a
+  // file that does not exist (npm refuses /dev/null twice, and the cache
+  // directory starts empty).
   return [
     'audit', '--json', '--userconfig=/dev/null', '--registry=https://registry.npmjs.org/', '--offline=false', `--cache=${cache}`,
+    `--globalconfig=${join(cache, 'no-global-npmrc')}`,
     '--audit-level=high', '--include=dev', '--include=optional', '--include=peer', '--package-lock-only',
     '--prefix', target === 'admin-app' ? join(REPOSITORY_ROOT, 'admin-app') : REPOSITORY_ROOT,
   ];
