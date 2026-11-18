@@ -1,0 +1,21 @@
+.github/scripts/audit-gate.mjs
+  s_915ac6f557639e::t_94cbf9b1c56ddb 103-117,122,124
+  s_915ac6f557639e::t_36fadabc53240f 129,140-153,156-158,163-194,196,201
+  s_915ac6f557639e::t_552d9fa12295b6 208-231,246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "33d75e759c4f74d7466fe7c298ffad2bdffe28bd",
+  "prompts": {},
+  "sessions": {
+    "s_915ac6f557639e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "81c2d7e1-5c31-46e2-b576-161ecf8c3681",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
