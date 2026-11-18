@@ -75,11 +75,13 @@ export function auditArguments(target, cache) {
   // resolved tree instead of the committed lockfile). The cache must be new and
   // empty: npm reuses a cached advisory's severity while its vulnerable range is
   // unchanged, so a persistent cache reports a raised severity at its old level.
-  const args = [
+  // The explicit --prefix stops npm from switching to a parent directory whose
+  // package.json lists this checkout as a workspace, and auditing its lockfile.
+  return [
     'audit', '--json', '--userconfig=/dev/null', '--registry=https://registry.npmjs.org/', '--offline=false', `--cache=${cache}`,
     '--audit-level=high', '--include=dev', '--include=optional', '--include=peer', '--package-lock-only',
+    '--prefix', target === 'admin-app' ? join(REPOSITORY_ROOT, 'admin-app') : REPOSITORY_ROOT,
   ];
-  return target === 'admin-app' ? [...args, '--prefix', 'admin-app'] : args;
 }
 
 export function auditEnvironment(env) {
@@ -116,6 +118,11 @@ export function validateAllowlist(entries) {
 }
 
 function validateReport(report) {
+  // npm reports its own failures (network, devEngines) as JSON with exit 1.
+  if (isRecord(report) && isRecord(report.error)) {
+    const summary = String(report.error.summary ?? '').split('\n')[0];
+    throw new Error(`npm audit failed: ${String(report.error.code ?? 'unknown error')} ${summary}`.trim());
+  }
   if (!isRecord(report) || report.auditReportVersion !== 2) {
     throw new Error(`npm audit report has unsupported auditReportVersion ${String(report?.auditReportVersion)}`);
   }
@@ -156,6 +163,18 @@ function validateReport(report) {
   for (const [name, record] of Object.entries(vulnerabilities)) {
     if (BLOCKING.has(record.severity) && !reachesBlocking(name, new Set())) {
       throw new Error(`npm audit report: ${name} reaches no high or critical advisory`);
+    }
+  }
+  // npm sets a record to the highest severity among its advisories. An advisory
+  // reached through a dependency is never above that dependency's own severity,
+  // so a record sits at or above each own advisory and at or below the highest
+  // of its own advisories and its dependencies.
+  for (const [name, record] of Object.entries(vulnerabilities)) {
+    const rank = SEVERITY_RANK[record.severity];
+    const own = record.via.filter(element => typeof element !== 'string').map(element => SEVERITY_RANK[element.severity]);
+    const reach = record.via.map(element => SEVERITY_RANK[typeof element === 'string' ? vulnerabilities[element].severity : element.severity]);
+    if (own.some(value => value > rank) || rank > Math.max(...reach)) {
+      throw new Error(`npm audit report: ${name} has severity ${record.severity}, which disagrees with its advisories`);
     }
   }
   return vulnerabilities;

@@ -153,9 +153,15 @@ test('rejects every malformed allowlist entry', () => {
 });
 
 test('fails closed when npm produced no usable report', () => {
-  for (const value of [null, {}, { error: { code: 'ENETUNREACH' } }]) {
+  for (const value of [null, {}]) {
     assert.throws(() => evaluate(value), /audit report/);
   }
+  // npm prints its own failures as JSON with exit 1; the gate names them (first summary line only).
+  assert.throws(
+    () => evaluate({ error: { code: 'EBADDEVENGINES', summary: 'Invalid devEngines.packageManager\nrequired: 12.2.2' } }),
+    /npm audit failed: EBADDEVENGINES Invalid devEngines\.packageManager$/,
+  );
+  assert.throws(() => evaluate({ ...report(measuredTree()), error: { code: 'ENETUNREACH' } }), /npm audit failed: ENETUNREACH$/);
   // An array would walk zero records and match zero counts; it must be rejected on its own.
   assert.throws(() => evaluate({ ...report({}), vulnerabilities: [] }), /no vulnerabilities object/);
   assert.throws(() => evaluate({ ...report(measuredTree()), auditReportVersion: 1 }), /auditReportVersion 1/);
@@ -203,16 +209,35 @@ test('fails closed when the summary counts disagree with the records', () => {
   assert.throws(() => evaluate(report(tree, { total: 7 })), /metadata total is 7 but the records count 6/);
 });
 
+test('fails closed when a record severity disagrees with its advisories', () => {
+  // npm sets a record to the highest severity among its advisories, and an advisory
+  // reached through a dependency is never above that dependency's own severity.
+  const disagree = /npm audit report: picomatch has severity (critical|moderate), which disagrees with its advisories/;
+  for (const severity of ['critical', 'moderate']) {
+    const tree = { picomatch: { name: 'picomatch', severity, via: [advisory('picomatch')] } };
+    assert.throws(() => evaluate(report(tree)), disagree);
+  }
+  const reached = { ...measuredTree(), fdir: { name: 'fdir', severity: 'critical', via: ['picomatch'] } };
+  assert.throws(() => evaluate(report(reached)), /fdir has severity critical, which disagrees with its advisories/);
+  const empty = { ...measuredTree(), undici: { name: 'undici', severity: 'low', via: [] } };
+  assert.throws(() => evaluate(report(empty)), /undici has severity low, which disagrees with its advisories/);
+  // A lower severity through a dependency is consistent: a dependent can be hit by fewer advisories.
+  const lower = { ...measuredTree(), undici: { name: 'undici', severity: 'low', via: ['picomatch'] } };
+  assert.deepEqual(evaluate(report(lower)), []);
+});
+
 test('pins the npm audit arguments for each target', () => {
   // Each flag overrides a project/global .npmrc setting that was measured to empty or swap the
   // audited tree under npm 12.2.2: offline=true, registry=<mock>, package-lock=false, omit=dev,
   // and a persistent cache, whose advisory entries keep an old severity.
+  // An explicit --prefix also keeps npm from auditing a parent directory whose package.json
+  // lists this checkout as a workspace (measured: the parent's lockfile was audited instead).
   const base = [
     'audit', '--json', '--userconfig=/dev/null', '--registry=https://registry.npmjs.org/', '--offline=false', '--cache=/fresh',
-    '--audit-level=high', '--include=dev', '--include=optional', '--include=peer', '--package-lock-only',
+    '--audit-level=high', '--include=dev', '--include=optional', '--include=peer', '--package-lock-only', '--prefix',
   ];
-  assert.deepEqual(auditArguments('root', '/fresh'), base);
-  assert.deepEqual(auditArguments('admin-app', '/fresh'), [...base, '--prefix', 'admin-app']);
+  assert.deepEqual(auditArguments('root', '/fresh'), [...base, repositoryRoot]);
+  assert.deepEqual(auditArguments('admin-app', '/fresh'), [...base, join(repositoryRoot, 'admin-app')]);
   assert.throws(() => auditArguments('production', '/fresh'), /usage/);
   // npm would otherwise create (and keep) a cache directory named after the value.
   for (const cache of [undefined, 'relative/cache']) assert.throws(() => auditArguments('root', cache), /absolute cache directory/);
