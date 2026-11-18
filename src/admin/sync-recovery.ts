@@ -1148,6 +1148,29 @@ export async function aggregateGoogleConflictsForOwner(
   return { totalConflicts, totalRequiringAction, perStore };
 }
 
+const canCancelConflictBlock = async (
+  db: D1Database, conflict: ConflictRow, resolutionStatus: "ignored" | "manual_resolved"
+): Promise<boolean> => {
+  if (resolutionStatus !== "manual_resolved" || conflict.conflict_type !== "external_block_event_deleted"
+    || !conflict.external_block_id) return false;
+  const block = await db.prepare("SELECT source FROM external_blocks WHERE id = ?")
+    .bind(conflict.external_block_id).first<{ source: string }>();
+  return Boolean(block && block.source !== "minimo");
+};
+
+// Repeats canCancelConflictBlock inside the conflict UPDATE, so a block that turns Minimo-owned meanwhile is not resolved.
+const conflictBlockGuard = (cancelExternalBlock: boolean, blockId: string | null): { sql: string; binds: (string | null)[] } =>
+  cancelExternalBlock ? {
+    sql: `
+                AND conflict_type = 'external_block_event_deleted'
+                AND external_block_id = ?
+                AND EXISTS (
+                  SELECT 1 FROM external_blocks
+                  WHERE id = ? AND source != 'minimo'
+                )`,
+    binds: [blockId, blockId]
+  } : { sql: "", binds: [] };
+
 export async function resolveAdminGoogleConflict(input: {
   db: D1Database;
   admin: AdminUser;
@@ -1194,21 +1217,13 @@ export async function resolveAdminGoogleConflict(input: {
   // external_block_event_deleted type and the staff resolution is the
   // manual_resolved positive close (Step 5 plan). Otherwise reject before
   // any side effect, mirroring the existing invalid_transition behavior.
-  if (cancelExternalBlock) {
-    if (
-      input.resolutionStatus !== "manual_resolved" ||
-      conflict.conflict_type !== "external_block_event_deleted" ||
-      !conflict.external_block_id
-    ) {
-      return {
-        ok: false,
-        reason: "invalid_transition"
-      };
-    }
+  if (cancelExternalBlock && !await canCancelConflictBlock(input.db, conflict, input.resolutionStatus)) {
+    return { ok: false, reason: "invalid_transition" };
   }
 
   const idempotencyId = crypto.randomUUID();
   const expiresAt = toIso(new Date(nowMs + IDEMPOTENCY_TTL_MS));
+  const blockGuard = conflictBlockGuard(cancelExternalBlock, conflict.external_block_id);
   const action =
     input.resolutionStatus === "ignored"
       ? "admin_google_conflict_ignored"
@@ -1234,9 +1249,10 @@ export async function resolveAdminGoogleConflict(input: {
                 resolved_by = ?
             WHERE id = ?
               AND resolution_status = 'open'
+              ${blockGuard.sql}
           `
         )
-        .bind(input.resolutionStatus, nowIso, input.admin.id, input.conflictId),
+        .bind(input.resolutionStatus, nowIso, input.admin.id, input.conflictId, ...blockGuard.binds),
       ...guardConflictTransitionApplied({
         db: input.db,
         idempotencyId,
@@ -1260,6 +1276,7 @@ export async function resolveAdminGoogleConflict(input: {
                   UPDATE external_blocks
                   SET status = 'cancelled', updated_at = ?
                   WHERE id = ?
+                    AND source != 'minimo'
                     AND status = 'active'
                     AND EXISTS (
                       SELECT 1 FROM idempotency_keys

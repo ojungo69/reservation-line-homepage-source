@@ -113,7 +113,7 @@ type GoogleEventsListResponse = {
 
 type ExternalBlockRow = {
   id: string;
-  source: "google_calendar" | "admin_block" | "system_revert";
+  source: "google_calendar" | "admin_block" | "system_revert" | "minimo";
   google_event_etag: string | null;
 };
 

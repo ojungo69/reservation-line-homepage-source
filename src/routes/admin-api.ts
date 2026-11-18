@@ -212,6 +212,7 @@ import {
   type AdminSyncConflictResolutionRequest
 } from "../admin/sync-recovery";
 import { getAdminSyncStatus } from "../admin/sync-status";
+import { getAdminMinimoStatus, recoverAdminMinimoSync } from "../admin/minimo-sync";
 import {
   approveAllDayAsClosure,
   rejectAllDayConflict,
@@ -2978,6 +2979,26 @@ adminApiRoutes.get("/audit-logs", async (c) => {
 // 歴史データ (reservation_change_requests) は保持し、audit 表示互換のみ残す。
 
 // 22-25. Sync status and jobs
+
+adminApiRoutes.get("/sync/minimo", async (c) => {
+  const gate = await authenticateAdminWithDb(c, ADMIN_PRIVATE_HEADERS);
+  if (!gate.ok) return gate.response;
+  const result = await getAdminMinimoStatus({ db: gate.db, admin: gate.admin, env: c.env });
+  return c.json(result, result.ok ? 200 : 403, ADMIN_PRIVATE_HEADERS);
+});
+
+adminApiRoutes.post("/sync/minimo/recover", async (c) => {
+  const gate = await authenticateAdminWithDb(c, ADMIN_PRIVATE_HEADERS);
+  if (!gate.ok) return gate.response;
+  const parsed = await parseJsonBody(c, ADMIN_PRIVATE_HEADERS);
+  if (!parsed.ok) return parsed.response;
+  const result = await recoverAdminMinimoSync({ db: gate.db, admin: gate.admin, env: c.env, request: parsed.body });
+  if (result.ok) return c.json(result, 200, ADMIN_PRIVATE_HEADERS);
+  const codes: Record<string, ContentfulStatusCode> = {
+    forbidden: 403, invalid_request: 400, not_found: 404, write_failed: 500, rate_limited: 429
+  };
+  return c.json(result, codes[result.reason] ?? 409, ADMIN_PRIVATE_HEADERS);
+});
 
 // 22. GET /sync/status
 adminApiRoutes.get("/sync/status", async (c) => {

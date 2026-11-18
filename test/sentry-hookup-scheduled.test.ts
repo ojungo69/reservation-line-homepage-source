@@ -36,6 +36,9 @@ vi.mock("../src/app", () => ({
 vi.mock("../src/google/channel-watch", () => ({
   ensureGoogleCalendarWatchChannels: vi.fn(async () => {})
 }));
+vi.mock("../src/minimo/sync", () => ({
+  runMinimoSync: vi.fn(async () => ({ mode: "off", stores: [] }))
+}));
 vi.mock("../src/google/calendar-sync", () => ({
   processDueCalendarSyncJobs: vi.fn(async () => {})
 }));
@@ -77,6 +80,7 @@ vi.mock("../src/line/quota", () => ({
 }));
 
 import * as Sentry from "@sentry/cloudflare";
+import { runMinimoSync } from "../src/minimo/sync";
 import { dispatchDailyOpsSummary } from "../src/notifications/daily-ops-summary";
 import { dispatchReservationReminders } from "../src/notifications/reminder-dispatcher";
 import { processDueLineNotificationJobs } from "../src/line/notifications";
@@ -160,6 +164,18 @@ describe("scheduled handler Sentry integration", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("surfaces an unresolved Minimo error even when the sweep is partial", async () => {
+    vi.mocked(runMinimoSync).mockResolvedValueOnce({ mode: "apply", stores: [{
+      storeId: "kyoto", outcome: "partial", error: "minimo_write_review_required",
+      dates: 30, imported: 0, updated: 0, cancelled: 0, conflicts: 0, closed: 0, reopened: 0
+    }] });
+    const { ctx } = createMockCtx();
+    await expect(workerHandlers.scheduled(
+      { cron: "*/10 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() },
+      { ...mockEnv, MINIMO_SYNC_MODE: "apply" }, ctx
+    )).rejects.toThrow("minimo_sync_incomplete");
   });
 
   // D5: scheduled handler returns aggregated promise

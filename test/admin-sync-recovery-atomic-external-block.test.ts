@@ -187,6 +187,51 @@ describe("resolveAdminGoogleConflict — atomic external_block cancel", () => {
     expect(locks.c).toBe(0);
   });
 
+  it("preserves manual recovery of admin and system-revert blocks", async () => {
+    db = createMigratedSqliteD1();
+    insertAdminUser(db);
+    for (const source of ["admin_block", "system_revert"]) {
+      insertExternalBlockWithLocks(db, { blockId: source, googleEventId: `event_${source}`, slotCount: 0 });
+      db.sqlite.prepare("UPDATE external_blocks SET source=? WHERE id=?").run(source, source);
+      insertConflict(db, { conflictId: `conflict_${source}`, googleEventId: `event_${source}`, externalBlockId: source });
+      const result = await resolveAdminGoogleConflict({
+        ...baseInput({ db: db as unknown as D1Database, conflictId: `conflict_${source}` }),
+        request: { idempotencyKey: `cancel_${source}`, cancelExternalBlock: true }
+      } as Parameters<typeof resolveAdminGoogleConflict>[0]);
+      expect(result.ok).toBe(true);
+      expect(db.sqlite.prepare("SELECT status FROM external_blocks WHERE id=?").get(source)).toEqual({ status: "cancelled" });
+    }
+  });
+
+  it.each([false, true])("protects Minimo blocks (source changes during batch: %s) and retains every conflict and lock", async (race) => {
+    db = createMigratedSqliteD1();
+    insertAdminUser(db);
+    insertExternalBlockWithLocks(db, { blockId: "managed_block", googleEventId: "managed_event", slotCount: 2 });
+    insertConflict(db, { conflictId: "conflict_atomic_1", googleEventId: "managed_event", externalBlockId: "managed_block" });
+    const changeSource = () => db.sqlite.prepare("UPDATE external_blocks SET source='minimo',minimo_reservation_id='booking',minimo_staff_id='staff' WHERE id='managed_block'").run();
+    if (!race) changeSource();
+    const recoveryDb = race ? {
+      prepare: (sql: string) => db.prepare(sql),
+      batch: (statements: D1PreparedStatement[]) => {
+        changeSource();
+        return db.batch(statements);
+      }
+    } : db;
+    const result = await resolveAdminGoogleConflict({
+      ...baseInput({ db: recoveryDb as unknown as D1Database }),
+      request: { idempotencyKey: "minimo-cancel", cancelExternalBlock: true }
+    } as Parameters<typeof resolveAdminGoogleConflict>[0]);
+    expect(result).toEqual({ ok: false, reason: race ? "write_failed" : "invalid_transition" });
+    expect(db.sqlite.prepare(`SELECT
+      (SELECT status FROM external_blocks WHERE id='managed_block') AS status,
+      (SELECT resolution_status FROM google_calendar_conflicts WHERE id='conflict_atomic_1') AS resolution,
+      (SELECT COUNT(*) FROM slot_locks WHERE owner_id='managed_block') AS locks,
+      (SELECT COUNT(*) FROM slot_lock_history WHERE old_owner_id='managed_block' AND action='released') AS history,
+      (SELECT COUNT(*) FROM audit_logs WHERE target_id='conflict_atomic_1') AS audits,
+      (SELECT COUNT(*) FROM idempotency_keys WHERE idempotency_key='minimo-cancel') AS idempotency`).get())
+      .toEqual({ status: "active", resolution: "open", locks: 2, history: 0, audits: 0, idempotency: 0 });
+  });
+
   it("rejects cancelExternalBlock when conflict_type is not external_block_event_deleted", async () => {
     db = createMigratedSqliteD1();
     insertAdminUser(db);
