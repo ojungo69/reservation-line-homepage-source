@@ -47,6 +47,15 @@ describe("Minimo imported bookings", () => {
     expect(await applyInboundDay(db as unknown as D1Database, account, day, lease, "apply", () => now))
       .toEqual({ imported: 0, updated: 0, cancelled: 0, conflicts: 0 });
     expect((db.sqlite.prepare("SELECT COUNT(*) AS n FROM external_blocks WHERE source = 'minimo'").get() as { n: number }).n).toBe(0);
+    // A confirmed import that the day later shows as held keeps its block and locks.
+    const confirmed = { ...day, entries: [{ ...day.entries[0], reservations: [booking] }] };
+    expect((await applyInboundDay(db as unknown as D1Database, account, confirmed, lease, "apply", () => now)).imported).toBe(1);
+    const locks = () => (db.sqlite.prepare("SELECT COUNT(*) AS n FROM slot_locks").get() as { n: number }).n;
+    const before = locks();
+    expect(await applyInboundDay(db as unknown as D1Database, account, day, lease, "apply", () => now))
+      .toEqual({ imported: 0, updated: 0, cancelled: 0, conflicts: 0 });
+    expect(db.sqlite.prepare("SELECT status FROM external_blocks WHERE source = 'minimo'").all()).toEqual([{ status: "active" }]);
+    expect(locks()).toBe(before);
     db.sqlite.close();
   });
 });

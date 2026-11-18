@@ -324,8 +324,8 @@ describe("Minimo four-store synchronization", () => {
     const f = fixture("apply");
     f.booking("13:00", status);
     const result = await runMinimoSync({ ...f, db: f.db as unknown as D1Database });
-    expect(result.stores.map((store) => store.error)).not.toContain("minimo_unknown_reservation_status");
-    expect(result.stores.every((store) => store.outcome === "complete")).toBe(true);
+    // closed: 1 is the same day's closure the default fixture makes, so the write phase ran on the held day.
+    for (const store of result.stores) expect(store).toMatchObject({ outcome: "complete", imported: 0, closed: 1 });
     expect((f.db.sqlite.prepare("SELECT COUNT(*) AS n FROM external_blocks WHERE source = 'minimo'").get() as { n: number }).n).toBe(0);
     f.db.sqlite.close();
   });
