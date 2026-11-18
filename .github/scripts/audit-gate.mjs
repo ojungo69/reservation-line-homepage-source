@@ -100,29 +100,33 @@ export function auditEnvironment(env) {
   return clean;
 }
 
+function validateEntry(entry) {
+  if (!isRecord(entry)) throw new Error('allowlist entry must be an object');
+  for (const key of Object.keys(entry)) if (!ENTRY_FIELDS.has(key)) throw new Error(`allowlist entry has unknown field ${key}`);
+  if (typeof entry.id !== 'string' || !GHSA.test(entry.id)) throw new Error(`allowlist entry has invalid id ${String(entry.id)}`);
+  const label = entry.id;
+  if (typeof entry.package !== 'string' || !PACKAGE.test(entry.package)) throw new Error(`${label}: invalid package`);
+  if (!Array.isArray(entry.targets) || entry.targets.length === 0 || new Set(entry.targets).size !== entry.targets.length
+    || !entry.targets.every(target => TARGETS.includes(target))) {
+    throw new Error(`${label}: invalid targets`);
+  }
+  if (!BLOCKING.has(entry.maxSeverity)) throw new Error(`${label}: invalid maxSeverity`);
+  if (!isCalendarDate(entry.expires)) throw new Error(`${label}: invalid expires`);
+  if (typeof entry.reason !== 'string' || entry.reason.trim() === '') throw new Error(`${label}: invalid reason`);
+}
+
 export function validateAllowlist(entries) {
   if (!Array.isArray(entries)) throw new Error('allowlist must be an array');
   const seen = new Set();
   for (const entry of entries) {
-    if (!isRecord(entry)) throw new Error('allowlist entry must be an object');
-    for (const key of Object.keys(entry)) if (!ENTRY_FIELDS.has(key)) throw new Error(`allowlist entry has unknown field ${key}`);
-    if (typeof entry.id !== 'string' || !GHSA.test(entry.id)) throw new Error(`allowlist entry has invalid id ${String(entry.id)}`);
-    const label = entry.id;
-    if (typeof entry.package !== 'string' || !PACKAGE.test(entry.package)) throw new Error(`${label}: invalid package`);
-    if (!Array.isArray(entry.targets) || entry.targets.length === 0 || new Set(entry.targets).size !== entry.targets.length
-      || !entry.targets.every(target => TARGETS.includes(target))) {
-      throw new Error(`${label}: invalid targets`);
-    }
-    if (!BLOCKING.has(entry.maxSeverity)) throw new Error(`${label}: invalid maxSeverity`);
-    if (!isCalendarDate(entry.expires)) throw new Error(`${label}: invalid expires`);
-    if (typeof entry.reason !== 'string' || entry.reason.trim() === '') throw new Error(`${label}: invalid reason`);
+    validateEntry(entry);
     const key = `${entry.id}\u0000${entry.package}`;
-    if (seen.has(key)) throw new Error(`${label}: duplicate entry for ${entry.package}`);
+    if (seen.has(key)) throw new Error(`${entry.id}: duplicate entry for ${entry.package}`);
     seen.add(key);
   }
 }
 
-function validateReport(report) {
+function reportedVulnerabilities(report) {
   // npm reports its own failures (network, devEngines) as JSON with exit 1.
   if (isRecord(report) && isRecord(report.error)) {
     const summary = String(report.error.summary ?? '').split('\n')[0];
@@ -131,58 +135,98 @@ function validateReport(report) {
   if (!isRecord(report) || report.auditReportVersion !== 2) {
     throw new Error(`npm audit report has unsupported auditReportVersion ${String(report?.auditReportVersion)}`);
   }
-  const { vulnerabilities } = report;
   // npm still prints well-formed JSON when its audit endpoint fails, so a
   // missing object means "no audit happened", not "nothing was found".
-  if (!isRecord(vulnerabilities)) throw new Error('npm audit report has no vulnerabilities object');
-  const counts = { info: 0, low: 0, moderate: 0, high: 0, critical: 0, total: 0 };
-  for (const [name, record] of Object.entries(vulnerabilities)) {
-    if (!isRecord(record) || !isSeverity(record.severity) || !Array.isArray(record.via)) {
-      throw new Error(`npm audit report: ${name} has an invalid record`);
-    }
-    for (const element of record.via) {
-      if (typeof element === 'string') {
-        if (!Object.hasOwn(vulnerabilities, element)) throw new Error(`npm audit report: ${name} references ${element}, which is not in the report`);
-      } else if (!isRecord(element) || !isSeverity(element.severity) || typeof element.name !== 'string'
-        || !GHSA.test(advisoryId(element.url))) {
-        throw new Error(`npm audit report: ${name} has an invalid advisory`);
-      }
-    }
-    counts[record.severity] += 1;
-    counts.total += 1;
+  if (!isRecord(report.vulnerabilities)) throw new Error('npm audit report has no vulnerabilities object');
+  return report.vulnerabilities;
+}
+
+function validateRecord(name, record, vulnerabilities) {
+  if (!isRecord(record) || !isSeverity(record.severity) || !Array.isArray(record.via)) {
+    throw new Error(`npm audit report: ${name} has an invalid record`);
   }
-  const summary = report.metadata?.vulnerabilities;
+  for (const element of record.via) {
+    if (typeof element === 'string') {
+      if (!Object.hasOwn(vulnerabilities, element)) throw new Error(`npm audit report: ${name} references ${element}, which is not in the report`);
+    } else if (!isRecord(element) || !isSeverity(element.severity) || typeof element.name !== 'string'
+      || !GHSA.test(advisoryId(element.url))) {
+      throw new Error(`npm audit report: ${name} has an invalid advisory`);
+    }
+  }
+}
+
+function assertSummaryCounts(summary, counts) {
   if (!isRecord(summary)) throw new Error('npm audit report has no metadata.vulnerabilities counts');
   for (const [key, value] of Object.entries(counts)) {
     if (summary[key] !== value) throw new Error(`npm audit report metadata ${key} is ${String(summary[key])} but the records count ${value}`);
   }
-  // Every element is valid at this point. A high/critical package must still
-  // resolve to a high/critical advisory: its own, or one reached by following
-  // `via` names. Visited names stop a reference cycle from spinning.
-  const reachesBlocking = (name, seen) => {
-    if (seen.has(name)) return false;
-    seen.add(name);
-    return vulnerabilities[name].via.some(element =>
-      typeof element === 'string' ? reachesBlocking(element, seen) : BLOCKING.has(element.severity));
-  };
+}
+
+// Called once every element is valid. A high/critical package must still
+// resolve to a high/critical advisory: its own, or one reached by following
+// `via` names. Visited names stop a reference cycle from spinning.
+function reachesBlocking(vulnerabilities, name, seen) {
+  if (seen.has(name)) return false;
+  seen.add(name);
+  return vulnerabilities[name].via.some(element =>
+    typeof element === 'string' ? reachesBlocking(vulnerabilities, element, seen) : BLOCKING.has(element.severity));
+}
+
+// npm sets a record to the highest severity among its advisories. An advisory
+// reached through a dependency is never above that dependency's own severity,
+// so a record sits at or above each own advisory and at or below the highest
+// of its own advisories and its dependencies.
+function severityAgrees(record, vulnerabilities) {
+  const rank = SEVERITY_RANK[record.severity];
+  const own = record.via.filter(element => typeof element !== 'string').map(element => SEVERITY_RANK[element.severity]);
+  const reach = record.via.map(element => SEVERITY_RANK[typeof element === 'string' ? vulnerabilities[element].severity : element.severity]);
+  return !own.some(value => value > rank) && rank <= Math.max(...reach);
+}
+
+function validateReport(report) {
+  const vulnerabilities = reportedVulnerabilities(report);
+  const counts = { info: 0, low: 0, moderate: 0, high: 0, critical: 0, total: 0 };
   for (const [name, record] of Object.entries(vulnerabilities)) {
-    if (BLOCKING.has(record.severity) && !reachesBlocking(name, new Set())) {
+    validateRecord(name, record, vulnerabilities);
+    counts[record.severity] += 1;
+    counts.total += 1;
+  }
+  assertSummaryCounts(report.metadata?.vulnerabilities, counts);
+  for (const [name, record] of Object.entries(vulnerabilities)) {
+    if (BLOCKING.has(record.severity) && !reachesBlocking(vulnerabilities, name, new Set())) {
       throw new Error(`npm audit report: ${name} reaches no high or critical advisory`);
     }
   }
-  // npm sets a record to the highest severity among its advisories. An advisory
-  // reached through a dependency is never above that dependency's own severity,
-  // so a record sits at or above each own advisory and at or below the highest
-  // of its own advisories and its dependencies.
   for (const [name, record] of Object.entries(vulnerabilities)) {
-    const rank = SEVERITY_RANK[record.severity];
-    const own = record.via.filter(element => typeof element !== 'string').map(element => SEVERITY_RANK[element.severity]);
-    const reach = record.via.map(element => SEVERITY_RANK[typeof element === 'string' ? vulnerabilities[element].severity : element.severity]);
-    if (own.some(value => value > rank) || rank > Math.max(...reach)) {
+    if (!severityAgrees(record, vulnerabilities)) {
       throw new Error(`npm audit report: ${name} has severity ${record.severity}, which disagrees with its advisories`);
     }
   }
   return vulnerabilities;
+}
+
+function addBlocking(blocking, id, severity, name) {
+  const found = blocking.get(id) ?? { advisory: id, severity, packages: new Set() };
+  if (SEVERITY_RANK[severity] > SEVERITY_RANK[found.severity]) found.severity = severity;
+  found.packages.add(name);
+  blocking.set(id, found);
+}
+
+// Judge each advisory on its own severity: the package-level one is the
+// maximum over every advisory hitting the package. Matching entries go to `used`.
+function blockingAdvisories(vulnerabilities, covering, used) {
+  const blocking = new Map();
+  for (const [name, record] of Object.entries(vulnerabilities)) {
+    for (const element of record.via) {
+      if (typeof element === 'string' || !BLOCKING.has(element.severity)) continue;
+      const id = advisoryId(element.url);
+      const entry = covering.find(candidate => candidate.id === id && candidate.package === name && element.name === name
+        && SEVERITY_RANK[element.severity] <= SEVERITY_RANK[candidate.maxSeverity]);
+      if (entry) used.add(entry);
+      else addBlocking(blocking, id, element.severity, name);
+    }
+  }
+  return blocking;
 }
 
 /**
@@ -199,25 +243,7 @@ export function evaluateAudit(report, { target, today, allowlist }) {
   const vulnerabilities = validateReport(report);
   const covering = allowlist.filter(entry => entry.targets.includes(target));
   const used = new Set();
-  const blocking = new Map();
-  for (const [name, record] of Object.entries(vulnerabilities)) {
-    for (const element of record.via) {
-      // Judge each advisory on its own severity: the package-level one is the
-      // maximum over every advisory hitting the package.
-      if (typeof element === 'string' || !BLOCKING.has(element.severity)) continue;
-      const id = advisoryId(element.url);
-      const entry = covering.find(candidate => candidate.id === id && candidate.package === name && element.name === name
-        && SEVERITY_RANK[element.severity] <= SEVERITY_RANK[candidate.maxSeverity]);
-      if (entry) {
-        used.add(entry);
-        continue;
-      }
-      const found = blocking.get(id) ?? { advisory: id, severity: element.severity, packages: new Set() };
-      if (SEVERITY_RANK[element.severity] > SEVERITY_RANK[found.severity]) found.severity = element.severity;
-      found.packages.add(name);
-      blocking.set(id, found);
-    }
-  }
+  const blocking = blockingAdvisories(vulnerabilities, covering, used);
   if (blocking.size > 0) {
     return [...blocking.values()]
       .sort((a, b) => a.advisory.localeCompare(b.advisory))
