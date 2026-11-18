@@ -43,11 +43,12 @@ export function planOutboundDay(
     if (!entry) {
       throw new Error("minimo_staff_missing");
     }
-    // A status other than confirmed 1/2 or cancelled 11/12 may still hold the slot, so stop before reopening it.
-    if (entry.reservations.some((reservation) => reservation.status === "ignored")) {
+    // An unknown status, or a held one without a readable time, may still hold a slot, so stop before reopening it.
+    if (entry.reservations.some((reservation) => reservation.status === "ignored"
+      || (reservation.status === "held" && (!reservation.startAt || !reservation.endAt)))) {
       throw new Error("minimo_unknown_reservation_status");
     }
-    if (entry.reservations.some((reservation) => reservation.status === "confirmed"
+    if (entry.reservations.some((reservation) => (reservation.status === "confirmed" || reservation.status === "held")
       && reservation.startAt && reservation.endAt
       && Date.parse(reservation.endAt) - Date.parse(reservation.startAt) > mapping.maxDurationMinutes * 60_000)) {
       throw new Error("minimo_duration_exceeds_mapping");
@@ -83,7 +84,7 @@ export function planOutboundDay(
           (!interval.reopenOnly || !current.has(slot))
           && (interval.resourceId === null || interval.resourceId === mapping.resourceId) && overlaps(start, end, interval));
       const remoteBusy = !current.has(slot) && entry.reservations.some((reservation) =>
-        reservation.status === "confirmed" && reservation.startAt && reservation.endAt
+        (reservation.status === "confirmed" || reservation.status === "held") && reservation.startAt && reservation.endAt
         && overlaps(start, end, { resourceId: mapping.resourceId, startAt: reservation.startAt, endAt: reservation.endAt }));
       if (available && !remoteBusy) {
         openSlots.push(slot);

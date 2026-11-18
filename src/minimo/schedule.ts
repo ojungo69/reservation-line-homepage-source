@@ -3,7 +3,8 @@ import { parseDateJstToUtcIso } from "../date-parse";
 export type MinimoReservation = {
   id: string;
   staffId: string;
-  status: "confirmed" | "cancelled" | "ignored";
+  // held: negotiation 0/3 or treated 10 in a daily schedule; never imported, but its time may still be occupied.
+  status: "confirmed" | "held" | "cancelled" | "ignored";
   startAt: string | null;
   endAt: string | null;
 };
@@ -64,12 +65,24 @@ function validateReservationArtist(profile: unknown, staffId: string): void {
   }
 }
 
-function reservationStatus(value: unknown): MinimoReservation["status"] {
-  let status: number | null = null;
-  if (typeof value === "number") status = value;
-  else if (typeof value === "string" && /^\d{1,4}$/.test(value)) status = Number(value);
+function statusCode(value: unknown): number | null {
+  if (typeof value === "number") return value;
+  return typeof value === "string" && /^\d{1,4}$/.test(value) ? Number(value) : null;
+}
+
+function reservationStatus(value: unknown): "confirmed" | "cancelled" | "ignored" {
+  const status = statusCode(value);
   if (status === 1 || status === 2) return "confirmed";
   return status === 11 || status === 12 ? "cancelled" : "ignored";
+}
+
+function reservationTimes(reservation: Record<string, unknown>, date: string): { startAt: string; endAt: string } {
+  const startAt = dateTime(reservation.visit_datetime, date);
+  const duration = object(reservation.new_menu_entity).time_required;
+  if (typeof duration !== "number" || !Number.isInteger(duration)
+    || duration < 5 || duration > 720 || duration % 5 !== 0) invalid();
+  if (reservation.time_required !== undefined && reservation.time_required !== duration) throw new MinimoDurationMismatch();
+  return { startAt, endAt: new Date(Date.parse(startAt) + duration * 60_000).toISOString() };
 }
 
 export function parseMinimoSchedule(value: unknown, date: string): MinimoSchedule {
@@ -95,14 +108,13 @@ export function parseMinimoSchedule(value: unknown, date: string): MinimoSchedul
       seenReservations.add(id);
       validateReservationArtist(reservation.artist_profile, staffId);
       const kind = reservationStatus(reservation.status);
+      if (kind === "ignored" && [0, 3, 10].includes(statusCode(reservation.status) ?? -1)) {
+        // An unreadable time leaves startAt null, which makes planOutboundDay hold the whole day.
+        try { return { id, staffId, status: "held", ...reservationTimes(reservation, date) }; }
+        catch { return { id, staffId, status: "held", startAt: null, endAt: null }; }
+      }
       if (kind !== "confirmed") return { id, staffId, status: kind, startAt: null, endAt: null };
-      const startAt = dateTime(reservation.visit_datetime, date);
-      const duration = object(reservation.new_menu_entity).time_required;
-      if (typeof duration !== "number" || !Number.isInteger(duration)
-        || duration < 5 || duration > 720 || duration % 5 !== 0) invalid();
-      if (reservation.time_required !== undefined && reservation.time_required !== duration) throw new MinimoDurationMismatch();
-      return { id, staffId, status: kind, startAt,
-        endAt: new Date(Date.parse(startAt) + duration * 60_000).toISOString() };
+      return { id, staffId, status: kind, ...reservationTimes(reservation, date) };
     });
     return { staffId, openSlots, reservations };
   });

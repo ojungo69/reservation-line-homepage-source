@@ -320,9 +320,19 @@ describe("Minimo four-store synchronization", () => {
     f.db.sqlite.close();
   });
 
+  it.each([3, 10])("keeps syncing when a day reservation with status %i has a readable time, without importing it", async (status) => {
+    const f = fixture("apply");
+    f.booking("13:00", status);
+    const result = await runMinimoSync({ ...f, db: f.db as unknown as D1Database });
+    expect(result.stores.map((store) => store.error)).not.toContain("minimo_unknown_reservation_status");
+    expect(result.stores.every((store) => store.outcome === "complete")).toBe(true);
+    expect((f.db.sqlite.prepare("SELECT COUNT(*) AS n FROM external_blocks WHERE source = 'minimo'").get() as { n: number }).n).toBe(0);
+    f.db.sqlite.close();
+  });
+
   it("stops availability writes when a day reservation has a status it does not know", async () => {
     const f = fixture("apply");
-    f.booking("13:00", 3);
+    f.booking("13:00", 99);
     const result = await runMinimoSync({ ...f, db: f.db as unknown as D1Database });
     for (const store of result.stores) expect(store).toMatchObject({ outcome: "attention",
       error: "minimo_unknown_reservation_status" });

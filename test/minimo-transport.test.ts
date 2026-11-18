@@ -161,6 +161,19 @@ describe("Minimo schedule parsing", () => {
     ]);
   });
 
+  it("keeps the time of negotiating and treated reservations and drops only an unreadable one", () => {
+    const valid = rawSchedule().entries[0].reservation[0] as Record<string, unknown>;
+    expect(parseMinimoSchedule(rawSchedule([0, 3, 10].map((status) => ({ ...valid, reservation_id: `held-${status}`, status }))),
+      "2026-10-01").entries[0].reservations).toEqual([0, 3, 10].map((status) => ({ id: `held-${status}`, staffId: "artist-test",
+      status: "held", startAt: "2026-10-01T00:00:00.000Z", endAt: "2026-10-01T01:30:00.000Z" })));
+    expect(parseMinimoSchedule(rawSchedule([
+      { reservation_id: "held-no-time", status: 3 },
+      { ...valid, reservation_id: "held-bad-menu", status: 10, new_menu_entity: { time_required: 91 } },
+      { ...valid, reservation_id: "held-mismatch", status: "0", time_required: 120 }
+    ]), "2026-10-01").entries[0].reservations).toEqual(["held-no-time", "held-bad-menu", "held-mismatch"]
+      .map((id) => ({ id, staffId: "artist-test", status: "held", startAt: null, endAt: null })));
+  });
+
   it("rejects incomplete schedules and invalid appointments instead of guessing", () => {
     const valid = rawSchedule().entries[0].reservation[0] as Record<string, unknown>;
     for (const reservation of [

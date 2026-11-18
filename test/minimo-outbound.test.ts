@@ -65,6 +65,24 @@ describe("Minimo availability ownership", () => {
     expect(planOutboundDay(account, withReservation("unmapped"), { ...inputs, intervals: [] }, null, now).changed).toBe(false);
   });
 
+  it("keeps negotiating and treated reservations busy without stopping the day's other writes", () => {
+    const closed = planOutboundDay(account, schedule, inputs, null, now);
+    const previous = { snapshot: closed.schedule, owned: closed.owned };
+    const held = (startAt: string | null, endAt: string | null) => ({ ...closed.schedule, entries: closed.schedule.entries.map((entry) =>
+      entry.staffId === "artist-1"
+        ? { ...entry, reservations: [{ id: "remote-held", staffId: "artist-1", status: "held" as const, startAt, endAt }] }
+        : entry) });
+    const busyLater = { ...inputs, intervals: [{ resourceId: "resource-osaka", startAt: at("03:30"), endAt: at("04:00") }] };
+    const plan = planOutboundDay(account, held(at("01:30"), at("02:30")), busyLater, previous, now);
+    expect(plan.reopened).toBe(0);
+    expect(plan.closed).toBe(1);
+    expect(plan.schedule.entries[0].openSlots).toEqual([]);
+    expect(() => planOutboundDay(account, held(null, null), busyLater, previous, now))
+      .toThrow("minimo_unknown_reservation_status");
+    expect(() => planOutboundDay(account, held(at("01:00"), at("03:00")), busyLater, previous, now))
+      .toThrow("minimo_duration_exceeds_mapping");
+  });
+
   it("honors closed days and ignores another resource's busy interval", () => {
     expect(planOutboundDay(account, schedule, { intervals: [], hours: [] }, null, now).closed).toBe(2);
     expect(planOutboundDay(account, schedule,

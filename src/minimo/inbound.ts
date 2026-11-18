@@ -97,7 +97,8 @@ async function writeImport(
 
 async function applyReservation(context: ImportContext, reservation: MinimoReservation): Promise<keyof InboundResult | null> {
   const { db, account, mode, now } = context;
-  if (reservation.status === "ignored") return null;
+  // Only confirmed and cancelled rows import or release; held and unknown rows never change imports.
+  if (reservation.status !== "confirmed" && reservation.status !== "cancelled") return null;
   const mapping = account.staff.find((staff) => staff.rimaUserId === reservation.staffId);
   if (!mapping) return null;
   const existing = await db.prepare(`SELECT id, resource_id, minimo_staff_id, start_at, end_at, status
