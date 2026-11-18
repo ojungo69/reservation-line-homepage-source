@@ -1,0 +1,22 @@
+test/minimo-transport.test.ts
+  s_915ac6f557639e::t_ccf63eb859fd19 281-285,290
+src/minimo/client.ts
+  s_915ac6f557639e::t_9569111dff317d 261,266
+  s_915ac6f557639e::t_46feb43adcc97c 228-229,235,239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a535cb6c199ca6a5ea5a3f08170fbc04b598aef5",
+  "prompts": {},
+  "sessions": {
+    "s_915ac6f557639e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "81c2d7e1-5c31-46e2-b576-161ecf8c3681",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
