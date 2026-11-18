@@ -32,7 +32,7 @@ CI も同じ standalone helper を使います。取得済み npm の lock に�
 
 `npm run audit:root` と `npm run audit:admin` は `.github/scripts/audit-gate.mjs` を実行します。
 
-- **監査の範囲**: このリポジトリにコミットされた lockfile を、npm の公式レジストリに問い合わせて監査します。dev・optional・peer を含むすべての依存が対象です。`npm run audit:*` はこのリポジトリの中で実行します（外からなら `npm --prefix <checkout> run audit:root`）。ゲート本体（`node .github/scripts/audit-gate.mjs`）は、どのフォルダから実行しても、また親フォルダの `package.json` がこのリポジトリを workspace に含めていても、このリポジトリの lockfile を監査します。
+- **監査の範囲**: このリポジトリにコミットされた lockfile を、npm の公式レジストリに問い合わせて監査します。dev・optional・peer を含むすべての依存が対象です。`npm run audit:*` はこのリポジトリの中で実行します（外からなら `npm --prefix <checkout> run audit:root`）。ゲート本体を直接実行するときは、`node <checkout>/.github/scripts/audit-gate.mjs root`（管理画面は `admin-app`）のように対象を指定します。どのフォルダから実行しても、また親フォルダの `package.json` がこのリポジトリを workspace に含めていても、このリポジトリの lockfile を監査します。
 - **設定に左右されない**: ユーザー設定、マシン全体の設定、環境変数にある npm の設定は使いません（`--userconfig=/dev/null` と、存在しないファイルを指す `--globalconfig` を指定し、`npm_config_*` と `NODE_ENV` を取り除きます）。読み込む設定ファイルは、プロジェクトの `.npmrc` と npm 本体に付属する設定だけです。プロジェクトの `.npmrc` は、引数で上書きしない設定（プロキシや証明書など）でも結果を変えられるため、レビュー済みのファイルとして扱います（今の中身は `engine-strict=true` だけです）。そのうえで、結果を変える設定（オフライン、レジストリ、lockfile の扱い、監査する依存の種類）はコマンドの引数で上書きします。npm のキャッシュには毎回新しい空のフォルダを使い、終わったら消します。古いキャッシュは advisory の深刻度を古い値のまま返すためです。
 - **失敗する条件**: 例外（下の `ALLOWED_ADVISORIES`）に一致しない high または critical の advisory が 1 件でもあれば失敗します。次の場合も失敗します。
   - npm が監査を完了できなかった場合。npm のエラーの内容を表示します。
