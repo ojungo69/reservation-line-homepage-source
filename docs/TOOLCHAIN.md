@@ -27,3 +27,20 @@ CI も同じ standalone helper を使います。取得済み npm の lock に�
 この変更で @types/node 26、Wrangler compatibility_date、override や AST alias の判断を解決済みとは扱いません。Linux x64 のローカル検証と ARM64 の実 CI 証拠は別に扱います。
 
 すべての setup-node ステップは `package-manager-cache: false` を指定し、明示的な `cache` 入力も省略します。Node 単独の Sonar / 監視ジョブも対象です。配布版に同梱された npm が helper より前に `npm config get cache` を実行すると、プロジェクトの npm 12.2.2 契約で拒否されるためです。Node バイナリを再利用する runner の tool cache は引き続き使います。
+
+## 依存の監査
+
+`npm run audit:root` と `npm run audit:admin` は `.github/scripts/audit-gate.mjs` を実行します。
+
+- **監査の範囲**: このリポジトリにコミットされた lockfile を、npm の公式レジストリに問い合わせて監査します。dev・optional・peer を含むすべての依存が対象で、どのフォルダから実行しても同じ lockfile を監査します。
+- **設定に左右されない**: ユーザー設定と環境変数にある npm の設定は使いません（`--userconfig=/dev/null` を指定し、`npm_config_*` と `NODE_ENV` を取り除き、install script を無効にします）。プロジェクトとマシン全体の `.npmrc` は読み込まれますが、結果を変える設定（オフライン、レジストリ、lockfile の扱い、監査する依存の種類）はコマンドの引数で上書きします。npm のキャッシュには毎回新しい空のフォルダを使い、終わったら消します。古いキャッシュは advisory の深刻度を古い値のまま返すためです。
+- **失敗する条件**: high または critical の advisory が 1 件でもあれば失敗します。npm が監査を完了できなかった場合、レポートの形が崩れている場合、件数の集計とレコードが合わない場合も失敗します。
+- **守れない範囲**: 同じジョブで先に動くコード（依存パッケージのコマンド、npm の lifecycle script、このファイル自体の書き換え）からは守れません。これまでの `npm audit` と同じく、コードレビューで防ぎます。
+
+例外を書けるのは、同じファイルの `ALLOWED_ADVISORIES` だけです。
+
+- **項目の中身**: advisory ID、その advisory を持つパッケージ、対象（root と admin-app の一方または両方）、許す最大の深刻度、期限、理由を必ず書きます。
+- **承認**: 項目の追加と延長にはオーナーの承認が必要です。
+- **自動で失敗する条件**: 期限の当日以降になった項目と、監査に現れなくなった項目は失敗します。修正版が出たら依存を更新し、その項目を削除してください。
+
+現在の例外は GHSA-fc5q-39xc-vjpf（picomatch `<= 4.0.7`、修正版なし）の 1 件だけで、期限は 2026-12-18 です。picomatch はビルドとテストの道具の中でしか動かず、Worker と管理画面の配信物には含まれません。
