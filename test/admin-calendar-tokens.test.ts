@@ -105,10 +105,12 @@ const BACKDROPS = [
 ];
 
 // The floating parts (DESIGN.md §3: blur only on these), their material tier,
-// and the colors allowed on each. On the bar only body text is allowed:
-// cal-text-secondary and cal-primary text fall below 4.5:1 there over a block
-// (light: about 3.9 and 4.1), so primary appears on the bar only as a fill, an
-// icon or a focus ring. cal-outline is not allowed on the bar either (about
+// and the colors allowed on each. Text sitting directly on the bar's glass is
+// body color only (text on a primary fill, such as today's date, uses
+// cal-on-primary, an opaque pair checked above): cal-text-secondary and
+// cal-primary text fall below 4.5:1 on the glass over a block (light: about
+// 3.9 and 4.1), so primary appears on the bar only as a fill, an icon or a
+// focus ring. cal-outline is not allowed on the bar either (about
 // 2.9:1 light, 2.4:1 dark over a block): bar controls must be told apart by
 // their text or icon, never by their outline alone (DESIGN.md §3).
 const GLASS: Array<{ part: string; tier: string; colors: Array<[string, number]> }> = [
