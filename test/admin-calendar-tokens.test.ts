@@ -11,8 +11,9 @@ type Rgba = [number, number, number, number];
 type Theme = "light" | "dark";
 
 const css = readFileSync("public/glass-tokens.css", "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-// Token values count only in the unconditional :root block, where both stacks read them.
-const root = /^:root\s*\{([^{}]*)\}/m.exec(css)?.[1] ?? "";
+// Token values count only in the unconditional :root block that opens the file,
+// where both stacks read them (not one wrapped in an at-rule).
+const root = /^\s*:root\s*\{([^{}]*)\}/.exec(css)?.[1] ?? "";
 
 const parse = (value: string): Rgba => {
   const hex = /^#([0-9a-f]{6})$/i.exec(value);

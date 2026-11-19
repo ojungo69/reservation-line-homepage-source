@@ -412,17 +412,20 @@ describe("Monotone Liquid Glass shared token contract", () => {
   });
 
   it("declares every shared token inside the unconditional :root block", () => {
-    // A token moved under another selector keeps its value and count, so the
-    // set check above still passes while its active alias goes undefined.
-    const rootBody = (css: string) => /^:root\s*\{([^{}]*)\}/m.exec(css)?.[1] ?? "";
+    // A token moved under another selector or into an at-rule keeps its value
+    // and count, so the set check above still passes while its active alias
+    // goes undefined. The :root block must open the (comment-stripped) file.
+    const rootBody = (css: string) => /^\s*:root\s*\{([^{}]*)\}/.exec(css)?.[1] ?? "";
     const declared = (css: string) =>
       [...css.matchAll(/(?:^|[{;])\s*(--mg-[a-z0-9-]+)\s*:/gm)].map((match) => match[1]).sort();
     const stripped = stripCssComments(sharedCss);
     expect(declared(rootBody(stripped)).length).toBeGreaterThan(0);
     expect(declared(rootBody(stripped))).toEqual(declared(stripped));
-    // Red fixture: the same token under .dark is caught.
+    // Red fixtures: a token under .dark, and :root wrapped in @media, are caught.
     const moved = ":root {\n  --mg-a: #000;\n}\n.dark {\n  --mg-b: #fff;\n}";
     expect(declared(rootBody(moved))).not.toEqual(declared(moved));
+    const wrapped = "@media print {\n:root {\n  --mg-a: #000;\n}\n}";
+    expect(declared(rootBody(wrapped))).not.toEqual(declared(wrapped));
   });
 
   it("contains no purple accents, chromatic gradients, or ambient washes (001 must not leak in)", () => {

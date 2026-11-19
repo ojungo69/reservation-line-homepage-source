@@ -1,11 +1,13 @@
 # verify-tasks report
 
-- Date: 2026-11-19
-- Scope: branch (base `ac93d7cd1e1ce7a9b365886257dbfee1a4c9ca31` to HEAD `e365ebe9afd931b0c0582d6556ce831ce540754a`, detached worktree)
+- Date: 2026-11-20
+- Verified head SHA: `fa6775b4bcdadcb9f99bc56b4f4eb2d2ade49c60` (detached worktree `/home/jura/projects/rlh-source-wt/t004-review`)
+- Scope: branch (base `ac93d7cd1e1ce7a9b365886257dbfee1a4c9ca31` to HEAD). 4 commits: e365ebe, fc0cfb0, 2051581, fa6775b.
 - Feature dir: `specs/008-admin-calendar-ux`
-- Tasks verified: 1 (T004 only). This report verifies T004 only; earlier task reports live in git history.
+- Tasks verified: 1. This report verifies T004 only; earlier task reports live in git history.
+- Test result: `./node_modules/.bin/vitest run test/admin-calendar-tokens.test.ts test/design-tokens-parity.test.ts` passed (2 files, 38 tests; parity file alone 33). `npx` was not used.
 - Fresh session advisory: for maximum reliability, run verify-tasks in a separate agent session from the one that ran implement. This run used a fresh context.
-- Skipped by instruction: extension hooks, interactive walkthrough (flagged items listed below instead).
+- Skipped by instruction: extension hooks, interactive walkthrough (flagged items are listed below instead).
 
 ## Scorecard
 
@@ -22,29 +24,29 @@
 None.
 
 Notes for the reader (not flags):
-- The leaf aliases `--color-cal-*` and `--mg-active-cal-*` have no consumer yet. This is by design: the task says only the switch-on side reads them (T004b/T005). Layer 4 was therefore treated as not applicable (CSS tokens consumed by runtime/tooling).
-- Layer 5 tooling: `node_modules/.bin/vitest run test/design-tokens-parity.test.ts test/admin-calendar-tokens.test.ts` passed (2 files, 37 tests). `npx` failed with EBADDEVENGINES (npm 12.2.3 vs packageManager 12.2.2); the local binary was used instead.
+- The leaf aliases `--color-cal-*` and `--mg-active-cal-*` have no consumer in `admin-app/src`, `src` or `public` yet (grep for `bg|text|border|ring|fill|stroke-cal-`, `mg-active-cal`, `mg-cal-` outside the CSS token files and tests found nothing). This is by design: the task says only the switch-on side reads them (T004b/T005). Layer 4 was treated as not_applicable (CSS custom properties are consumed by the cascade).
+- "旧画面とそのテストは今のまま実行する" was not verified by running the full old-screen test suite in this run. Evidence is structural only: CSS diffs are additions only (`git diff --numstat`: glass-tokens.css 58/0, styles.css 20/0, index.css 39/0) and the 33 existing parity assertions still pass. Run the full suite in CI before merge.
+- `public/styles.css` remaps the dark pairs only under `@media (prefers-color-scheme: dark)` (no `data-theme` block exists in that file); this matches how the existing `--mg-active-*` tokens are remapped there.
 
 ## T004 per-layer detail
 
 | Layer | Result | Evidence |
 |---|---|---|
-| 1 File existence | positive | `public/glass-tokens.css`, `public/styles.css`, `admin-app/src/index.css`, `test/design-tokens-parity.test.ts`, `test/admin-calendar-tokens.test.ts`, `DESIGN.md` all present |
-| 2 Git diff cross-reference | positive | all of the above are in `git diff ac93d7c HEAD --stat` (glass-tokens +58, styles.css +20, index.css +39, parity test +75/-, new tokens test +157) |
-| 3 Content patterns | positive | 18 `--mg-cal-*` light, 18 `--mg-dark-cal-*` dark, 18 `--mg-active-cal-*` in `public/glass-tokens.css`; dark remap of all 18 in `public/styles.css` (media query) and `admin-app/src/index.css`; 18 `--color-cal-*` in the Tailwind `@theme` block of `admin-app/src/index.css`; no existing token value or class changed (diff is additions only in the three CSS files) |
-| 4 Dead-code | not_applicable | CSS custom properties are consumed by the cascade, not imported; unreferenced leaf aliases are intended per the task text |
-| 5 Semantic | positive | Parity test pins every new value, the dark remap (derived from `--mg-dark-*` names for both stacks) and the `--color-cal-*` mapping. `admin-calendar-tokens.test.ts` computes WCAG contrast (text 4.5, outline/icon 3) for opaque pairs in light and dark; checks the floating glass (top bar and add button on `glass-thick`, details on `glass-modal`) over every backdrop, with and without the `saturate()` boost read from the stylesheet; and checks the reduced-transparency/increased-contrast fallback (`--mg-paper-elevated`, matching the media blocks in `glass-tokens.css`). Interpretive: the bar allows only `cal-text` for text, matching the task and DESIGN.md §3. Old screens and their tests are untouched (parity test change is additive). |
+| 1 File existence | positive | `public/glass-tokens.css`, `public/styles.css`, `admin-app/src/index.css`, `test/design-tokens-parity.test.ts`, `test/admin-calendar-tokens.test.ts`, `DESIGN.md` all present. |
+| 2 Git diff cross-reference | positive | All of the above are in `git diff ac93d7c..HEAD --stat` (glass-tokens +58, styles.css +20, index.css +39, parity test +89/-1, new tokens test +177, DESIGN.md changed). |
+| 3 Content patterns | positive | 18 `--mg-cal-*` light, 18 `--mg-dark-cal-*` dark and 18 `--mg-active-cal-*` (light default) in `public/glass-tokens.css`. Dark remap of all 18 in `public/styles.css` (media query) and `admin-app/src/index.css` (`.dark`). 18 `--color-cal-*` in the Tailwind `@theme` block of `admin-app/src/index.css`, each mapped to `var(--mg-active-cal-*)`. |
+| 4 Dead-code | not_applicable | CSS tokens, consumed by cascade; no consumer yet is intended (see notes). |
+| 5 Semantic | positive | Parity test pins every new token value set, the dark remap, the `--color-cal-*` mapping, and a new check that all shared tokens live in the unconditional `:root` block (with a red fixture). `admin-calendar-tokens.test.ts` computes WCAG contrast for each light/dark opaque pair (text 4.5:1, outline/icon 3:1), and for glass tiers (top bar and add button `glass-thick`, details `glass-modal`) over every backdrop including saturation-boosted backdrops and the reduced-transparency opaque fallback (`paper-elevated`). Real assertions, not stubs. DESIGN.md §3 records the tier choice, body-color-only text on the bar glass, and no outline-only controls. |
 
 ## Verified items
 
 | Task | Verdict | Summary |
 |---|---|---|
-| T004 | ✅ VERIFIED | calendar tokens added to the shared CSS, mapped in both dark switches and the Tailwind `cal-*` names; parity and contrast tests exist and pass |
-
-## Machine-parseable verdicts
-
-| T004 | ✅ VERIFIED | tokens, dark remaps, Tailwind cal-* names, parity + contrast tests present and passing (37 tests) |
 
 ## Unassessable items (SKIPPED)
 
 None.
+
+## Verdict lines
+
+| T004 | ✅ VERIFIED | Calendar tokens (18 light/dark/active/color-cal) added additively; dark remaps in both stacks; parity and contrast tests pass (38/38) at fa6775b |
