@@ -2,14 +2,17 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-// Admin calendar V2 tokens (spec 008 T004, DESIGN.md §3-4, UX-22): every pair
-// the calendar paints keeps WCAG 2.x contrast in light and dark, including text
+// Admin calendar V2 tokens (spec 008 T004, DESIGN.md §3-4, UX-22): the pairs
+// DESIGN.md §3 assigns keep WCAG 2.x contrast in light and dark, including text
 // on the glass that floats over the scrolling grid, whatever block is beneath.
+// T005 adds the now line and block-edge pairs once it decides how they are drawn.
 
 type Rgba = [number, number, number, number];
 type Theme = "light" | "dark";
 
 const css = readFileSync("public/glass-tokens.css", "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+// Token values count only in the unconditional :root block, where both stacks read them.
+const root = /^:root\s*\{([^{}]*)\}/m.exec(css)?.[1] ?? "";
 
 const parse = (value: string): Rgba => {
   const hex = /^#([0-9a-f]{6})$/i.exec(value);
@@ -26,8 +29,8 @@ const parse = (value: string): Rgba => {
 // stacks remap the active aliases to.
 const color = (theme: Theme, name: string): Rgba => {
   const token = theme === "light" ? `--mg-${name}` : `--mg-dark-${name}`;
-  const match = new RegExp(`(?:^|[{;])\\s*${token}\\s*:\\s*([^;{}]+?)\\s*;`, "m").exec(css);
-  if (!match) throw new Error(`${token} is not declared in public/glass-tokens.css`);
+  const match = new RegExp(`(?:^|[{;])\\s*${token}\\s*:\\s*([^;{}]+?)\\s*;`, "m").exec(root);
+  if (!match) throw new Error(`${token} is not declared in the :root block of public/glass-tokens.css`);
   return parse(match[1]);
 };
 
@@ -110,9 +113,9 @@ const BACKDROPS = [
 // cal-on-primary, an opaque pair checked above): cal-text-secondary and
 // cal-primary text fall below 4.5:1 on the glass over a block (light: about
 // 3.9 and 4.1), so primary appears on the bar only as a fill, an icon or a
-// focus ring. cal-outline is not allowed on the bar either (about
-// 2.9:1 light, 2.4:1 dark over a block): bar controls must be told apart by
-// their text or icon, never by their outline alone (DESIGN.md §3).
+// focus ring. cal-outline may sit on the bar but never as a control's only
+// cue: it falls to about 2.9:1 (light) and 2.4:1 (dark) on the glass over a
+// block, so bar controls are told apart by their text or icon (DESIGN.md §3).
 const GLASS: Array<{ part: string; tier: string; colors: Array<[string, number]> }> = [
   { part: "top bar", tier: "glass-thick", colors: [["cal-text", TEXT], ["cal-primary", UI]] },
   { part: "add button", tier: "glass-thick", colors: [["cal-primary", UI]] },
@@ -136,8 +139,11 @@ describe("admin calendar V2 tokens", () => {
     expect(() => contrast(parse("rgba(60, 64, 67, 0)"), parse("#FFFFFF"))).toThrow(/opaque/);
     expect(over([255, 255, 255, 0.5], [0, 0, 0, 1])).toEqual([127.5, 127.5, 127.5, 1]);
     for (const { tier } of GLASS) expect(saturation(tier), tier).toBeGreaterThan(0);
-    // Grey has no saturation to boost.
+    // Grey has no saturation to boost; saturate(1) changes nothing; saturate(0)
+    // collapses a color to its luma (0.213 R + 0.715 G + 0.072 B).
     expect(saturate([128, 128, 128, 1], 1.8).map(Math.round)).toEqual([128, 128, 128, 1]);
+    expect(saturate([26, 115, 232, 1], 1).map(Math.round)).toEqual([26, 115, 232, 1]);
+    expect(saturate([255, 0, 0, 1], 0).map((v) => Number(v.toFixed(3)))).toEqual([54.315, 54.315, 54.315, 1]);
   });
 
   for (const theme of ["light", "dark"] as const) {

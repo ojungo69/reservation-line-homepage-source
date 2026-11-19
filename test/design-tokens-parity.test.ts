@@ -411,6 +411,20 @@ describe("Monotone Liquid Glass shared token contract", () => {
     expect(semicolonless.map((match) => [match[1], match[2].trim()])).toEqual([["--mg-paper", "#000"]]);
   });
 
+  it("declares every shared token inside the unconditional :root block", () => {
+    // A token moved under another selector keeps its value and count, so the
+    // set check above still passes while its active alias goes undefined.
+    const rootBody = (css: string) => /^:root\s*\{([^{}]*)\}/m.exec(css)?.[1] ?? "";
+    const declared = (css: string) =>
+      [...css.matchAll(/(?:^|[{;])\s*(--mg-[a-z0-9-]+)\s*:/gm)].map((match) => match[1]).sort();
+    const stripped = stripCssComments(sharedCss);
+    expect(declared(rootBody(stripped)).length).toBeGreaterThan(0);
+    expect(declared(rootBody(stripped))).toEqual(declared(stripped));
+    // Red fixture: the same token under .dark is caught.
+    const moved = ":root {\n  --mg-a: #000;\n}\n.dark {\n  --mg-b: #fff;\n}";
+    expect(declared(rootBody(moved))).not.toEqual(declared(moved));
+  });
+
   it("contains no purple accents, chromatic gradients, or ambient washes (001 must not leak in)", () => {
     for (const source of [sharedCss, publicCss, publicHtml, publicApp, customerJs, customerSsr, adminCss]) {
       const lowered = source.toLowerCase();
