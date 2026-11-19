@@ -37,6 +37,8 @@ const linear = (channel: number) => {
 };
 const luminance = ([r, g, b]: Rgba) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 const contrast = (a: Rgba, b: Rgba) => {
+  // Contrast is defined for opaque colors only; translucent ones go through over().
+  if (a[3] !== 1 || b[3] !== 1) throw new Error(`contrast needs opaque colors: ${a.join()} / ${b.join()}`);
   const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (high + 0.05) / (low + 0.05);
 };
@@ -50,10 +52,11 @@ const over = ([r, g, b, a]: Rgba, [br, bg, bb]: Rgba): Rgba => [
 ];
 
 // The glass classes also run saturate() on the backdrop (Filter Effects 1
-// matrix, clamped). Read the amount from the stylesheet so a change is checked.
-const SATURATE = Number(/\.glass-thick\s*\{[^}]*saturate\(([\d.]+)\)/.exec(css)?.[1]);
-const saturate = ([r, g, b]: Rgba): Rgba => {
-  const s = SATURATE;
+// matrix, clamped). Read each tier's amount from the stylesheet so a change to
+// one tier is checked against that tier.
+const saturation = (tier: string) =>
+  Number(new RegExp(`\\.${tier}\\s*\\{[^}]*saturate\\(([\\d.]+)\\)`).exec(css)?.[1]);
+const saturate = ([r, g, b]: Rgba, s: number): Rgba => {
   const clamp = (v: number) => Math.min(255, Math.max(0, v));
   return [
     clamp((0.213 + 0.787 * s) * r + (0.715 - 0.715 * s) * g + (0.072 - 0.072 * s) * b),
@@ -104,15 +107,23 @@ const BACKDROPS = [
 // The floating parts (DESIGN.md §3: blur only on these), their material tier,
 // and the colors allowed on each. On the bar only body text is allowed:
 // cal-text-secondary and cal-primary text fall below 4.5:1 there over a block
-// (light: about 3.9 and 4.1), so primary appears on the bar only as a fill or
-// an icon.
+// (light: about 3.9 and 4.1), so primary appears on the bar only as a fill, an
+// icon or a focus ring. cal-outline is not allowed on the bar either (about
+// 2.9:1 light, 2.4:1 dark over a block): bar controls must be told apart by
+// their text or icon, never by their outline alone (DESIGN.md §3).
 const GLASS: Array<{ part: string; tier: string; colors: Array<[string, number]> }> = [
   { part: "top bar", tier: "glass-thick", colors: [["cal-text", TEXT], ["cal-primary", UI]] },
   { part: "add button", tier: "glass-thick", colors: [["cal-primary", UI]] },
   {
     part: "details",
     tier: "glass-modal",
-    colors: [["cal-text", TEXT], ["cal-text-secondary", TEXT], ["cal-primary", TEXT], ["cal-alert", TEXT]]
+    colors: [
+      ["cal-text", TEXT],
+      ["cal-text-secondary", TEXT],
+      ["cal-primary", TEXT],
+      ["cal-alert", TEXT],
+      ["cal-outline", UI]
+    ]
   }
 ];
 
@@ -120,10 +131,11 @@ describe("admin calendar V2 tokens", () => {
   it("measures contrast with the WCAG formula", () => {
     expect(contrast([0, 0, 0, 1], [255, 255, 255, 1])).toBeCloseTo(21, 5);
     expect(contrast(parse("#FFFFFF"), parse("#1A73E8"))).toBeCloseTo(4.505, 3);
+    expect(() => contrast(parse("rgba(60, 64, 67, 0)"), parse("#FFFFFF"))).toThrow(/opaque/);
     expect(over([255, 255, 255, 0.5], [0, 0, 0, 1])).toEqual([127.5, 127.5, 127.5, 1]);
-    expect(SATURATE).toBeGreaterThan(0);
+    for (const { tier } of GLASS) expect(saturation(tier), tier).toBeGreaterThan(0);
     // Grey has no saturation to boost.
-    expect(saturate([128, 128, 128, 1]).map(Math.round)).toEqual([128, 128, 128, 1]);
+    expect(saturate([128, 128, 128, 1], 1.8).map(Math.round)).toEqual([128, 128, 128, 1]);
   });
 
   for (const theme of ["light", "dark"] as const) {
@@ -138,7 +150,7 @@ describe("admin calendar V2 tokens", () => {
         const glass = color(theme, `${tier}-bg`);
         for (const backdrop of BACKDROPS) {
           const fill = color(theme, backdrop);
-          for (const beneath of [fill, saturate(fill)]) {
+          for (const beneath of [fill, saturate(fill, saturation(tier))]) {
             const face = over(glass, beneath);
             for (const [fg, min] of colors) {
               expect(contrast(color(theme, fg), face), `${part}: ${fg} over ${backdrop}`).toBeGreaterThanOrEqual(min);
