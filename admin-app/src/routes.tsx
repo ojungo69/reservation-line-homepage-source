@@ -6,6 +6,8 @@ import { useAuth } from "@/hooks/use-auth";
 
 const SchedulePage = lazy(() => import("@/pages/schedule"));
 const ScheduleV2Page = lazy(() => import("@/pages/schedule-v2"));
+// Lazy so production, where the switch is always off, never downloads it.
+const AppShellV2 = lazy(() => import("@/components/shell-v2/app-shell-v2"));
 const ReservationsPage = lazy(() => import("@/pages/reservations"));
 const CustomersPage = lazy(() => import("@/pages/customers"));
 const StaffPage = lazy(() => import("@/pages/staff"));
@@ -34,11 +36,17 @@ function ScheduleRoute() {
   return useAuth().calendarV2 === true ? <ScheduleV2Page /> : <SchedulePage />;
 }
 
+// The same check picks the shell (specs/008 T004b), so the new calendar always
+// sits in the new shell and the current pages in the current one.
+function ShellRoute() {
+  return useAuth().calendarV2 === true ? <AppShellV2 /> : <AppShell />;
+}
+
 export function AppRoutes() {
   return (
     <Suspense fallback={<PageLoading />}>
       <Routes>
-        <Route element={<AppShell />}>
+        <Route element={<ShellRoute />}>
           <Route index element={<ScheduleRoute />} />
           <Route path="reservations" element={<ReservationsPage />} />
           <Route path="menu" element={<MenuPage />} />
