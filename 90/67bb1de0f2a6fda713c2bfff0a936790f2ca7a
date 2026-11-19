@@ -1,0 +1,33 @@
+specs/008-admin-calendar-ux/plan.md
+  s_d52c2d995f51c6::t_da0eda333ca8a4 20-30
+  s_d52c2d995f51c6::t_c5801ddc0ad345 3
+  s_d52c2d995f51c6::t_94c615954715c5 77-79
+DESIGN.md
+  s_d52c2d995f51c6::t_6c527b8226c785 90
+  s_d52c2d995f51c6::t_d488490c7781ec 108
+  s_d52c2d995f51c6::t_2eb843c0861a1b 64-66
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_fb7070d8ecb5c6 12-15
+  s_d52c2d995f51c6::t_6efa79830f0fcf 27-28
+specs/008-admin-calendar-ux/spec.md
+  s_d52c2d995f51c6::t_245a85183ddeed 3
+  s_d52c2d995f51c6::t_1678770e75cca8 13-25
+PRODUCT.md
+  s_d52c2d995f51c6::t_596c7427e28d7f 35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9067bb1de0f2a6fda713c2bfff0a936790f2ca7a",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
