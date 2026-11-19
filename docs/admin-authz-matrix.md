@@ -42,7 +42,7 @@
 
 | Endpoint | staff | owner | system_admin | 既存ガード位置 |
 |---|---|---|---|---|
-| `GET /api/admin/me` | ✅ 自分の email / role / staffMemberId / storeId と VAPID 公開鍵のみ | ✅ | ✅ | `authenticateAdmin` (access.ts)。role 分岐なし。local 環境は dev owner を返す。認可ゲートというより SPA のセッション確認用 |
+| `GET /api/admin/me` | ✅ 自分の email / role / staffMemberId / storeId、VAPID 公開鍵、新しい予定表の切り替え `calendarV2`（配備の設定。`ENVIRONMENT` が `staging` か `local` で `ADMIN_CALENDAR_V2_ENABLED` が `"true"` のときだけ true）のみ | ✅ | ✅ | `authenticateAdmin` (access.ts)。role 分岐なし。local 環境は dev owner を返す。認可ゲートというより SPA のセッション確認用 |
 
 ### 予約 (reservations)
 
