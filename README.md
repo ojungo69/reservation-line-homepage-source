@@ -10,6 +10,8 @@ Cloudflare Workers / Hono / D1、LINE、Google Calendar、React 管理画面で�
 
 ## 開発時の確認
 
+画面の設計基準は [DESIGN.md](DESIGN.md)、Googleカレンダーに近い管理画面・スマホとMacの操作計画は [specs/008-admin-calendar-ux](specs/008-admin-calendar-ux/spec.md) を参照してください。これらは目標仕様であり、文書の追加だけで新しい操作が実装されたことを意味しません。
+
 ```sh
 npm ci --ignore-scripts
 npm ci --ignore-scripts --prefix admin-app
