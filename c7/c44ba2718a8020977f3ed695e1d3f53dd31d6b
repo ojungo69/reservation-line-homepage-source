@@ -1,0 +1,21 @@
+specs/008-admin-calendar-ux/plan.md
+  s_d52c2d995f51c6::t_e84aa6d1e94f1c 22,24,27-29,31
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_228448826ef6fe 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c7c44ba2718a8020977f3ed695e1d3f53dd31d6b",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
