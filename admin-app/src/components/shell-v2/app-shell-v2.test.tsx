@@ -264,6 +264,19 @@ describe("AppShellV2 のフォーカス (UX-22)", () => {
     expect(document.activeElement).toBe(document.body);
   });
 
+  it("取り除くときに focusout を出すブラウザーでも、取り除かれた要素からはフォーカスを戻す", async () => {
+    renderShell();
+    const link = within(navs()[0]).getByRole("link", { name: "顧客" });
+    link.focus();
+    // Chrome can fire focusout (no related target) while it removes the focused
+    // element. The element is gone by the next microtask, so it stays recorded.
+    link.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+    link.remove();
+    await Promise.resolve();
+    setWide(false);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "メニュー" }));
+  });
+
   it("本文にフォーカスがある時は、画面の幅が変わってもフォーカスを動かさない", () => {
     renderShell();
     const pageButton = screen.getByRole("button", { name: "予定表のボタン" });
