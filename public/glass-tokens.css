@@ -71,6 +71,28 @@
   --mg-touch-target: 48px;
   --mg-touch-min: 44px;
 
+  /* Admin calendar V2 (spec 008, DESIGN.md §3). Only the switch-on side of the
+     admin calendar reads these; the public page and the current admin screens
+     never do. Contrast: test/admin-calendar-tokens.test.ts. */
+  --mg-cal-outer: #F8FAFD;
+  --mg-cal-surface: #FFFFFF;
+  --mg-cal-detail: #F0F4F9;
+  --mg-cal-text: #3C4043;
+  --mg-cal-text-secondary: #5F6368;
+  --mg-cal-primary: #0B57D0;
+  --mg-cal-on-primary: #FFFFFF;
+  --mg-cal-selected: #D3E3FD;
+  --mg-cal-on-selected: #0842A0;
+  --mg-cal-confirmed: #1A73E8;
+  --mg-cal-on-confirmed: #FFFFFF;
+  --mg-cal-pending: #FEF7E0;
+  --mg-cal-on-pending: #7A4D00;
+  --mg-cal-external: #137333;
+  --mg-cal-on-external: #FFFFFF;
+  --mg-cal-grid: #DADCE0;
+  --mg-cal-outline: #747775;
+  --mg-cal-alert: #B3261E;
+
   /* Dark counterparts (colors only; remapped by each stack) */
   --mg-dark-paper: #111111;
   --mg-dark-paper-elevated: #1C1C1E;
@@ -95,6 +117,24 @@
   --mg-dark-error: #FF6B6B;
   --mg-dark-success: #4CD07A;
   --mg-dark-warning: #D6A13A;
+  --mg-dark-cal-outer: #131314;
+  --mg-dark-cal-surface: #1E1F20;
+  --mg-dark-cal-detail: #282A2C;
+  --mg-dark-cal-text: #E3E3E3;
+  --mg-dark-cal-text-secondary: #C4C7C5;
+  --mg-dark-cal-primary: #A8C7FA;
+  --mg-dark-cal-on-primary: #062E6F;
+  --mg-dark-cal-selected: #004A77;
+  --mg-dark-cal-on-selected: #C2E7FF;
+  --mg-dark-cal-confirmed: #A8C7FA;
+  --mg-dark-cal-on-confirmed: #062E6F;
+  --mg-dark-cal-pending: #FBE2A7;
+  --mg-dark-cal-on-pending: #593800;
+  --mg-dark-cal-external: #C4EED0;
+  --mg-dark-cal-on-external: #0F5223;
+  --mg-dark-cal-grid: #444746;
+  --mg-dark-cal-outline: #8E918F;
+  --mg-dark-cal-alert: #F2B8B5;
   /* --mg-line / --mg-line-text / --mg-verified stay light-value in dark:
      white on those greens passes AA on any surrounding surface. */
 
@@ -126,6 +166,24 @@
   --mg-active-line: var(--mg-line);
   --mg-active-line-text: var(--mg-line-text);
   --mg-active-verified: var(--mg-verified);
+  --mg-active-cal-outer: var(--mg-cal-outer);
+  --mg-active-cal-surface: var(--mg-cal-surface);
+  --mg-active-cal-detail: var(--mg-cal-detail);
+  --mg-active-cal-text: var(--mg-cal-text);
+  --mg-active-cal-text-secondary: var(--mg-cal-text-secondary);
+  --mg-active-cal-primary: var(--mg-cal-primary);
+  --mg-active-cal-on-primary: var(--mg-cal-on-primary);
+  --mg-active-cal-selected: var(--mg-cal-selected);
+  --mg-active-cal-on-selected: var(--mg-cal-on-selected);
+  --mg-active-cal-confirmed: var(--mg-cal-confirmed);
+  --mg-active-cal-on-confirmed: var(--mg-cal-on-confirmed);
+  --mg-active-cal-pending: var(--mg-cal-pending);
+  --mg-active-cal-on-pending: var(--mg-cal-on-pending);
+  --mg-active-cal-external: var(--mg-cal-external);
+  --mg-active-cal-on-external: var(--mg-cal-on-external);
+  --mg-active-cal-grid: var(--mg-cal-grid);
+  --mg-active-cal-outline: var(--mg-cal-outline);
+  --mg-active-cal-alert: var(--mg-cal-alert);
 }
 
 /* 外部予定ブロック (Google 由来) の斜め縞 — 消色の「操作対象外」表現。

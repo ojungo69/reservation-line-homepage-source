@@ -43,6 +43,26 @@
   /* Radix overlay の暗幕 (dialog/sheet/alert-dialog 共通) */
   --color-scrim: var(--mg-active-scrim);
 
+  /* カレンダー V2 (spec 008、DESIGN.md §3): 切り替えのオン側だけが使う */
+  --color-cal-outer: var(--mg-active-cal-outer);
+  --color-cal-surface: var(--mg-active-cal-surface);
+  --color-cal-detail: var(--mg-active-cal-detail);
+  --color-cal-text: var(--mg-active-cal-text);
+  --color-cal-text-secondary: var(--mg-active-cal-text-secondary);
+  --color-cal-primary: var(--mg-active-cal-primary);
+  --color-cal-on-primary: var(--mg-active-cal-on-primary);
+  --color-cal-selected: var(--mg-active-cal-selected);
+  --color-cal-on-selected: var(--mg-active-cal-on-selected);
+  --color-cal-confirmed: var(--mg-active-cal-confirmed);
+  --color-cal-on-confirmed: var(--mg-active-cal-on-confirmed);
+  --color-cal-pending: var(--mg-active-cal-pending);
+  --color-cal-on-pending: var(--mg-active-cal-on-pending);
+  --color-cal-external: var(--mg-active-cal-external);
+  --color-cal-on-external: var(--mg-active-cal-on-external);
+  --color-cal-grid: var(--mg-active-cal-grid);
+  --color-cal-outline: var(--mg-active-cal-outline);
+  --color-cal-alert: var(--mg-active-cal-alert);
+
   /* 固定対応 (contract item 12(b)): lg=card / md=btn / sm=field */
   --radius-lg: var(--mg-radius-card);
   --radius-md: var(--mg-radius-btn);
@@ -85,6 +105,25 @@
   --mg-active-error: var(--mg-dark-error);
   --mg-active-success: var(--mg-dark-success);
   --mg-active-warning: var(--mg-dark-warning);
+  /* カレンダー V2 (spec 008): 切り替えのオン側だけが参照する */
+  --mg-active-cal-outer: var(--mg-dark-cal-outer);
+  --mg-active-cal-surface: var(--mg-dark-cal-surface);
+  --mg-active-cal-detail: var(--mg-dark-cal-detail);
+  --mg-active-cal-text: var(--mg-dark-cal-text);
+  --mg-active-cal-text-secondary: var(--mg-dark-cal-text-secondary);
+  --mg-active-cal-primary: var(--mg-dark-cal-primary);
+  --mg-active-cal-on-primary: var(--mg-dark-cal-on-primary);
+  --mg-active-cal-selected: var(--mg-dark-cal-selected);
+  --mg-active-cal-on-selected: var(--mg-dark-cal-on-selected);
+  --mg-active-cal-confirmed: var(--mg-dark-cal-confirmed);
+  --mg-active-cal-on-confirmed: var(--mg-dark-cal-on-confirmed);
+  --mg-active-cal-pending: var(--mg-dark-cal-pending);
+  --mg-active-cal-on-pending: var(--mg-dark-cal-on-pending);
+  --mg-active-cal-external: var(--mg-dark-cal-external);
+  --mg-active-cal-on-external: var(--mg-dark-cal-on-external);
+  --mg-active-cal-grid: var(--mg-dark-cal-grid);
+  --mg-active-cal-outline: var(--mg-dark-cal-outline);
+  --mg-active-cal-alert: var(--mg-dark-cal-alert);
 }
 
 @layer base {

@@ -1,48 +1,59 @@
-# verify-tasks レポート
+# verify-tasks report
 
-- 日付: 2026-11-19
-- 範囲: `all`（基点 `origin/main` = `9449343a`、ブランチ `feat/admin-calendar-v2-switch` の HEAD = `920c6085`）
-- 対象: T000 のみ（指定による。T000b は未完了のため対象外）
-- 件数: 1
+- Date: 2026-11-20
+- Verified head SHA: `fa6775b4bcdadcb9f99bc56b4f4eb2d2ade49c60` (detached worktree `/home/jura/projects/rlh-source-wt/t004-review`)
+- Scope: branch (base `ac93d7cd1e1ce7a9b365886257dbfee1a4c9ca31` to HEAD). 4 commits: e365ebe, fc0cfb0, 2051581, fa6775b.
+- Feature dir: `specs/008-admin-calendar-ux`
+- Tasks verified: 1. This report verifies T004 only; earlier task reports live in git history.
+- Test result: `./node_modules/.bin/vitest run test/admin-calendar-tokens.test.ts test/design-tokens-parity.test.ts` passed (2 files, 38 tests; parity file alone 33). `npx` was not used.
+- Fresh session advisory: for maximum reliability, run verify-tasks in a separate agent session from the one that ran implement. This run used a fresh context.
+- Skipped by instruction: extension hooks, interactive walkthrough (flagged items are listed below instead).
 
-> ⚠️ **FRESH SESSION ADVISORY**: 実装したセッションとは別のエージェント（新しい文脈）で実行した。実装者の文脈は自分の作業を認める方向に偏るため、この形で取り直した。
+## Scorecard
 
-同じ日の前回の実行（分割前の T000）は 🔍 PARTIAL だった。配備側の作業（確認用環境の値・手順書・停止と再配備の確認）が未実施だったためで、オーナーの委任を受けてその部分を T000b に分け、T000 を判定と受け渡しの範囲にしてから再実行した。
+| Verdict | Count |
+|---|---|
+| VERIFIED | 1 |
+| PARTIAL | 0 |
+| WEAK | 0 |
+| NOT_FOUND | 0 |
+| SKIPPED | 0 |
 
-## 集計
+## Flagged items
 
-| 判定 | 件数 |
-| --- | --- |
-| ✅ VERIFIED | 1 |
-| 🔍 PARTIAL | 0 |
-| ⚠️ WEAK | 0 |
-| ❌ NOT_FOUND | 0 |
-| ⏭️ SKIPPED | 0 |
+None.
 
-## 指摘
+Notes for the reader (not flags):
+- The leaf aliases `--color-cal-*` and `--mg-active-cal-*` have no consumer in `admin-app/src`, `src` or `public` yet (grep for `bg|text|border|ring|fill|stroke-cal-`, `mg-active-cal`, `mg-cal-` outside the CSS token files and tests found nothing). This is by design: the task says only the switch-on side reads them (T004b/T005). Layer 4 was treated as not_applicable (CSS custom properties are consumed by the cascade).
+- "旧画面とそのテストは今のまま実行する" was not verified by running the full old-screen test suite in this run. Evidence is structural only: CSS diffs are additions only (`git diff --numstat`: glass-tokens.css 58/0, styles.css 20/0, index.css 39/0) and the 33 existing parity assertions still pass. Run the full suite in CI before merge.
+- `public/styles.css` remaps the dark pairs only under `@media (prefers-color-scheme: dark)` (no `data-theme` block exists in that file); this matches how the existing `--mg-active-*` tokens are remapped there.
 
-なし。
+## T004 per-layer detail
 
-## 確認済み
+| Layer | Result | Evidence |
+|---|---|---|
+| 1 File existence | positive | `public/glass-tokens.css`, `public/styles.css`, `admin-app/src/index.css`, `test/design-tokens-parity.test.ts`, `test/admin-calendar-tokens.test.ts`, `DESIGN.md` all present. |
+| 2 Git diff cross-reference | positive | All of the above are in `git diff ac93d7c..HEAD --stat` (glass-tokens +58, styles.css +20, index.css +39, parity test +89/-1, new tokens test +177, DESIGN.md changed). |
+| 3 Content patterns | positive | 18 `--mg-cal-*` light, 18 `--mg-dark-cal-*` dark and 18 `--mg-active-cal-*` (light default) in `public/glass-tokens.css`. Dark remap of all 18 in `public/styles.css` (media query) and `admin-app/src/index.css` (`.dark`). 18 `--color-cal-*` in the Tailwind `@theme` block of `admin-app/src/index.css`, each mapped to `var(--mg-active-cal-*)`. |
+| 4 Dead-code | not_applicable | CSS tokens, consumed by cascade; no consumer yet is intended (see notes). |
+| 5 Semantic | positive | Parity test pins every new token value set, the dark remap, the `--color-cal-*` mapping, and a new check that all shared tokens live in the unconditional `:root` block (with a red fixture). `admin-calendar-tokens.test.ts` computes WCAG contrast for each light/dark opaque pair (text 4.5:1, outline/icon 3:1), and for glass tiers (top bar and add button `glass-thick`, details `glass-modal`) over every backdrop including saturation-boosted backdrops and the reduced-transparency opaque fallback (`paper-elevated`). Real assertions, not stubs. DESIGN.md §3 records the tier choice, body-color-only text on the bar glass, and no outline-only controls. |
 
-### T000 — ✅ VERIFIED
+## Verified items
 
-| 層 | 結果 | 根拠 |
-| --- | --- | --- |
-| 1 ファイルの存在 | positive | `src/bindings.ts`、`src/runtime-config.ts`、`src/routes/admin-api.ts`、`admin-app/src/routes.tsx`、`.env.example`、`wrangler.jsonc`、`test/admin-calendar-v2-switch.test.ts`、`admin-app/src/routes.test.tsx` がある。`.dev.vars` は Git 管理外（`.gitignore` の `.dev.vars*`）の手元のファイルで、リポジトリに無いのが正しい |
-| 2 差分との照合 | positive | 上のファイルのうち `wrangler.jsonc` 以外が `9449343..920c608` の変更一覧に入っている |
-| 3 記号の照合 | positive | `ADMIN_CALENDAR_V2_ENABLED` は型（`src/bindings.ts:64-65`）と手元の既定値（`.env.example:45-46`）にあり、`wrangler.jsonc` には無い（欠落はオフ）。判定は `src/runtime-config.ts:48-52`。`/me` は手元用と認証済みの両方の応答で `calendarV2` を返す（`src/routes/admin-api.ts:280`、`:307`）。`ScheduleRoute` は `admin-app/src/routes.tsx:33-34` で、外枠の選択は変えていない |
-| 4 未使用コード | positive | `isAdminCalendarV2Enabled` は `/me` の 2 か所で使用。`ScheduleRoute` は index 経路、`ScheduleV2Page` は `ScheduleRoute` から使用。`calendarV2` は `AuthProvider` が設定し `ScheduleRoute` が読む |
-| 5 意味の評価 | positive | ⚠️ Interpretive: サーバーの試験は `staging` と `local` で `"true"` のときだけオン、`"false"`・欠落・`"TRUE"`・本番の `"true"`・`ENVIRONMENT` の欠落でオフを確かめる。管理画面の試験は欠落・`false`・文字列 `"true"` でオフ、`true` でオン、`/customers` への直接アクセスが今の外枠、予定表とカルテの往復で外枠が作り直されず今の予定表に戻ることを確かめる。往復の遷移の引数と状態の復元は、タスクの記述どおり `admin-app/src/pages/schedule.test.tsx` の既存テストが受け持つ。新しい予定表のページは設計上の仮置きで、T000 が約束するのは選ぶ経路だけ |
+| Task | Verdict | Summary |
+|---|---|---|
 
-試験が判定の誤りで失敗することは、変異で確かめた（外枠が遷移のたびに作り直される、`AuthProvider` が真の値を広く受け入れる、サーバーが `ENVIRONMENT` を見ない、値の大文字小文字を区別しない、の 4 通りで、それぞれ該当の試験が失敗した）。
+## Unassessable items (SKIPPED)
 
-## 判定不能
+None.
 
-なし。
+## Verdict lines
 
-## 判定一覧
+| T004 | ✅ VERIFIED | Calendar tokens (18 light/dark/active/color-cal) added additively; dark remaps in both stacks; parity and contrast tests pass (38/38) at fa6775b |
 
-| タスク | 判定 | 要約 |
-| --- | --- | --- |
-| T000 | ✅ VERIFIED | 判定・/me・経路の選択・手元の既定値・試験（往復を含む）は実装済み。配備側の作業は T000b |
+## Walkthrough Log
+
+No flagged items, so there was nothing to walk through. Addendum after this run (the sections above are the run's record and stay as written):
+
+- The Layer 2 figure for the parity test is +88/-1 at fa6775b4 (the row above says +89/-1).
+- The check that the shared tokens sit in the :root block that opens the file, including the case where :root is wrapped in an at-rule such as `@media print`, was tightened after this run and confirmed at 427be796efdf5e824410217ffe69517fe6ea59b7 (both suites red under that mutation, 38 tests passing otherwise).
