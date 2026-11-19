@@ -28,7 +28,7 @@ describe("TimelineGridの描画負荷", () => {
       .filter((element) => (element.getAttribute("class") ?? "").split(/\s+/).some(isBlur));
     expect(blurred.map((element) => element.getAttribute("class"))).toEqual([]);
     // Native overflow scroller: no scrollbar component that runs script per scroll frame.
-    expect(scroller.className).toContain("overflow-auto");
+    expect(scroller.classList.contains("overflow-auto")).toBe(true);
   });
 });
 
