@@ -27,6 +27,7 @@ describe("HeaderV2", () => {
     expect(button.getAttribute("aria-keyshortcuts")).toBe("Meta+K Control+K");
     await user.click(button);
     expect(onOpenPalette).toHaveBeenCalledTimes(1);
+    expect(onOpenPalette).toHaveBeenCalledWith(button);
   });
 
   it("サイドバーが常に出ている間は、メニューのボタンを出さない", () => {

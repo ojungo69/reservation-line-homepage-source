@@ -78,7 +78,8 @@ export function SidebarV2({ theme, onThemeChange, onNavigate }: SidebarV2Props) 
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-14 shrink-0 items-center px-5">
+      {/* pr-14 keeps a long name clear of the drawer's close button (44px at right-2). */}
+      <div className="flex h-14 shrink-0 items-center pl-5 pr-14">
         <span className="truncate text-base font-semibold tracking-tight text-cal-text">
           {INSTANCE_CONFIG.displayName}
         </span>

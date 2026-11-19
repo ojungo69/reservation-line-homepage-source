@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -190,6 +190,17 @@ describe("AppShellV2 のフォーカス (UX-22)", () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it("Safari のように押してもボタンへフォーカスが移らなくても、閉じたら開いたボタンへ戻す", async () => {
+    const user = userEvent.setup();
+    renderShell();
+    const opener = screen.getByRole("button", { name: "ページ移動 (Cmd/Ctrl+K)" });
+    // fireEvent.click, unlike user.click, does not move focus.
+    fireEvent.click(opener);
+    expect(document.activeElement).toBe(document.body);
+    await closePalette(user);
+    expect(document.activeElement).toBe(opener);
+  });
+
   it("ページ移動を開いた場所がフォーカスを受け取れなくなっていたら、本文へフォーカスを移す", async () => {
     const user = userEvent.setup();
     renderShell();
@@ -366,6 +377,9 @@ describe("AppShellV2 のサイドバーと引き出し", () => {
 
   it("スクロールする本文・メニューと、外枠の常設部分にぼかしを置かない (research R1 / iPad の電池)", () => {
     renderShell();
+    // The docked sidebar is faux glass: no blur, and no shadow either (DESIGN.md §3).
+    const aside = screen.getByRole("complementary");
+    expect([...aside.classList].filter((name) => /^(surface|shadow)/.test(name))).toEqual([]);
     const roots = [
       screen.getByRole("main"),
       screen.getByRole("banner"),
@@ -381,9 +395,10 @@ describe("AppShellV2 のサイドバーと引き出し", () => {
     renderShell();
     await openDrawer(user);
     const panel = drawer() as HTMLElement;
+    const scrolls = (el: Element) => [...el.classList].some((name) => /^overflow(-[xy])?-(auto|scroll)$/.test(name));
     expect(panel.classList.contains("glass-modal")).toBe(true);
-    expect(panel.classList.contains("overflow-y-auto")).toBe(false);
-    const scrollers = [...panel.querySelectorAll("*")].filter((el) => el.classList.contains("overflow-y-auto"));
+    expect(scrolls(panel)).toBe(false);
+    const scrollers = [...panel.querySelectorAll("*")].filter(scrolls);
     expect(scrollers.length).toBeGreaterThanOrEqual(2);
     expect(scrollers.flatMap(blurClasses)).toEqual([]);
   });

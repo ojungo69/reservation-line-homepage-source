@@ -60,10 +60,12 @@ export default function AppShellV2() {
   }, [pathname, docked]);
 
   // One modal at a time (DESIGN.md §3): opening page move, by button or ⌘K,
-  // closes the drawer. Focus goes back where it was, or to the page.
-  const onPaletteOpenChange = (open: boolean) => {
+  // closes the drawer. Focus goes back to the button that opened it (Safari does
+  // not focus buttons on click), else to what had focus for ⌘K, else the page.
+  const onPaletteOpenChange = (open: boolean, opener?: HTMLElement) => {
     if (open) {
-      paletteReturnRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      paletteReturnRef.current =
+        opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
       setDrawerOpen(false);
     }
     setPaletteOpen(open);
@@ -98,15 +100,18 @@ export default function AppShellV2() {
         </a>
 
         {docked ? (
-          // Docked sidebar: opaque surface, no blur (DESIGN.md §3).
-          <aside className="surface w-64 shrink-0 overflow-hidden rounded-3xl">
+          // Docked sidebar: the prototype's faux glass, an opaque gradient and a
+          // hairline with no blur and no shadow (DESIGN.md §3).
+          <aside className="w-64 shrink-0 overflow-hidden rounded-3xl bg-linear-to-b from-cal-surface to-cal-detail ring-1 ring-inset ring-cal-grid dark:from-cal-detail dark:to-cal-surface">
             <SidebarV2 theme={theme} onThemeChange={setTheme} />
           </aside>
         ) : (
           <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
             <SheetContent
               side="left"
-              className="w-72 p-0"
+              // Capped like the prototype, so the close button stays on screen
+              // on a narrow phone with a large default font size.
+              className="w-72 max-w-[86vw] p-0"
               aria-describedby={undefined}
               onOpenAutoFocus={(event) => {
                 // Radix skips links when it picks the first focus, which lands on the
@@ -136,7 +141,7 @@ export default function AppShellV2() {
             menuButtonRef={menuButtonRef}
             menuOpen={drawerOpen}
             onMenuToggle={() => setDrawerOpen(true)}
-            onOpenPalette={() => onPaletteOpenChange(true)}
+            onOpenPalette={(opener) => onPaletteOpenChange(true, opener)}
           />
           {/* Pages keep today's colors; only the shell, the calendar and the chart change (plan.md). */}
           <main

@@ -11,7 +11,7 @@ type HeaderV2Props = Readonly<{
   menuButtonRef?: Ref<HTMLButtonElement>;
   menuOpen: boolean;
   onMenuToggle: () => void;
-  onOpenPalette: () => void;
+  onOpenPalette: (opener: HTMLElement) => void;
 }>;
 
 /**
@@ -37,7 +37,7 @@ export function HeaderV2({ showMenuButton, menuButtonRef, menuOpen, onMenuToggle
 
       <button
         type="button"
-        onClick={onOpenPalette}
+        onClick={(event) => onOpenPalette(event.currentTarget)}
         aria-label="ページ移動 (Cmd/Ctrl+K)"
         aria-keyshortcuts="Meta+K Control+K"
         className={cn("flex min-h-11 min-w-11 items-center gap-2 rounded-full px-3 text-sm hover:bg-cal-detail", PRESSABLE)}
