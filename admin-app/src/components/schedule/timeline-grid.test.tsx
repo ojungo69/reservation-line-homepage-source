@@ -1,13 +1,13 @@
 import { act, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
-import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from "vitest";
-import type { Store } from "@/types/api";
-import { TimelineGrid } from "./timeline-grid";
+import { afterEach, assert, describe, expect, it, vi } from "vitest";
+import type { ExternalBlock, Reservation, Store } from "@/types/api";
 
-beforeAll(() => {
-  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
-});
-afterAll(() => vi.unstubAllGlobals());
+// The cards inside the grid read these; the blur guard renders one of each.
+vi.mock("@/hooks/use-external-blocks", () => ({ useExternalBlockCancel: () => ({ mutate: vi.fn(), isPending: false }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ isPrivileged: true }) }));
+
+import { TimelineGrid } from "./timeline-grid";
 
 const props = {
   date: new Date("2026-09-29T10:00:00+09:00"),
@@ -22,11 +22,41 @@ const props = {
 
 afterEach(() => vi.useRealTimers());
 
+describe("TimelineGridの描画負荷", () => {
+  it("スクロール領域とその中身にぼかし (backdrop-filter) を置かない (research R1 / iPad の電池)", () => {
+    const reservation = {
+      id: "reservation-1", status: "confirmed", source: "line", storeId: "store-1", storeName: "渋谷店",
+      serviceId: "service-1", serviceName: "カット", resourceId: "resource-1", resourceName: "同じ担当者",
+      startAt: "2026-09-29T11:00:00+09:00", endAt: "2026-09-29T12:00:00+09:00",
+      customerId: "customer-1", customerDisplayName: "見本 様", lineFriendStatus: null, cancellationFeeUnpaidAt: null,
+    } satisfies Reservation;
+    const block = {
+      id: "block-1", storeId: "store-1", storeName: "渋谷店", resourceId: "resource-1", resourceName: "同じ担当者",
+      source: "google_calendar", titleSnapshot: "研修", startAt: "2026-09-29T13:00:00+09:00", endAt: "2026-09-29T14:00:00+09:00",
+      status: "active", googleEventId: "event-1", createdBy: null, updatedAt: "2026-09-29T00:00:00Z",
+    } satisfies ExternalBlock;
+    const { container } = render(<TimelineGrid {...props} reservations={[reservation]} externalBlocks={[block]} />);
+    const scroller = container.querySelector<HTMLElement>("[data-schedule-scroll]");
+    assert(scroller);
+    // The cards are inside the scroller too, so the check below covers them.
+    expect(scroller.textContent).toContain("見本 様");
+    expect(scroller.textContent).toContain("研修");
+    // A variant prefix (md:, dark:, supports-…:) or the important marker must not hide a blur;
+    // colons inside [...] belong to an arbitrary value, not to a variant.
+    const isBlur = (token: string) => /^!?(backdrop-blur|glass-)/.test(token.replaceAll(/\[[^\]]*\]/g, "[]").split(":").pop() ?? "");
+    const blurred = [scroller, ...scroller.querySelectorAll<HTMLElement>("*")]
+      .filter((element) => (element.getAttribute("class") ?? "").split(/\s+/).some(isBlur));
+    expect(blurred.map((element) => element.getAttribute("class"))).toEqual([]);
+    // Native overflow scroller: no scrollbar component that runs script per scroll frame.
+    expect(scroller.classList.contains("overflow-auto")).toBe(true);
+  });
+});
+
 describe("TimelineGridの店舗表示", () => {
   it("StrictModeでeffectが再実行されても復元済みのスクロール位置を保つ", () => {
     let savedPosition: number | null = 1800;
     const onReady = vi.fn(() => {
-      const viewport = document.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+      const viewport = document.querySelector<HTMLElement>("[data-schedule-scroll]");
       assert(viewport);
       if (savedPosition !== null) {
         viewport.scrollTop = savedPosition;
@@ -34,7 +64,7 @@ describe("TimelineGridの店舗表示", () => {
       }
     });
     const { container } = render(<StrictMode><TimelineGrid {...props} onReady={onReady} /></StrictMode>);
-    const viewport = container.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+    const viewport = container.querySelector<HTMLElement>("[data-schedule-scroll]");
     assert(viewport);
     expect(onReady).toHaveBeenCalledTimes(2);
     expect(viewport.scrollTop).toBe(1800);
@@ -42,7 +72,7 @@ describe("TimelineGridの店舗表示", () => {
 
   it("準備通知の変更だけでは利用者が動かした位置を戻さない", () => {
     const { container, rerender } = render(<TimelineGrid {...props} onReady={() => {}} />);
-    const viewport = container.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+    const viewport = container.querySelector<HTMLElement>("[data-schedule-scroll]");
     assert(viewport);
     viewport.scrollTop = 2100;
     const onReady = vi.fn();
@@ -55,7 +85,7 @@ describe("TimelineGridの店舗表示", () => {
     const onReady = vi.fn();
     const { container, rerender } = render(<StrictMode><TimelineGrid {...props} onReady={onReady} /></StrictMode>);
     const viewport = () => {
-      const element = container.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+      const element = container.querySelector<HTMLElement>("[data-schedule-scroll]");
       assert(element);
       return element;
     };
@@ -80,7 +110,7 @@ describe("TimelineGridの店舗表示", () => {
   it.each([true, false])("取得完了後の開店位置から履歴のスクロールを復元できる (初期読み込み中: %s)", (initiallyLoading) => {
     const openingPositions: number[] = [];
     const onReady = () => {
-      const viewport = document.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+      const viewport = document.querySelector<HTMLElement>("[data-schedule-scroll]");
       assert(viewport);
       openingPositions.push(viewport.scrollTop);
       viewport.scrollTop = 1800;
@@ -93,7 +123,7 @@ describe("TimelineGridの店舗表示", () => {
       rerender(<TimelineGrid {...props} onReady={onReady} />);
     }
 
-    const viewport = container.querySelector<HTMLElement>("[data-schedule-scroll] [data-radix-scroll-area-viewport]");
+    const viewport = container.querySelector<HTMLElement>("[data-schedule-scroll]");
     assert(viewport);
     expect(openingPositions).toEqual([1430]);
     expect(viewport.scrollTop).toBe(1800);

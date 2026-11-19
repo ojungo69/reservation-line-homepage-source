@@ -49,7 +49,9 @@ export function Header({ onMenuToggle }: Readonly<HeaderProps>) {
 
   return (
     <>
-      <header className="glass-thin flex h-14 items-center gap-2 px-4">
+      {/* Opaque surface: nothing scrolls under this bar, so a backdrop blur here
+          drew nothing visible and still cost a GPU pass on every repaint. */}
+      <header className="surface flex h-14 items-center gap-2 px-4">
         <button
           type="button"
           onClick={onMenuToggle}

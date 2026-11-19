@@ -1,5 +1,4 @@
 import { useMemo, useEffect, useState, useRef } from "react";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Reservation, ExternalBlock, Resource, BusinessHour, Store } from "@/types/api";
 import { getTimeSlots, getInitialScrollMinutes, jstWeekday, currentTimePosition, formatJstDate, isSameDay, type TimeSlot } from "@/lib/timeline";
@@ -91,23 +90,19 @@ export function TimelineGrid({
   // Auto-scroll the timeline to the business open time on mount and whenever the
   // viewed day / store / hours / density change, so the view does not start on
   // empty pre-dawn rows. slotPx per 15-min slot + 30px sticky header offset.
-  // The Radix ScrollArea viewport (the scrollable node) carries
-  // data-radix-scroll-area-viewport; the ref lands on the Root, so we query down.
-  const scrollRootRef = useRef<HTMLDivElement>(null);
+  // The scroller is a plain overflow element: the browser scrolls it on the
+  // compositor, with no script running per frame (iPad battery).
+  const scrollRef = useRef<HTMLDivElement>(null);
   const lastAnchor = useRef<{ viewport: HTMLElement; dateKey: string; storeId: string | null; slotPx: number; businessHours: BusinessHour[] } | null>(null);
   useEffect(() => {
     // While loading, the component returns <TimelineSkeleton> (below) and the
-    // ScrollArea (which holds scrollRootRef) is not mounted. isLoading MUST stay
+    // scroller (which holds scrollRef) is not mounted. isLoading MUST stay
     // in the dep array so the effect re-runs on the loading→loaded transition
-    // that first mounts the ScrollArea — otherwise the auto-scroll never fires
+    // that first mounts the scroller — otherwise the auto-scroll never fires
     // and the view is stuck at 00:00. slotPx is in the deps so a density switch
     // re-anchors the scroll position to the same opening time.
     if (isLoading) return;
-    const root = scrollRootRef.current;
-    if (!root) return;
-    const viewport = root.querySelector<HTMLElement>(
-      "[data-radix-scroll-area-viewport]",
-    );
+    const viewport = scrollRef.current;
     if (!viewport) return;
     // StrictMode の effect 再実行や onReady だけの変更で、onReady が復元した位置を開店位置で上書きしないよう、同じ条件では再アンカーしない。
     const previous = lastAnchor.current;
@@ -140,7 +135,7 @@ export function TimelineGrid({
   }
 
   return (
-    <ScrollArea data-schedule-scroll="" className="flex-1" ref={scrollRootRef}>
+    <div data-schedule-scroll="" className="flex-1 overflow-auto" ref={scrollRef}>
       <div className="flex min-w-max">
         <TimeLabels slots={slots} slotPx={slotPx} />
         <div className="relative flex flex-1">
@@ -182,14 +177,16 @@ export function TimelineGrid({
           ))}
         </div>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
 function TimeLabels({ slots, slotPx }: Readonly<{ slots: TimeSlot[]; slotPx: number }>) {
+  // z-30: the day view scrolls sideways, so the column headers (z-20) and the
+  // reservation cards (z-10) must slide under this sticky column, not over it.
   return (
-    <div className="sticky left-0 z-10 w-14 shrink-0 border-r bg-background">
-      <div className="sticky top-0 z-20 h-[30px] border-b bg-muted/80" />
+    <div className="sticky left-0 z-30 w-14 shrink-0 border-r bg-background">
+      <div className="sticky top-0 z-20 h-[30px] border-b bg-muted" />
       {slots.map((slot) => (
         <div
           key={slot.time}

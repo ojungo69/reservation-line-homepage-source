@@ -183,8 +183,7 @@ export default function SchedulePage() {
 
   const restorePosition = useCallback(() => {
     if (!restoreScroll.current) return;
-    const scroller = scheduleRef.current?.querySelector<HTMLElement>("[data-schedule-scroll]");
-    const viewport = scroller?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? scroller;
+    const viewport = scheduleRef.current?.querySelector<HTMLElement>("[data-schedule-scroll]");
     const main = document.getElementById("main-content");
     if (viewport) {
       viewport.scrollTop = restoreScroll.current.scheduleScroll;
@@ -288,8 +287,7 @@ export default function SchedulePage() {
     <>
       <ReservationDetailPanel
         onOpenChart={(customerId, reservationId) => {
-          const scroller = scheduleRef.current?.querySelector<HTMLElement>("[data-schedule-scroll]");
-          const viewport = scroller?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? scroller;
+          const viewport = scheduleRef.current?.querySelector<HTMLElement>("[data-schedule-scroll]");
           navigate(".", { replace: true, state: { scheduleContext: {
             scope, date: date.toISOString(), viewMode, mobileView, reservationId,
             mainScroll: document.getElementById("main-content")?.scrollTop ?? 0,

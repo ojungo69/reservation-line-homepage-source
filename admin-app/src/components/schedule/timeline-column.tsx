@@ -47,7 +47,9 @@ export function TimelineColumn({
   }, [dayDateKey, resourceId, resourceName, initialFocusMinutes, initialIndex]);
   return (
     <div data-timeline-resource="" className="relative flex min-w-[120px] flex-1 flex-col border-r last:border-r-0">
-      <div className="sticky top-0 z-20 h-[30px] whitespace-nowrap border-b bg-muted/80 px-2 py-1.5 text-center text-xs font-medium backdrop-blur-sm">
+      {/* Opaque on purpose: a blurred header inside the scroller is re-blurred
+          on every scroll frame per column (research R1; iPad battery). */}
+      <div className="sticky top-0 z-20 h-[30px] whitespace-nowrap border-b bg-muted px-2 py-1.5 text-center text-xs font-medium">
         {resourceName}
       </div>
       <p id={keyboardHintId} className="sr-only">上下矢印で時刻、左右矢印で担当者を移動します。Home/Endで一日の端へ、Enter/Spaceで予約作成へ進みます。</p>
