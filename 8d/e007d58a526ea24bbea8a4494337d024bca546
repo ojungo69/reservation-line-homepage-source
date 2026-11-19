@@ -1,0 +1,23 @@
+admin-app/src/components/shell-v2/app-shell-v2.test.tsx
+  s_d52c2d995f51c6::t_badf828a43d4f3 247-255
+admin-app/src/components/shell-v2/app-shell-v2.tsx
+  s_d52c2d995f51c6::t_ecd9c842377062 77-88,91-92,98
+admin-app/src/components/shell-v2/sidebar-v2.test.tsx
+  s_d52c2d995f51c6::t_96fa65fb144927 49-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8de007d58a526ea24bbea8a4494337d024bca546",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
