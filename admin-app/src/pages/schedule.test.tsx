@@ -133,13 +133,11 @@ vi.mock("@/components/schedule/timeline-grid", () => ({
     onReady?: () => void;
   }) => {
     useEffect(() => { if (!isLoading) onReady?.(); }, [isLoading, onReady]);
-    return isLoading ? <div role="status">予定を読み込み中</div> : <div data-schedule-scroll="">
-      <div data-radix-scroll-area-viewport="" data-testid="timeline-viewport">
+    return isLoading ? <div role="status">予定を読み込み中</div> : <div data-schedule-scroll="" data-testid="timeline-viewport">
       {externalBlocks.some((block) => block.id === "block-1") && (
         <button disabled={!onBlockClick} onClick={() => onBlockClick?.("block-1")}>既存ブロック</button>
       )}
       <button onClick={() => onSlotClick("resource-2", 690)}>新宿店の空き枠</button>
-      </div>
     </div>;
   },
 }));
@@ -248,7 +246,7 @@ describe("SchedulePage", () => {
     if (viewMode === "week") await user.click(screen.getByRole("button", { name: "週表示へ" }));
     await user.click(screen.getByRole("button", { name: "承認待ちを選択" }));
     const main = screen.getByRole("main");
-    const viewport = main.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? main.querySelector<HTMLElement>("[data-schedule-scroll]");
+    const viewport = main.querySelector<HTMLElement>("[data-schedule-scroll]");
     if (!viewport) throw new Error("カレンダーのスクロール領域がありません");
     main.scrollTop = 45;
     viewport.scrollTop = 625;
