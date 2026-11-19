@@ -46,10 +46,14 @@ beforeEach(() => {
 describe("SidebarV2 のメニュー", () => {
   it("owner には 3 つの区分と、権限の要る項目も出る", () => {
     renderSidebar();
-    const group = (name: string) => screen.getByRole("list", { name });
-    expect(within(group("日常業務")).getByRole("link", { name: "顧客" })).toBeTruthy();
-    expect(within(group("管理")).getByRole("link", { name: "スタッフ" })).toBeTruthy();
-    expect(within(group("設定")).getByRole("link", { name: "店舗ログイン" })).toBeTruthy();
+    // Each link sits in its own list item directly under the list its heading names.
+    const itemOf = (list: string, link: string) => {
+      const item = within(screen.getByRole("list", { name: list })).getByRole("link", { name: link }).closest("li");
+      return item?.parentElement?.getAttribute("aria-labelledby") ? item.parentElement : null;
+    };
+    expect(itemOf("日常業務", "顧客")).toBe(screen.getByRole("list", { name: "日常業務" }));
+    expect(itemOf("管理", "スタッフ")).toBe(screen.getByRole("list", { name: "管理" }));
+    expect(itemOf("設定", "店舗ログイン")).toBe(screen.getByRole("list", { name: "設定" }));
     for (const label of ["スケジュール", "顧客", "メニュー", "店舗設定", "通知", ...PRIVILEGED]) {
       expect(screen.getByRole("link", { name: new RegExp(label) })).toBeTruthy();
     }

@@ -244,6 +244,15 @@ describe("AppShellV2 のフォーカス (UX-22)", () => {
     expect(document.activeElement).toBe(screen.getByRole("main"));
   });
 
+  it("まだ何も操作していない画面では、幅が変わってもフォーカスを動かさない（最初の Tab で本文へスキップに届く）", async () => {
+    const user = userEvent.setup();
+    renderShell();
+    setWide(false);
+    expect(document.activeElement).toBe(document.body);
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "本文へスキップ" }));
+  });
+
   it("本文にフォーカスがある時は、画面の幅が変わってもフォーカスを動かさない", () => {
     renderShell();
     const pageButton = screen.getByRole("button", { name: "予定表のボタン" });

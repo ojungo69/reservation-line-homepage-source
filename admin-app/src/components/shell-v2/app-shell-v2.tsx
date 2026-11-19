@@ -74,16 +74,28 @@ export default function AppShellV2() {
     if (target === document.body || document.activeElement !== target) mainRef.current?.focus();
   }, [paletteOpen]);
 
+  // The element that last had focus, so the effect below can tell focus that fell
+  // off a removed element from a page nobody has focused yet (where the first Tab
+  // must still reach the skip link).
+  const lastFocused = useRef<Element | null>(null);
+  useEffect(() => {
+    const remember = (event: FocusEvent) => {
+      lastFocused.current = event.target instanceof Element ? event.target : null;
+    };
+    document.addEventListener("focusin", remember);
+    return () => document.removeEventListener("focusin", remember);
+  }, []);
+
   // A page change or a layout switch can remove the focused element: page move
   // returns focus to the old page before a lazy page replaces it, and narrowing
-  // the screen unmounts the docked sidebar. When focus fell to <body>, move it to
-  // the new page, or after a layout switch to the menu button that replaced the
+  // the screen unmounts the docked sidebar. When that left focus on <body>, move it
+  // to the new page, or after a layout switch to the menu button that replaced the
   // sidebar (the page once the button is gone). The first render leaves it alone.
   const shown = useRef({ pathname, docked });
   useEffect(() => {
     const before = shown.current;
     shown.current = { pathname, docked };
-    if (document.activeElement !== document.body) return;
+    if (document.activeElement !== document.body || lastFocused.current?.isConnected !== false) return;
     if (before.pathname !== pathname) mainRef.current?.focus();
     else if (before.docked !== docked) (menuButtonRef.current ?? mainRef.current)?.focus();
   }, [pathname, docked]);
