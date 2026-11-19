@@ -229,6 +229,31 @@ describe("AppShellV2 のフォーカス (UX-22)", () => {
     expect(document.activeElement).toBe(main);
   });
 
+  it("常設サイドバーにフォーカスがある時に画面が狭くなったら、代わりに出たメニューのボタンへ移す", () => {
+    renderShell();
+    within(navs()[0]).getByRole("link", { name: "顧客" }).focus();
+    setWide(false);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "メニュー" }));
+  });
+
+  it("メニューのボタンにフォーカスがある時に画面が広がったら、本文へ移す", () => {
+    wide = false;
+    renderShell();
+    screen.getByRole("button", { name: "メニュー" }).focus();
+    setWide(true);
+    expect(document.activeElement).toBe(screen.getByRole("main"));
+  });
+
+  it("本文にフォーカスがある時は、画面の幅が変わってもフォーカスを動かさない", () => {
+    renderShell();
+    const pageButton = screen.getByRole("button", { name: "予定表のボタン" });
+    pageButton.focus();
+    setWide(false);
+    expect(document.activeElement).toBe(pageButton);
+    setWide(true);
+    expect(document.activeElement).toBe(pageButton);
+  });
+
   it("キーボードで開いたページ移動を閉じると、戻る先が無いので本文へフォーカスを移す", async () => {
     const user = userEvent.setup();
     renderShell();

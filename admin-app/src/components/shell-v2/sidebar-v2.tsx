@@ -53,17 +53,22 @@ function NavItemV2({ item, badge = 0, onNavigate }: ItemProps) {
 
 type NavGroupProps = Readonly<{ label: string; items: readonly NavItem[]; pending: number; onNavigate?: () => void }>;
 
-// The visible heading names the group, so screen readers hear the section name.
+// The visible heading names the list, so screen readers hear the section name.
+// Inside <nav>, Safari keeps list semantics even with the reset list style.
 function NavGroup({ label, items, pending, onNavigate }: NavGroupProps) {
   const headingId = useId();
   return (
-    <div role="group" aria-labelledby={headingId} className="pt-2 first:pt-0">
+    <div className="pt-2 first:pt-0">
       <p id={headingId} className="px-4 pb-1 pt-2 text-xs font-medium text-cal-text-secondary">
         {label}
       </p>
-      {items.map((item) => (
-        <NavItemV2 key={item.path} item={item} badge={item.path === "/" ? pending : 0} onNavigate={onNavigate} />
-      ))}
+      <ul aria-labelledby={headingId}>
+        {items.map((item) => (
+          <li key={item.path}>
+            <NavItemV2 item={item} badge={item.path === "/" ? pending : 0} onNavigate={onNavigate} />
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

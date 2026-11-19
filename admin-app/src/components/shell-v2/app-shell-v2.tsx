@@ -74,15 +74,19 @@ export default function AppShellV2() {
     if (target === document.body || document.activeElement !== target) mainRef.current?.focus();
   }, [paletteOpen]);
 
-  // A page change can remove the focused element (page move returns focus to the
-  // old page, then a lazy page commits and replaces it). Focus the new page then
-  // instead of leaving it on <body>. Skips the first render.
-  const shownPath = useRef(pathname);
+  // A page change or a layout switch can remove the focused element: page move
+  // returns focus to the old page before a lazy page replaces it, and narrowing
+  // the screen unmounts the docked sidebar. When focus fell to <body>, move it to
+  // the new page, or after a layout switch to the menu button that replaced the
+  // sidebar (the page once the button is gone). The first render leaves it alone.
+  const shown = useRef({ pathname, docked });
   useEffect(() => {
-    if (shownPath.current === pathname) return;
-    shownPath.current = pathname;
-    if (document.activeElement === document.body) mainRef.current?.focus();
-  }, [pathname]);
+    const before = shown.current;
+    shown.current = { pathname, docked };
+    if (document.activeElement !== document.body) return;
+    if (before.pathname !== pathname) mainRef.current?.focus();
+    else if (before.docked !== docked) (menuButtonRef.current ?? mainRef.current)?.focus();
+  }, [pathname, docked]);
 
   return (
     <StoreProvider>

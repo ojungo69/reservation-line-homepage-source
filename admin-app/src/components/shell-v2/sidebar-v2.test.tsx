@@ -46,7 +46,7 @@ beforeEach(() => {
 describe("SidebarV2 のメニュー", () => {
   it("owner には 3 つの区分と、権限の要る項目も出る", () => {
     renderSidebar();
-    const group = (name: string) => screen.getByRole("group", { name });
+    const group = (name: string) => screen.getByRole("list", { name });
     expect(within(group("日常業務")).getByRole("link", { name: "顧客" })).toBeTruthy();
     expect(within(group("管理")).getByRole("link", { name: "スタッフ" })).toBeTruthy();
     expect(within(group("設定")).getByRole("link", { name: "店舗ログイン" })).toBeTruthy();
@@ -59,7 +59,7 @@ describe("SidebarV2 のメニュー", () => {
     role = "staff";
     renderSidebar();
     for (const label of PRIVILEGED) expect(screen.queryByRole("link", { name: new RegExp(label) })).toBeNull();
-    const settings = screen.getByRole("group", { name: "設定" });
+    const settings = screen.getByRole("list", { name: "設定" });
     expect(within(settings).getByRole("link", { name: "店舗設定" })).toBeTruthy();
     expect(within(settings).getByRole("link", { name: "通知" })).toBeTruthy();
   });
