@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../src/app";
 import {
+  createAccessJwksFetchMock,
   createAccessJwtFixture,
   createAccessSigningKey,
-  requestUrl,
+  insertAdminUser,
   type AccessJwtFixture,
 } from "./helpers/admin-access";
 import { createMigratedSqliteD1, type SqliteD1Database } from "./helpers/sqlite-d1";
@@ -24,12 +25,7 @@ describe("calendarV2 on /api/admin/me", () => {
 
   beforeEach(() => {
     db = createMigratedSqliteD1();
-    db.sqlite
-      .prepare(
-        `INSERT INTO admin_users (id, email, access_subject, role, active, updated_at)
-         VALUES ('admin_owner_calendar_v2', ?, ?, 'owner', 1, '2026-11-19T00:00:00.000Z')`
-      )
-      .run(OWNER_EMAIL, OWNER_SUBJECT);
+    insertAdminUser(db, { id: "admin_owner_calendar_v2", email: OWNER_EMAIL, accessSubject: OWNER_SUBJECT });
     fixture = createAccessJwtFixture({
       issuer: TEAM_DOMAIN,
       audience: ACCESS_AUD,
@@ -37,14 +33,7 @@ describe("calendarV2 on /api/admin/me", () => {
       signingKey: createAccessSigningKey("calendar-v2-key-1"),
       claims: { email: OWNER_EMAIL, sub: OWNER_SUBJECT },
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) =>
-        requestUrl(input) === `${TEAM_DOMAIN}/cdn-cgi/access/certs`
-          ? Response.json({ keys: [fixture.jwk] })
-          : Response.json({ message: "unexpected" }, { status: 404 })
-      )
-    );
+    vi.stubGlobal("fetch", createAccessJwksFetchMock(TEAM_DOMAIN, fixture.jwk));
   });
 
   afterEach(() => {
