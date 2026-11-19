@@ -32,7 +32,7 @@ describe("TimelineGridの描画負荷", () => {
     } satisfies Reservation;
     const block = {
       id: "block-1", storeId: "store-1", storeName: "渋谷店", resourceId: "resource-1", resourceName: "同じ担当者",
-      source: "google", titleSnapshot: "研修", startAt: "2026-09-29T13:00:00+09:00", endAt: "2026-09-29T14:00:00+09:00",
+      source: "google_calendar", titleSnapshot: "研修", startAt: "2026-09-29T13:00:00+09:00", endAt: "2026-09-29T14:00:00+09:00",
       status: "active", googleEventId: "event-1", createdBy: null, updatedAt: "2026-09-29T00:00:00Z",
     } satisfies ExternalBlock;
     const { container } = render(<TimelineGrid {...props} reservations={[reservation]} externalBlocks={[block]} />);
@@ -41,8 +41,9 @@ describe("TimelineGridの描画負荷", () => {
     // The cards are inside the scroller too, so the check below covers them.
     expect(scroller.textContent).toContain("見本 様");
     expect(scroller.textContent).toContain("研修");
-    // A variant prefix (md:, dark:, supports-…:) or the important marker must not hide a blur.
-    const isBlur = (token: string) => /^!?(backdrop-blur|glass-)/.test(token.split(":").pop() ?? "");
+    // A variant prefix (md:, dark:, supports-…:) or the important marker must not hide a blur;
+    // colons inside [...] belong to an arbitrary value, not to a variant.
+    const isBlur = (token: string) => /^!?(backdrop-blur|glass-)/.test(token.replaceAll(/\[[^\]]*\]/g, "[]").split(":").pop() ?? "");
     const blurred = [scroller, ...scroller.querySelectorAll<HTMLElement>("*")]
       .filter((element) => (element.getAttribute("class") ?? "").split(/\s+/).some(isBlur));
     expect(blurred.map((element) => element.getAttribute("class"))).toEqual([]);
