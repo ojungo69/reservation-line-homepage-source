@@ -1,0 +1,37 @@
+PRODUCT.md
+  s_d52c2d995f51c6::t_d13fd43a449897 1-35
+DESIGN.md
+  s_d52c2d995f51c6::t_6e76bce12bf3fd 1-142
+README.md
+  s_d52c2d995f51c6::t_ad77d656a4f5a6 13-14
+specs/008-admin-calendar-ux/contracts/reservation-interactions.md
+  s_d52c2d995f51c6::t_e2edeffbfa308e 1-287
+specs/008-admin-calendar-ux/interactions.md
+  s_d52c2d995f51c6::t_b20865f95047c6 1-297
+specs/008-admin-calendar-ux/plan.md
+  s_d52c2d995f51c6::t_e7298294c2a01c 1-82
+specs/008-admin-calendar-ux/quickstart.md
+  s_d52c2d995f51c6::t_81b179893d3bda 1-81
+specs/008-admin-calendar-ux/research.md
+  s_d52c2d995f51c6::t_0850a6282bfdef 1-79
+specs/008-admin-calendar-ux/spec.md
+  s_d52c2d995f51c6::t_adbc0a5f8d6148 1-104
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_15786b4b39c713 1-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5cf01eac7fdd17644632a5b18bfd0f66da1585ee",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
