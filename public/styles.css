@@ -76,6 +76,26 @@
     --mg-active-error: var(--mg-dark-error);
     --mg-active-success: var(--mg-dark-success);
     --mg-active-warning: var(--mg-dark-warning);
+    /* Admin calendar V2 aliases: this page never reads them; they are remapped
+       here only so both stacks keep the same dark pairs (parity test). */
+    --mg-active-cal-outer: var(--mg-dark-cal-outer);
+    --mg-active-cal-surface: var(--mg-dark-cal-surface);
+    --mg-active-cal-detail: var(--mg-dark-cal-detail);
+    --mg-active-cal-text: var(--mg-dark-cal-text);
+    --mg-active-cal-text-secondary: var(--mg-dark-cal-text-secondary);
+    --mg-active-cal-primary: var(--mg-dark-cal-primary);
+    --mg-active-cal-on-primary: var(--mg-dark-cal-on-primary);
+    --mg-active-cal-selected: var(--mg-dark-cal-selected);
+    --mg-active-cal-on-selected: var(--mg-dark-cal-on-selected);
+    --mg-active-cal-confirmed: var(--mg-dark-cal-confirmed);
+    --mg-active-cal-on-confirmed: var(--mg-dark-cal-on-confirmed);
+    --mg-active-cal-pending: var(--mg-dark-cal-pending);
+    --mg-active-cal-on-pending: var(--mg-dark-cal-on-pending);
+    --mg-active-cal-external: var(--mg-dark-cal-external);
+    --mg-active-cal-on-external: var(--mg-dark-cal-on-external);
+    --mg-active-cal-grid: var(--mg-dark-cal-grid);
+    --mg-active-cal-outline: var(--mg-dark-cal-outline);
+    --mg-active-cal-alert: var(--mg-dark-cal-alert);
   }
 }
 
