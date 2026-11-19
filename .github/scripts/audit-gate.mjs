@@ -23,16 +23,9 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const ALLOWED_ADVISORIES = Object.freeze([
-  Object.freeze({
-    id: 'GHSA-fc5q-39xc-vjpf',
-    package: 'picomatch',
-    targets: Object.freeze(['root', 'admin-app']),
-    maxSeverity: 'high',
-    expires: '2026-12-18',
-    reason: 'No patched picomatch release (<= 4.0.7); it only runs inside build and test tooling and is absent from the Worker and admin bundles.',
-  }),
-]);
+// GHSA-fc5q-39xc-vjpf (picomatch) was withdrawn on 2026-11-18 and no longer
+// appears in either audit, so its entry was deleted as the rule above requires.
+export const ALLOWED_ADVISORIES = Object.freeze([]);
 
 const TARGETS = Object.freeze(['root', 'admin-app']);
 const SEVERITY_RANK = Object.freeze({ info: 0, low: 1, moderate: 2, high: 3, critical: 4 });
