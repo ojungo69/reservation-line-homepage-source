@@ -1,7 +1,12 @@
 import { act, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, assert, describe, expect, it, vi } from "vitest";
-import type { Store } from "@/types/api";
+import type { ExternalBlock, Reservation, Store } from "@/types/api";
+
+// The cards inside the grid read these; the blur guard renders one of each.
+vi.mock("@/hooks/use-external-blocks", () => ({ useExternalBlockCancel: () => ({ mutate: vi.fn(), isPending: false }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ isPrivileged: true }) }));
+
 import { TimelineGrid } from "./timeline-grid";
 
 const props = {
@@ -19,9 +24,23 @@ afterEach(() => vi.useRealTimers());
 
 describe("TimelineGridの描画負荷", () => {
   it("スクロール領域とその中身にぼかし (backdrop-filter) を置かない (research R1 / iPad の電池)", () => {
-    const { container } = render(<TimelineGrid {...props} />);
+    const reservation = {
+      id: "reservation-1", status: "confirmed", source: "line", storeId: "store-1", storeName: "渋谷店",
+      serviceId: "service-1", serviceName: "カット", resourceId: "resource-1", resourceName: "同じ担当者",
+      startAt: "2026-09-29T11:00:00+09:00", endAt: "2026-09-29T12:00:00+09:00",
+      customerId: "customer-1", customerDisplayName: "見本 様", lineFriendStatus: null, cancellationFeeUnpaidAt: null,
+    } satisfies Reservation;
+    const block = {
+      id: "block-1", storeId: "store-1", storeName: "渋谷店", resourceId: "resource-1", resourceName: "同じ担当者",
+      source: "google", titleSnapshot: "研修", startAt: "2026-09-29T13:00:00+09:00", endAt: "2026-09-29T14:00:00+09:00",
+      status: "active", googleEventId: "event-1", createdBy: null, updatedAt: "2026-09-29T00:00:00Z",
+    } satisfies ExternalBlock;
+    const { container } = render(<TimelineGrid {...props} reservations={[reservation]} externalBlocks={[block]} />);
     const scroller = container.querySelector<HTMLElement>("[data-schedule-scroll]");
     assert(scroller);
+    // The cards are inside the scroller too, so the check below covers them.
+    expect(scroller.textContent).toContain("見本 様");
+    expect(scroller.textContent).toContain("研修");
     // A variant prefix (md:, dark:, supports-…:) or the important marker must not hide a blur.
     const isBlur = (token: string) => /^!?(backdrop-blur|glass-)/.test(token.split(":").pop() ?? "");
     const blurred = [scroller, ...scroller.querySelectorAll<HTMLElement>("*")]
