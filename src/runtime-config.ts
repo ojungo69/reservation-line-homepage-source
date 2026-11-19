@@ -41,3 +41,12 @@ export function isWorkflowEnabled(
 ): boolean {
   return env.WORKFLOW_ENABLED === "true";
 }
+
+// The redesigned admin calendar (specs/008). Only staging and a developer's
+// machine can turn it on: a deploy that keeps earlier vars (wrangler --keep-vars)
+// could leave "true" behind in production.
+export function isAdminCalendarV2Enabled(
+  env: Partial<Pick<WorkerBindings, "ENVIRONMENT" | "ADMIN_CALENDAR_V2_ENABLED">>
+): boolean {
+  return (env.ENVIRONMENT === "staging" || env.ENVIRONMENT === "local") && env.ADMIN_CALENDAR_V2_ENABLED === "true";
+}

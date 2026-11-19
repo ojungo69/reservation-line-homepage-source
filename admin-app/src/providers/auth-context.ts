@@ -18,6 +18,11 @@ export type AuthContextValue = {
    * the signed-in person.
    */
   vapidPublicKey: string;
+  /**
+   * The server allows the redesigned calendar (specs/008) in this deployment.
+   * Like vapidPublicKey it describes the deployment; absent means off.
+   */
+  calendarV2?: boolean;
 };
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

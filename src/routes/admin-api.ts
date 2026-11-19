@@ -33,7 +33,7 @@ import {
   statusForAdminDeleteCustomerVisitResult,
   statusForAdminCreateCustomerResult
 } from "./shared";
-import { isWorkflowEnabled } from "../runtime-config";
+import { isAdminCalendarV2Enabled, isWorkflowEnabled } from "../runtime-config";
 import { authenticateAdmin } from "../admin/access";
 import { adminWriteGuard, adminWriteWasRevoked } from "../admin/write-authorization";
 import {
@@ -277,6 +277,7 @@ adminApiRoutes.get("/me", async (c) => {
       ok: true,
       admin: { email: "dev@local", role: "owner" as const, staffMemberId: null, storeId: null },
       vapidPublicKey: adminPushPublicKey(c.env),
+      calendarV2: isAdminCalendarV2Enabled(c.env),
     }, 200, ADMIN_PRIVATE_HEADERS);
   }
 
@@ -301,6 +302,9 @@ adminApiRoutes.get("/me", async (c) => {
     // actually send (all of key pair + VAPID contact) — the SPA then hides the
     // notification controls instead of registering a device that hears nothing.
     vapidPublicKey: adminPushPublicKey(c.env),
+    // Describes the deployment, like the key above: the SPA picks the new or the
+    // current calendar from it.
+    calendarV2: isAdminCalendarV2Enabled(c.env),
   }, 200, ADMIN_PRIVATE_HEADERS);
 });
 
