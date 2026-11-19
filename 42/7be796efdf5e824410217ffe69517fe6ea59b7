@@ -1,0 +1,23 @@
+specs/008-admin-calendar-ux/verify-tasks-report.md
+  s_d52c2d995f51c6::t_96c4cbe646f243 3-5,7-8,10,27-29,35-39,49-52
+test/admin-calendar-tokens.test.ts
+  s_d52c2d995f51c6::t_4ffe338c5e9690 14-16
+test/design-tokens-parity.test.ts
+  s_d52c2d995f51c6::t_55f2996583b66e 415-418,424,427-428
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "427be796efdf5e824410217ffe69517fe6ea59b7",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
