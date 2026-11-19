@@ -2,8 +2,10 @@ import { Routes, Route, Navigate } from "react-router";
 import { lazy, Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
 import { ProtectedRoute } from "@/components/protected-route";
+import { useAuth } from "@/hooks/use-auth";
 
 const SchedulePage = lazy(() => import("@/pages/schedule"));
+const ScheduleV2Page = lazy(() => import("@/pages/schedule-v2"));
 const ReservationsPage = lazy(() => import("@/pages/reservations"));
 const CustomersPage = lazy(() => import("@/pages/customers"));
 const StaffPage = lazy(() => import("@/pages/staff"));
@@ -26,12 +28,18 @@ function PageLoading() {
   );
 }
 
+// The one place that picks the redesigned calendar (specs/008). Off, missing or
+// unknown keeps the current page untouched.
+function ScheduleRoute() {
+  return useAuth().calendarV2 === true ? <ScheduleV2Page /> : <SchedulePage />;
+}
+
 export function AppRoutes() {
   return (
     <Suspense fallback={<PageLoading />}>
       <Routes>
         <Route element={<AppShell />}>
-          <Route index element={<SchedulePage />} />
+          <Route index element={<ScheduleRoute />} />
           <Route path="reservations" element={<ReservationsPage />} />
           <Route path="menu" element={<MenuPage />} />
           {/* Customers are staff-accessible (own-store only). The backend store-scopes

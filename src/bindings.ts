@@ -61,6 +61,8 @@ export interface WorkerBindings {
   /** Secret kill switch managed only by the emergency runtime override workflow. */
   EMERGENCY_D1_FREEZE?: string;
   DAILY_OPS_SUMMARY_DISPATCH_ENABLED?: string;
+  /** "true" shows the redesigned admin calendar, in staging and local only (isAdminCalendarV2Enabled). */
+  ADMIN_CALENDAR_V2_ENABLED?: string;
   STAGING_SERVICE_TOKEN_AUTH?: string;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
   D1_SESSION_ENABLED?: string;

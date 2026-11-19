@@ -10,6 +10,8 @@ type MeResponse = {
   admin: AuthUser;
   /** Absent on older deployments — treated as "push not configured". */
   vapidPublicKey?: string;
+  /** Absent on older deployments — treated as off. */
+  calendarV2?: boolean;
 };
 
 export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
@@ -52,7 +54,7 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   const isPrivileged = user.role === "owner" || user.role === "system_admin";
 
   return (
-    <AuthContext value={{ user, isPrivileged, vapidPublicKey: data.vapidPublicKey ?? "" }}>
+    <AuthContext value={{ user, isPrivileged, vapidPublicKey: data.vapidPublicKey ?? "", calendarV2: data.calendarV2 === true }}>
       {isError && <div className="flex items-center justify-center gap-2 border-b p-2 text-sm" role="alert">
         <p>ログイン状態の更新に失敗しました。入力内容は保持されています。</p>
         <Button size="sm" variant="outline" onClick={() => { void refetch(); }} disabled={isFetching}>再取得</Button>
