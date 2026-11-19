@@ -1,0 +1,49 @@
+admin-app/src/components/shell-v2/app-shell-v2.tsx
+  s_d52c2d995f51c6::t_b428535c2cfbb3 1-82
+admin-app/src/components/shell-v2/sidebar-v2.tsx
+  s_d52c2d995f51c6::t_03163cb7886521 1-84,87-88
+  s_d52c2d995f51c6::t_7362fd642ac9b8 85-86,89-99
+admin-app/src/components/shell-v2/store-switch-v2.tsx
+  s_d52c2d995f51c6::t_627ce65f8f12fe 1-75
+admin-app/src/components/shell-v2/sidebar-v2.test.tsx
+  s_d52c2d995f51c6::t_5054202cd273ea 1-95
+  s_d52c2d995f51c6::t_faa237b59db439 96-133
+admin-app/src/components/shell-v2/app-shell-v2.test.tsx
+  s_d52c2d995f51c6::t_307780174039d8 1-132
+admin-app/src/components/shell-v2/store-switch-v2.test.tsx
+  s_d52c2d995f51c6::t_b91d92b475e81e 1-66
+admin-app/src/components/shell-v2/header-v2.test.tsx
+  s_d52c2d995f51c6::t_58dc0532bbb211 1-36
+admin-app/src/components/shell-v2/header-v2.tsx
+  s_d52c2d995f51c6::t_885dc2cff0e441 1-49
+DESIGN.md
+  s_d52c2d995f51c6::t_3f1df9395e787f 65-66,96
+admin-app/src/components/shell-v2/account-menu-v2.tsx
+  s_d52c2d995f51c6::t_9f8e145ed4e625 1-68
+admin-app/src/components/shell-v2/pressable.ts
+  s_d52c2d995f51c6::t_014e7b1904bdd9 1-4
+admin-app/src/routes.test.tsx
+  s_d52c2d995f51c6::t_c8c8eb7228ac25 8-10,28-39,73,76,80-102
+admin-app/src/routes.tsx
+  s_d52c2d995f51c6::t_77601760fb2a1f 9-10,39-44,49
+specs/008-admin-calendar-ux/quickstart.md
+  s_d52c2d995f51c6::t_d461c3b9c581b2 72
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_61957a8bf59423 20,29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6bd8f7a98556f102a2601d14be1de24d8899c7cc",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
