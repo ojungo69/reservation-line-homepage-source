@@ -1,0 +1,35 @@
+admin-app/src/components/schedule/timeline-grid.tsx
+  s_d52c2d995f51c6::t_91a954abf35057 138
+  s_d52c2d995f51c6::t_611e5a295c8a64 187
+  s_d52c2d995f51c6::t_b88e832ad6e723 93-95,99,101,105
+  s_d52c2d995f51c6::t_eba184f93a7df5 180
+admin-app/src/pages/schedule.test.tsx
+  s_d52c2d995f51c6::t_f5b6fe4ba473a7 136
+  s_d52c2d995f51c6::t_82da3a6fde903d 249
+admin-app/src/components/header.tsx
+  s_d52c2d995f51c6::t_d54f8a9c9aa9f5 52-54
+admin-app/src/components/schedule/timeline-grid.test.tsx
+  s_d52c2d995f51c6::t_85124f6546f92d 20-32
+  s_d52c2d995f51c6::t_4f1410388fe5be 3,37,45,53,66,91,104
+admin-app/src/components/schedule/timeline-column.tsx
+  s_d52c2d995f51c6::t_1824d1c01f5541 50-52
+admin-app/src/pages/schedule.tsx
+  s_d52c2d995f51c6::t_803905c5e0cf4d 186
+  s_d52c2d995f51c6::t_fbcd1be2f1287d 290
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "16ac3f76b9c1c6e37caf24fdfe4e9c93dfa51067",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
