@@ -9,6 +9,8 @@ import { AppRoutes } from "./routes";
 // new schedule, and anything else leaves the current screens as they are. The
 // round trip pins plan.md's schedule <-> chart rule at the route level; the
 // SchedulePage tests cover its navigation arguments and the restored state.
+// The mocks move the way the real pages do: the schedule pushes /customers with
+// fromSchedule, and the chart goes back with navigate(-1).
 
 vi.mock("@/components/app-shell", async () => {
   const { Outlet } = await import("react-router");
@@ -16,12 +18,21 @@ vi.mock("@/components/app-shell", async () => {
 });
 vi.mock("@/pages/schedule", async () => {
   const { Link } = await import("react-router");
-  return { default: () => <><p>今の予定表</p><Link to="/customers">カルテを開く</Link></> };
+  return {
+    default: () => (
+      <><p>今の予定表</p><Link to="/customers?customerId=c1&reservationId=r1" state={{ fromSchedule: true }}>カルテを開く</Link></>
+    ),
+  };
 });
 vi.mock("@/pages/schedule-v2", () => ({ default: () => <p>新しい予定表</p> }));
 vi.mock("@/pages/customers", async () => {
-  const { Link } = await import("react-router");
-  return { default: () => <><p>顧客カルテ</p><Link to="/">予定表に戻る</Link></> };
+  const { useNavigate } = await import("react-router");
+  return {
+    default: function CustomersPageMock() {
+      const navigate = useNavigate();
+      return <><p>顧客カルテ</p><button type="button" onClick={() => navigate(-1)}>予定表に戻る</button></>;
+    },
+  };
 });
 
 afterEach(() => vi.unstubAllGlobals());

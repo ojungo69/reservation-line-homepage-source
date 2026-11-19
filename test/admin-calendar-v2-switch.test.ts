@@ -37,6 +37,7 @@ describe("calendarV2 on /api/admin/me", () => {
   });
 
   afterEach(() => {
+    db.sqlite.close();
     vi.unstubAllGlobals();
   });
 
