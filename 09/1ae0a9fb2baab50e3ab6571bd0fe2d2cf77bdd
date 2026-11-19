@@ -1,0 +1,22 @@
+admin-app/src/components/schedule/timeline-grid.test.tsx
+  s_d52c2d995f51c6::t_e98fa034925708 4
+  s_d52c2d995f51c6::t_587065c9758c59 33-35
+  s_d52c2d995f51c6::t_b3f3800b33e27e 27-32,38
+  s_d52c2d995f51c6::t_dda0fc9c6aa39b 5-9,36-37,41-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "091ae0a9fb2baab50e3ab6571bd0fe2d2cf77bdd",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
