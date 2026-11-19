@@ -50,3 +50,10 @@ None.
 ## Verdict lines
 
 | T004 | ✅ VERIFIED | Calendar tokens (18 light/dark/active/color-cal) added additively; dark remaps in both stacks; parity and contrast tests pass (38/38) at fa6775b |
+
+## Walkthrough Log
+
+No flagged items, so there was nothing to walk through. Addendum after this run (the sections above are the run's record and stay as written):
+
+- The Layer 2 figure for the parity test is +88/-1 at fa6775b4 (the row above says +89/-1).
+- The check that the shared tokens sit in the :root block that opens the file, including the case where :root is wrapped in an at-rule such as `@media print`, was tightened after this run and confirmed at 427be796efdf5e824410217ffe69517fe6ea59b7 (both suites red under that mutation, 38 tests passing otherwise).
