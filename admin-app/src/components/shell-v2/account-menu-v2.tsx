@@ -41,7 +41,7 @@ export function AccountMenuV2({ theme, onThemeChange }: AccountMenuV2Props) {
           type="button"
           aria-label={`アカウントメニュー（${name}）`}
           className={cn(
-            "flex min-h-11 w-full items-center gap-3 rounded-full px-3 text-left text-sm text-cal-text hover:bg-cal-detail",
+            "flex min-h-11 w-full items-center gap-3 rounded-full px-3 text-left text-sm text-cal-text hover:bg-cal-text/8",
             PRESSABLE,
           )}
         >

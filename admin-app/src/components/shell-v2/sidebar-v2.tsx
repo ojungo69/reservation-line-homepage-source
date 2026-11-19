@@ -29,7 +29,7 @@ function NavItemV2({ item, badge = 0, onNavigate }: ItemProps) {
         cn(
           "flex min-h-11 items-center gap-3 rounded-full px-4 text-sm",
           PRESSABLE,
-          isActive ? "bg-cal-selected font-medium text-cal-on-selected" : "text-cal-text hover:bg-cal-detail",
+          isActive ? "bg-cal-selected font-medium text-cal-on-selected" : "text-cal-text hover:bg-cal-text/8",
         )
       }
     >
@@ -99,7 +99,7 @@ export function SidebarV2({ theme, onThemeChange, onNavigate }: SidebarV2Props) 
           href="/source"
           target="_blank"
           rel="noreferrer"
-          className={cn("flex min-h-11 items-center gap-3 rounded-full px-4 text-sm text-cal-text-secondary hover:bg-cal-detail", PRESSABLE)}
+          className={cn("flex min-h-11 items-center gap-3 rounded-full px-4 text-sm text-cal-text-secondary hover:bg-cal-text/8", PRESSABLE)}
         >
           <Code className="size-5 shrink-0" aria-hidden="true" />
           ソースコード

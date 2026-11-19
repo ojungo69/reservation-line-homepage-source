@@ -267,7 +267,7 @@ describe("AppShellV2 のフォーカス (UX-22)", () => {
     await waitFor(() => expect(document.activeElement).toBe(button));
   });
 
-  it("引き出しを開いたまま 1024px 以上に広がると、隠れたメニューのボタンでなく本文へフォーカスを移す", async () => {
+  it("引き出しを開いたまま 64rem（既定の文字の大きさで 1024px）以上に広がると、隠れたメニューのボタンでなく本文へフォーカスを移す", async () => {
     wide = false;
     const user = userEvent.setup();
     renderShell();
@@ -335,7 +335,7 @@ describe("AppShellV2 のサイドバーと引き出し", () => {
     expect(DOCKED_QUERY).toBe(`(min-width: ${defaultTheme.screens.lg})`);
   });
 
-  it("画面が 1024px 以上に広がると引き出しを閉じ、また狭くなっても勝手に開かない", async () => {
+  it("画面が 64rem 以上に広がると引き出しを閉じ、また狭くなっても勝手に開かない", async () => {
     wide = false;
     const user = userEvent.setup();
     renderShell();
@@ -395,8 +395,13 @@ describe("AppShellV2 のサイドバーと引き出し", () => {
     renderShell();
     await openDrawer(user);
     const panel = drawer() as HTMLElement;
-    const scrolls = (el: Element) => [...el.classList].some((name) => /^overflow(-[xy])?-(auto|scroll)$/.test(name));
+    // Variant prefixes (md:, lg:) are dropped first, as in blurClasses.
+    const scrolls = (el: Element) =>
+      [...el.classList].some((name) => /^overflow(-[xy])?-(auto|scroll)$/.test(name.split(":").pop() ?? ""));
     expect(panel.classList.contains("glass-modal")).toBe(true);
+    // The cap keeps the close button on screen on a 320px phone with a 24px default
+    // font (checked in a browser build; jsdom has no layout).
+    expect(panel.classList.contains("max-w-[86vw]")).toBe(true);
     expect(scrolls(panel)).toBe(false);
     const scrollers = [...panel.querySelectorAll("*")].filter(scrolls);
     expect(scrollers.length).toBeGreaterThanOrEqual(2);

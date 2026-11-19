@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router";
 import { CommandPalette } from "@/components/command-palette";
 import { CHUNK_RELOAD_FLAG } from "@/components/error-boundary";
@@ -22,19 +22,14 @@ export const DOCKED_QUERY = "(min-width: 64rem)";
  * It copies AppShell's duties (push reconcile, chunk-reload flag, drawer close
  * on navigation, skip link, StoreProvider) instead of sharing code with it:
  * plan.md keeps the current shell and its tests unchanged while the switch
- * exists. Below 1024px the sidebar is a drawer, as in the approved prototype.
+ * exists. Below 64rem (1024px at a 16px default font size) the sidebar is a
+ * drawer, as in the approved prototype.
  */
 export default function AppShellV2() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { pathname } = useLocation();
   const docked = useMediaQuery(DOCKED_QUERY);
-  // The drawer's close handler runs after a widening screen has already removed
-  // the drawer, so it reads the latest value here (set before that handler runs).
-  const dockedRef = useRef(docked);
-  useLayoutEffect(() => {
-    dockedRef.current = docked;
-  }, [docked]);
   // Held here, not in the menu: the drawer's menu unmounts on close.
   const { theme, setTheme } = useTheme();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -123,10 +118,10 @@ export default function AppShellV2() {
                 )?.focus();
               }}
               onCloseAutoFocus={(event) => {
-                // The menu button opened it; once the screen is wide, that button
-                // is hidden, so focus moves to the page instead.
+                // The menu button opened it. Once the screen is wide that button is
+                // unmounted (its ref is null by the time this runs), so the page gets focus.
                 event.preventDefault();
-                (dockedRef.current ? mainRef.current : menuButtonRef.current)?.focus();
+                (menuButtonRef.current ?? mainRef.current)?.focus();
               }}
             >
               <SheetTitle className="sr-only">メニュー</SheetTitle>

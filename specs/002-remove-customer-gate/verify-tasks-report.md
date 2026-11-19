@@ -6,7 +6,7 @@
 > (This run was performed by a fresh verifier session with no stake in the implementation.)
 
 - **Date**: 2026-10-14
-- **Worktree**: `/home/jura/projects/rlh-source-wt-remove-gate` (branch `feat/remove-customer-gate-20261014`)
+- **Worktree**: a separate worktree (branch `feat/remove-customer-gate-20261014`)
 - **Scope**: `all` — base `d2307b0`..HEAD (`90a06f5`, `97a132f`, `1b6c168`) plus uncommitted/untracked changes (none present)
 - **Tasks verified**: 10 (T001–T009, T013; T010–T012 are unchecked and out of scope)
 - **Extension hooks**: none run (not requested)
