@@ -5,8 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "@/providers/auth-provider";
 import { AppRoutes } from "./routes";
 
-// The calendar switch (specs/008 T000): the server's calendarV2 alone picks the
-// new schedule, and anything else leaves the current screens as they are. The
+// The calendar switch (specs/008 T000, T004b): the server's calendarV2 alone picks
+// the new schedule and the new shell, and anything else leaves the current screens
+// as they are. The
 // round trip pins plan.md's schedule <-> chart rule at the route level; the
 // SchedulePage tests cover its navigation arguments and the restored state.
 // The mocks move the way the real pages do: the schedule pushes /customers with
@@ -24,7 +25,18 @@ vi.mock("@/pages/schedule", async () => {
     ),
   };
 });
-vi.mock("@/pages/schedule-v2", () => ({ default: () => <p>新しい予定表</p> }));
+vi.mock("@/components/shell-v2/app-shell-v2", async () => {
+  const { Outlet } = await import("react-router");
+  return { default: () => <div data-testid="new-shell"><Outlet /></div> };
+});
+vi.mock("@/pages/schedule-v2", async () => {
+  const { Link } = await import("react-router");
+  return {
+    default: () => (
+      <><p>新しい予定表</p><Link to="/customers?customerId=c1&reservationId=r1" state={{ fromSchedule: true }}>カルテを開く</Link></>
+    ),
+  };
+});
 vi.mock("@/pages/customers", async () => {
   const { useNavigate } = await import("react-router");
   return {
@@ -58,12 +70,36 @@ describe("calendar switch", () => {
     expect(await screen.findByText("今の予定表")).toBeTruthy();
     expect(screen.queryByText("新しい予定表")).toBeNull();
     expect(screen.getByTestId("current-shell")).toBeTruthy();
+    expect(screen.queryByTestId("new-shell")).toBeNull();
   });
 
-  it("shows the new schedule when the server turns calendarV2 on", async () => {
+  it("shows the new schedule in the new shell when the server turns calendarV2 on", async () => {
     renderAt("/", { calendarV2: true });
     expect(await screen.findByText("新しい予定表")).toBeTruthy();
     expect(screen.queryByText("今の予定表")).toBeNull();
+    expect(screen.getByTestId("new-shell")).toBeTruthy();
+    expect(screen.queryByTestId("current-shell")).toBeNull();
+  });
+
+  it("opens the customer chart directly in the new shell while the switch is on", async () => {
+    renderAt("/customers", { calendarV2: true });
+    expect(await screen.findByText("顧客カルテ")).toBeTruthy();
+    expect(screen.getByTestId("new-shell")).toBeTruthy();
+    expect(screen.queryByTestId("current-shell")).toBeNull();
+  });
+
+  it("goes from the new schedule to the chart and back inside one new shell while the switch is on", async () => {
+    renderAt("/", { calendarV2: true });
+    expect(await screen.findByText("新しい予定表")).toBeTruthy();
+    const shell = await screen.findByTestId("new-shell");
+
+    fireEvent.click(screen.getByText("カルテを開く"));
+    expect(await screen.findByText("顧客カルテ")).toBeTruthy();
+    expect(screen.getByTestId("new-shell")).toBe(shell);
+
+    fireEvent.click(screen.getByText("予定表に戻る"));
+    expect(await screen.findByText("新しい予定表")).toBeTruthy();
+    expect(screen.getByTestId("new-shell")).toBe(shell);
   });
 
   it.each(OFF)("opens the customer chart directly in the current shell while the switch is off (%j)", async (me) => {
