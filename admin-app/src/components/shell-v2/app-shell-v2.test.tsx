@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CHUNK_RELOAD_FLAG } from "@/components/error-boundary";
+import defaultTheme from "tailwindcss/defaultTheme";
 
 const reconcile = vi.fn();
 
@@ -86,6 +87,7 @@ const renderShell = (path = "/") =>
         <Route element={<AppShellV2 />}>
           <Route index element={<NavigateFromOutside />} />
           <Route path="customers" element={<p>顧客のページ</p>} />
+          <Route path="*" element={<p>見つからないページ</p>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -234,6 +236,15 @@ describe("AppShellV2 のフォーカス (UX-22)", () => {
     await waitFor(() => expect(document.activeElement).toBe(current));
   });
 
+  it("今の画面がメニューに無いときは、引き出しの最初の項目へフォーカスを置く", async () => {
+    wide = false;
+    const user = userEvent.setup();
+    renderShell("/no-such-page");
+    await openDrawer(user);
+    const first = within(drawer() as HTMLElement).getByRole("link", { name: /スケジュール/ });
+    await waitFor(() => expect(document.activeElement).toBe(first));
+  });
+
   it("引き出しを Esc で閉じると、メニューのボタンへフォーカスを戻す", async () => {
     wide = false;
     const user = userEvent.setup();
@@ -296,13 +307,21 @@ describe("AppShellV2 のサイドバーと引き出し", () => {
     expect(drawer()).toBeNull();
   });
 
-  it("引き出しは、今の画面の項目を押しても閉じる", async () => {
+  it("引き出しは、今の画面の項目を押しても閉じ、メニューのボタンへフォーカスを戻す", async () => {
     wide = false;
     const user = userEvent.setup();
     renderShell();
+    const button = screen.getByRole("button", { name: "メニュー" });
     await openDrawer(user);
     await user.click(within(drawer() as HTMLElement).getByRole("link", { name: "スケジュール" }));
     expect(drawer()).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(button));
+  });
+
+  it("広い画面の判定は Tailwind の lg と同じ値にする（lg: の付いた見た目の切り替えとずれない）", () => {
+    // Vitest reads CSS as empty text, so this compares with Tailwind's JS copy of
+    // the default breakpoints (the same 64rem as --breakpoint-lg in theme.css).
+    expect(DOCKED_QUERY).toBe(`(min-width: ${defaultTheme.screens.lg})`);
   });
 
   it("画面が 1024px 以上に広がると引き出しを閉じ、また狭くなっても勝手に開かない", async () => {

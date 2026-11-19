@@ -1,5 +1,6 @@
 import { ChevronUp, LogOut, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import type { Theme } from "@/hooks/use-theme";
 import { logout } from "@/lib/auth-logout";
 import { cn } from "@/lib/utils";
 import {
@@ -11,8 +12,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MENU_ITEM_FOCUS, PRESSABLE } from "./pressable";
-
-export type Theme = "light" | "dark" | "system";
 
 // Same cycle and labels as the current Header. header.tsx keeps its own copy
 // because plan.md leaves the old shell untouched while the switch exists.

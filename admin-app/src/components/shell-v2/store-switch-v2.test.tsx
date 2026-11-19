@@ -36,6 +36,15 @@ beforeEach(() => {
 });
 
 describe("StoreSwitchV2", () => {
+  it("店舗スタッフには、店舗を読み込む前も全店舗と出さない", () => {
+    stores = [];
+    initialStoreId = "store-1";
+    isStoreFixed = true;
+    render(<StoreSwitchV2 />);
+    expect(screen.getByText("店舗")).toBeTruthy();
+    expect(screen.queryByText("全店舗")).toBeNull();
+  });
+
   it("複数の店舗を見られる人は、全店舗と各店舗から選べる", async () => {
     const user = userEvent.setup();
     render(<StoreSwitchV2 />);

@@ -19,8 +19,10 @@ import { MENU_ITEM_FOCUS, PRESSABLE } from "./pressable";
 export function StoreSwitchV2() {
   const { stores, selectedStoreId, selectStore, isStoreFixed } = useStores();
   const selected = stores.find((store) => store.id === selectedStoreId);
-  // One accessible store reads as that store, not 全店舗 (DESIGN.md §5).
-  const name = selected?.name ?? (stores.length === 1 ? stores[0].name : "全店舗");
+  // One accessible store reads as that store, not 全店舗 (DESIGN.md §5). Staff are
+  // fixed to one store, so they see a neutral word until the stores load.
+  const fallback = isStoreFixed ? "店舗" : "全店舗";
+  const name = selected?.name ?? (stores.length === 1 ? stores[0].name : fallback);
 
   if (isStoreFixed || stores.length < 2) {
     return (

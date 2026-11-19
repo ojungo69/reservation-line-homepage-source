@@ -6,7 +6,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePendingReservations } from "@/hooks/use-reservations";
 import { navItemsBySection, type NavItem, type NavSection } from "@/lib/nav-items";
 import { cn } from "@/lib/utils";
-import { AccountMenuV2, type Theme } from "./account-menu-v2";
+import type { Theme } from "@/hooks/use-theme";
+import { AccountMenuV2 } from "./account-menu-v2";
 import { PRESSABLE } from "./pressable";
 
 const SECTIONS: ReadonlyArray<{ key: NavSection; label: string }> = [
