@@ -1,0 +1,57 @@
+admin-app/src/components/shell-v2/app-shell-v2.test.tsx
+  s_d52c2d995f51c6::t_a82a4df4cde481 2,27-52,57,90,98-110,114-115,127-129,170-192,202-230,280,284-291,293-309,319-332
+  s_d52c2d995f51c6::t_8d2730cf2444b9 5,54-56,58-64,91,116-126,142-148,161,166-169,231-249,251,263,272,275-278,281,311-318
+  s_d52c2d995f51c6::t_8369102370a54f 193-201
+  s_d52c2d995f51c6::t_68c6ca03167ffe 271
+  s_d52c2d995f51c6::t_1b5a663664d429 279
+  s_d52c2d995f51c6::t_55d86f977006ad 310
+admin-app/src/routes.test.tsx
+  s_d52c2d995f51c6::t_437632b93ea535 11-13
+  s_d52c2d995f51c6::t_aebeb05c4bacce 10
+  s_d52c2d995f51c6::t_a268a81ddc9876 27-29,31,53-55,74-77
+admin-app/src/components/shell-v2/app-shell-v2.tsx
+  s_d52c2d995f51c6::t_ae5eaf34d99497 30-35
+  s_d52c2d995f51c6::t_f472b956a79846 97-105
+  s_d52c2d995f51c6::t_d8a0a86c3cfef8 108,110
+  s_d52c2d995f51c6::t_89a64fdecda143 8,13-16,36-40,55,58-74,86-96,106-107,109,111-117,121,124,128,137
+  s_d52c2d995f51c6::t_4d696dffd001a3 1
+  s_d52c2d995f51c6::t_d445d275becc52 7,29
+DESIGN.md
+  s_d52c2d995f51c6::t_d4c1ec165e471b 65-66
+admin-app/src/components/shell-v2/account-menu-v2.tsx
+  s_d52c2d995f51c6::t_bfa7dc7fe598dd 9,13,15,25-33,43,60,62,67
+admin-app/src/components/shell-v2/header-v2.tsx
+  s_d52c2d995f51c6::t_213fe35ac3ee82 1,8,19,23
+admin-app/src/components/shell-v2/pressable.ts
+  s_d52c2d995f51c6::t_d11f874c8ec8f4 2-4,6-10
+admin-app/src/components/shell-v2/sidebar-v2.test.tsx
+  s_d52c2d995f51c6::t_1c7cb0ffde4c86 1,32,49-52,62-64,73,75-77,81-82,88-89,113,125,133
+admin-app/src/components/shell-v2/sidebar-v2.tsx
+  s_d52c2d995f51c6::t_21cf9554386ff8 1,9,38-47,53-70,73,91,105
+admin-app/src/components/shell-v2/store-switch-v2.tsx
+  s_d52c2d995f51c6::t_3dd0a031bb0835 11,27,55,67
+specs/008-admin-calendar-ux/quickstart.md
+  s_d52c2d995f51c6::t_0f9025c5374091 72
+specs/008-admin-calendar-ux/spec.md
+  s_d52c2d995f51c6::t_366cf115fbc4b5 19
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_1ebc20d5de911f 29-30
+specs/008-admin-calendar-ux/verify-tasks-report.md
+  s_d52c2d995f51c6::t_174622b0cacf72 4-16,31,33-38,40,44-48,54,60,62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "960b6f8ecd95cb5ca2381502bc9f29d6141a2c02",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
