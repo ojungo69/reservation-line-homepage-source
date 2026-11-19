@@ -1,0 +1,23 @@
+specs/008-admin-calendar-ux/contracts/reservation-interactions.md
+  s_d52c2d995f51c6::t_e7e387226c10c2 165,179,257
+specs/008-admin-calendar-ux/plan.md
+  s_d52c2d995f51c6::t_f5abc1d0fc1e5d 24
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_ad0c181d3c1ff2 14,34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ccac8cac37649cce8365409c7837083b0ee15864",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
