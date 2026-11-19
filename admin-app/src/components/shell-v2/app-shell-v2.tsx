@@ -82,8 +82,21 @@ export default function AppShellV2() {
     const remember = (event: FocusEvent) => {
       lastFocused.current = event.target instanceof Element ? event.target : null;
     };
+    // Focus left for <body> (a click on plain text): forget the element, unless it
+    // is gone by the next microtask, which means it was removed while focused.
+    const forget = (event: FocusEvent) => {
+      const left = event.target;
+      if (event.relatedTarget !== null || !(left instanceof Element)) return;
+      queueMicrotask(() => {
+        if (left.isConnected && lastFocused.current === left) lastFocused.current = null;
+      });
+    };
     document.addEventListener("focusin", remember);
-    return () => document.removeEventListener("focusin", remember);
+    document.addEventListener("focusout", forget);
+    return () => {
+      document.removeEventListener("focusin", remember);
+      document.removeEventListener("focusout", forget);
+    };
   }, []);
 
   // A page change or a layout switch can remove the focused element: page move

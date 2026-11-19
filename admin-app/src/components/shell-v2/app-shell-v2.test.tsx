@@ -253,6 +253,17 @@ describe("AppShellV2 のフォーカス (UX-22)", () => {
     expect(document.activeElement).toBe(screen.getByRole("link", { name: "本文へスキップ" }));
   });
 
+  it("先にフォーカスを外していた（文字のクリックなど）時は、幅が変わってもメニューのボタンへ移さない", async () => {
+    renderShell();
+    const link = within(navs()[0]).getByRole("link", { name: "顧客" });
+    link.focus();
+    link.blur();
+    // A click and a resize are separate tasks in a browser, so microtasks run between.
+    await Promise.resolve();
+    setWide(false);
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it("本文にフォーカスがある時は、画面の幅が変わってもフォーカスを動かさない", () => {
     renderShell();
     const pageButton = screen.getByRole("button", { name: "予定表のボタン" });
