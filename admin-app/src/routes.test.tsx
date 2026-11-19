@@ -7,11 +7,10 @@ import { AppRoutes } from "./routes";
 
 // The calendar switch (specs/008 T000, T004b): the server's calendarV2 alone picks
 // the new schedule and the new shell, and anything else leaves the current screens
-// as they are. The
-// round trip pins plan.md's schedule <-> chart rule at the route level; the
-// SchedulePage tests cover its navigation arguments and the restored state.
-// The mocks move the way the real pages do: the schedule pushes /customers with
-// fromSchedule, and the chart goes back with navigate(-1).
+// as they are. The round trip pins plan.md's schedule <-> chart rule at the route
+// level; the SchedulePage tests cover its navigation arguments and the restored
+// state. The mocks move the way the real pages do: the schedule pushes /customers
+// with fromSchedule, and the chart goes back with navigate(-1).
 
 vi.mock("@/components/app-shell", async () => {
   const { Outlet } = await import("react-router");
@@ -25,7 +24,11 @@ vi.mock("@/pages/schedule", async () => {
     ),
   };
 });
+// Set when the V2 shell module is first loaded. routes.tsx imports it lazily, so
+// production, where the switch is always off, never downloads it.
+const shellV2 = vi.hoisted(() => ({ loaded: false }));
 vi.mock("@/components/shell-v2/app-shell-v2", async () => {
+  shellV2.loaded = true;
   const { Outlet } = await import("react-router");
   return { default: () => <div data-testid="new-shell"><Outlet /></div> };
 });
@@ -47,6 +50,9 @@ vi.mock("@/pages/customers", async () => {
   };
 });
 
+// Read after every import above has run, before any test renders a route.
+const shellV2LoadedWithRoutes = shellV2.loaded;
+
 afterEach(() => vi.unstubAllGlobals());
 
 const admin = { email: "owner@example.invalid", role: "owner", storeId: null, staffMemberId: null };
@@ -65,6 +71,10 @@ function renderAt(path: string, me: Record<string, unknown>) {
 }
 
 describe("calendar switch", () => {
+  it("does not load the new shell's code together with the routes", () => {
+    expect(shellV2LoadedWithRoutes).toBe(false);
+  });
+
   it.each(OFF)("keeps the current schedule unless the server says true (%j)", async (me) => {
     renderAt("/", me);
     expect(await screen.findByText("今の予定表")).toBeTruthy();

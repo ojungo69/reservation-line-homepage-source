@@ -1,12 +1,19 @@
 # verify-tasks report
 
 - Date: 2026-11-20
-- Verified head SHA: `fa6775b4bcdadcb9f99bc56b4f4eb2d2ade49c60` (detached worktree `/home/jura/projects/rlh-source-wt/t004-review`)
-- Scope: branch (base `ac93d7cd1e1ce7a9b365886257dbfee1a4c9ca31` to HEAD). 4 commits: e365ebe, fc0cfb0, 2051581, fa6775b.
-- Feature dir: `specs/008-admin-calendar-ux`
-- Tasks verified: 1. This report verifies T004 only; earlier task reports live in git history.
-- Test result: `./node_modules/.bin/vitest run test/admin-calendar-tokens.test.ts test/design-tokens-parity.test.ts` passed (2 files, 38 tests; parity file alone 33). `npx` was not used.
-- Fresh session advisory: for maximum reliability, run verify-tasks in a separate agent session from the one that ran implement. This run used a fresh context.
+- Verified head SHA: `6bd8f7a` (detached worktree `/home/jura/projects/rlh-source-wt/t004b-review`)
+- Scope: branch (base `9d2435a78d0268726a3898dc95b005690445edce` to HEAD). 1 commit: 6bd8f7a "feat(admin): add the V2 admin shell behind the calendar switch (spec 008 T004b)". 15 files, +799 / -11.
+- Feature dir: `specs/008-admin-calendar-ux` (no `.specify/` in this worktree; used directly)
+- Tasks verified: 1. This report verifies T004b only; earlier task reports live in git history.
+- Test results (one file at a time, `--maxWorkers=1`, all passed):
+  - `admin-app/src/components/shell-v2/app-shell-v2.test.tsx`: 7/7
+  - `admin-app/src/components/shell-v2/header-v2.test.tsx`: 3/3
+  - `admin-app/src/components/shell-v2/sidebar-v2.test.tsx`: 12/12
+  - `admin-app/src/components/shell-v2/store-switch-v2.test.tsx`: 3/3
+  - `admin-app/src/routes.test.tsx`: 12/12
+  - `test/design-tokens-parity.test.ts` (repo root): 33/33
+  - Not run (by instruction): full suites, typecheck, lint, mutation checks.
+- Fresh session advisory: this run used a fresh context, separate from the implementing session.
 - Skipped by instruction: extension hooks, interactive walkthrough (flagged items are listed below instead).
 
 ## Scorecard
@@ -21,39 +28,35 @@
 
 ## Flagged items
 
-None.
+None (no NOT_FOUND / PARTIAL / WEAK).
 
-Notes for the reader (not flags):
-- The leaf aliases `--color-cal-*` and `--mg-active-cal-*` have no consumer in `admin-app/src`, `src` or `public` yet (grep for `bg|text|border|ring|fill|stroke-cal-`, `mg-active-cal`, `mg-cal-` outside the CSS token files and tests found nothing). This is by design: the task says only the switch-on side reads them (T004b/T005). Layer 4 was treated as not_applicable (CSS custom properties are consumed by the cascade).
-- "旧画面とそのテストは今のまま実行する" was not verified by running the full old-screen test suite in this run. Evidence is structural only: CSS diffs are additions only (`git diff --numstat`: glass-tokens.css 58/0, styles.css 20/0, index.css 39/0) and the 33 existing parity assertions still pass. Run the full suite in CI before merge.
-- `public/styles.css` remaps the dark pairs only under `@media (prefers-color-scheme: dark)` (no `data-theme` block exists in that file); this matches how the existing `--mg-active-*` tokens are remapped there.
+Notes for the reader (not verdict flags; each is a limit of this run or a visible gap):
+1. The task's claim "写した役目と外枠の選択を 1 つずつ壊すと、該当の試験が失敗することを確かめた" is a self-report. This run did not re-run the mutation checks (changing source files was out of scope).
+2. The blur regression test (`app-shell-v2.test.tsx`) inspects class tokens only, on the docked sidebar nav and `<main>`, with the drawer closed. It does not look at the drawer's content or at computed styles. By reading: no `backdrop-blur` or `glass-*` class appears in `shell-v2/*.tsx`, the docked sidebar uses `.surface` (`backdrop-filter: none` in `public/glass-tokens.css`), and `ui/sheet.tsx` has no blur class. DESIGN.md (edited in this commit) allows blur on the open drawer itself.
+3. `HeaderV2` renders on every route under `AppShellV2`, including the calendar route `/`. The task says the calendar screen's own top bar (T005) takes its place; T005 is not done, so nothing hides the header on `/` yet. Expected at this stage, and T005 must remove or hide it.
+4. "切り替えがオフの本番では読み込まれない" is true by structure (`lazy(() => import(...))` in `routes.tsx`, selected in `ShellRoute` only when `calendarV2 === true`). The route test mocks the module and asserts the new shell is not rendered when the switch is off, but nothing asserts the chunk is not fetched.
+5. `quickstart.md`, `DESIGN.md` and `tasks.md` (T001 note) were edited in the same commit to cover the 1024px drawer and the drawer blur. Not verified here beyond reading the diff.
 
-## T004 per-layer detail
+## T004b per-layer detail
 
 | Layer | Result | Evidence |
 |---|---|---|
-| 1 File existence | positive | `public/glass-tokens.css`, `public/styles.css`, `admin-app/src/index.css`, `test/design-tokens-parity.test.ts`, `test/admin-calendar-tokens.test.ts`, `DESIGN.md` all present. |
-| 2 Git diff cross-reference | positive | All of the above are in `git diff ac93d7c..HEAD --stat` (glass-tokens +58, styles.css +20, index.css +39, parity test +89/-1, new tokens test +177, DESIGN.md changed). |
-| 3 Content patterns | positive | 18 `--mg-cal-*` light, 18 `--mg-dark-cal-*` dark and 18 `--mg-active-cal-*` (light default) in `public/glass-tokens.css`. Dark remap of all 18 in `public/styles.css` (media query) and `admin-app/src/index.css` (`.dark`). 18 `--color-cal-*` in the Tailwind `@theme` block of `admin-app/src/index.css`, each mapped to `var(--mg-active-cal-*)`. |
-| 4 Dead-code | not_applicable | CSS tokens, consumed by cascade; no consumer yet is intended (see notes). |
-| 5 Semantic | positive | Parity test pins every new token value set, the dark remap, the `--color-cal-*` mapping, and a new check that all shared tokens live in the unconditional `:root` block (with a red fixture). `admin-calendar-tokens.test.ts` computes WCAG contrast for each light/dark opaque pair (text 4.5:1, outline/icon 3:1), and for glass tiers (top bar and add button `glass-thick`, details `glass-modal`) over every backdrop including saturation-boosted backdrops and the reduced-transparency opaque fallback (`paper-elevated`). Real assertions, not stubs. DESIGN.md §3 records the tier choice, body-color-only text on the bar glass, and no outline-only controls. |
+| 1 File existence | positive | All 15 referenced or changed paths exist: `admin-app/src/components/shell-v2/{app-shell-v2,header-v2,sidebar-v2,account-menu-v2,store-switch-v2}.tsx`, `pressable.ts`, four `*.test.tsx`, `admin-app/src/routes.tsx`, `admin-app/src/routes.test.tsx`. |
+| 2 Git diff cross-reference | positive | Every one of them appears in `git diff 9d2435a..HEAD --stat`. |
+| 3 Content patterns | positive | `AppShellV2` (default export, `app-shell-v2.tsx:19`), `ShellRoute` (`routes.tsx:41`), `SidebarV2`, `HeaderV2`, `AccountMenuV2`, `StoreSwitchV2` defined. Duties copied from `AppShell`: `useAdminPushReconcile()`, `sessionStorage.removeItem(CHUNK_RELOAD_FLAG)` in a try/catch on mount, `setDrawerOpen(false)` on `pathname` change, skip link to `#main-content`, `StoreProvider`. Sidebar: `navItemsBySection` with the `privileged` filter and the same "show a section if any item is visible" rule, pending badge on `/` (99+ cap), source link (`/source`, `_blank`, `noreferrer`), account menu with theme cycle (light to dark to system to light, same labels as `Header`) and `logout()` (sets `ACCESS_LOGOUT_PATH`). Header: palette button (`aria-keyshortcuts`), `StoreSwitchV2` (fixed for staff, plain name when 1 store, menu otherwise), menu button below 1024px. Drawer is a `Sheet` with `onNavigate` closing it. The cal-* colors used (`cal-outer`, `-surface`, `-detail`, `-text`, `-text-secondary`, `-primary`, `-selected`, `-on-selected`, `-pending`, `-on-pending`, `-grid`) are all defined in `admin-app/src/index.css`. `<main>` keeps `bg-background text-foreground` (pages keep current colors). |
+| 4 Dead-code | positive | `grep -rn` over `admin-app/src` (non-test): `AppShellV2` referenced by the lazy import and `ShellRoute` in `routes.tsx`; `SidebarV2` and `HeaderV2` by `app-shell-v2.tsx`; `AccountMenuV2` by `sidebar-v2.tsx`; `StoreSwitchV2` by `header-v2.tsx`; `PRESSABLE` by four components; `NavItemV2` by `SidebarV2`; `ShellRoute` by `AppRoutes`. No dead symbol. |
+| 5 Semantic | positive | No stubs, TODOs or placeholder returns. Tests assert behavior: skip link and main attributes, flag clearing and push reconcile, store selection kept across navigation, drawer closes on external navigation and on item press, palette opens, no blur class in main or docked nav (app-shell-v2); role-based menus, active item, badge and 99+, source link, account email and role, 3 theme transitions, logout (sidebar-v2); toggle state and palette (header-v2); menu, staff fixed, single store (store-switch-v2); on/off shell choice, direct `/customers`, and schedule to chart and back keeping one shell instance (routes). All 6 test files pass at head 6bd8f7a. Interpretive: the task text and the code agree on the placement of every listed part. |
 
 ## Verified items
 
 | Task | Verdict | Summary |
 |---|---|---|
+| T004b | ✅ VERIFIED | All layers positive (4 not dead); 6 targeted test files pass at 6bd8f7a; see notes 1 to 5 for the limits of this run. |
 
 ## Unassessable items (SKIPPED)
 
 None.
 
-## Verdict lines
+## Machine-parseable verdict lines
 
-| T004 | ✅ VERIFIED | Calendar tokens (18 light/dark/active/color-cal) added additively; dark remaps in both stacks; parity and contrast tests pass (38/38) at fa6775b |
-
-## Walkthrough Log
-
-No flagged items, so there was nothing to walk through. Addendum after this run (the sections above are the run's record and stay as written):
-
-- The Layer 2 figure for the parity test is +88/-1 at fa6775b4 (the row above says +89/-1).
-- The check that the shared tokens sit in the :root block that opens the file, including the case where :root is wrapped in an at-rule such as `@media print`, was tightened after this run and confirmed at 427be796efdf5e824410217ffe69517fe6ea59b7 (both suites red under that mutation, 38 tests passing otherwise).
+| T004b | ✅ VERIFIED | New shell, lazy route selection, copied duties and tests all present and wired; targeted tests pass at 6bd8f7a. |

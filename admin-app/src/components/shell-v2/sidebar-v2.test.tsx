@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,8 +22,6 @@ vi.mock("@/hooks/use-reservations", () => ({
   }),
 }));
 
-vi.mock("@/hooks/use-theme", () => ({ useTheme: () => ({ theme, setTheme }) }));
-
 vi.mock("@/lib/auth-logout", () => ({ logout: () => logout() }));
 
 import { SidebarV2 } from "./sidebar-v2";
@@ -31,7 +29,7 @@ import { SidebarV2 } from "./sidebar-v2";
 const renderSidebar = (path = "/", onNavigate?: () => void) =>
   render(
     <MemoryRouter initialEntries={[path]}>
-      <SidebarV2 onNavigate={onNavigate} />
+      <SidebarV2 theme={theme} onThemeChange={setTheme} onNavigate={onNavigate} />
     </MemoryRouter>,
   );
 
@@ -48,8 +46,10 @@ beforeEach(() => {
 describe("SidebarV2 のメニュー", () => {
   it("owner には 3 つの区分と、権限の要る項目も出る", () => {
     renderSidebar();
-    const nav = screen.getByRole("navigation", { name: "メインナビゲーション" });
-    for (const heading of ["日常業務", "管理", "設定"]) expect(nav.textContent).toContain(heading);
+    const group = (name: string) => screen.getByRole("group", { name });
+    expect(within(group("日常業務")).getByRole("link", { name: "顧客" })).toBeTruthy();
+    expect(within(group("管理")).getByRole("link", { name: "スタッフ" })).toBeTruthy();
+    expect(within(group("設定")).getByRole("link", { name: "店舗ログイン" })).toBeTruthy();
     for (const label of ["スケジュール", "顧客", "メニュー", "店舗設定", "通知", ...PRIVILEGED]) {
       expect(screen.getByRole("link", { name: new RegExp(label) })).toBeTruthy();
     }
@@ -59,9 +59,9 @@ describe("SidebarV2 のメニュー", () => {
     role = "staff";
     renderSidebar();
     for (const label of PRIVILEGED) expect(screen.queryByRole("link", { name: new RegExp(label) })).toBeNull();
-    expect(screen.getByRole("link", { name: "店舗設定" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "通知" })).toBeTruthy();
-    expect(screen.getByRole("navigation", { name: "メインナビゲーション" }).textContent).toContain("設定");
+    const settings = screen.getByRole("group", { name: "設定" });
+    expect(within(settings).getByRole("link", { name: "店舗設定" })).toBeTruthy();
+    expect(within(settings).getByRole("link", { name: "通知" })).toBeTruthy();
   });
 
   it("今いる画面の項目を選択中として示す", () => {
@@ -70,19 +70,23 @@ describe("SidebarV2 のメニュー", () => {
     expect(screen.getByRole("link", { name: /スケジュール/ }).getAttribute("aria-current")).toBeNull();
   });
 
-  it("承認待ちの件数をスケジュールに出し、100 件以上は 99+ にする", () => {
+  it("承認待ちの件数をスケジュールの読み上げ名に含め、100 件以上の表示は 99+ にする", () => {
     const { unmount } = renderSidebar();
-    expect(screen.getByLabelText("未対応 2件").textContent).toBe("2");
+    const link = screen.getByRole("link", { name: "スケジュール（未対応 2件）" });
+    expect(within(link).getByText("2")).toBeTruthy();
+    expect(screen.getAllByText(/未対応/)).toHaveLength(1);
     unmount();
     pendingCount = 120;
     renderSidebar();
-    expect(screen.getByLabelText("未対応 120件").textContent).toBe("99+");
+    const capped = screen.getByRole("link", { name: "スケジュール（未対応 120件）" });
+    expect(within(capped).getByText("99+")).toBeTruthy();
   });
 
   it("承認待ちが無いときは件数を出さない", () => {
     pendingCount = 0;
     renderSidebar();
-    expect(screen.queryByLabelText(/未対応/)).toBeNull();
+    expect(screen.queryByText(/未対応/)).toBeNull();
+    expect(screen.getByRole("link", { name: "スケジュール" })).toBeTruthy();
   });
 
   it("項目を押すと onNavigate を呼ぶ（引き出しを閉じるため）", async () => {
@@ -106,7 +110,7 @@ describe("SidebarV2 の下部", () => {
   it("アカウントのメニューに、ログイン中のメールアドレスと権限を出す", async () => {
     const user = userEvent.setup();
     renderSidebar();
-    await user.click(screen.getByRole("button", { name: "アカウントメニュー" }));
+    await user.click(screen.getByRole("button", { name: "アカウントメニュー（owner）" }));
     expect(screen.getByText("owner@example.com（owner）")).toBeTruthy();
   });
 
@@ -118,7 +122,7 @@ describe("SidebarV2 の下部", () => {
     theme = current;
     const user = userEvent.setup();
     renderSidebar();
-    await user.click(screen.getByRole("button", { name: "アカウントメニュー" }));
+    await user.click(screen.getByRole("button", { name: "アカウントメニュー（owner）" }));
     await user.click(screen.getByRole("menuitem", { name: label }));
     expect(setTheme).toHaveBeenCalledWith(next);
   });
@@ -126,7 +130,7 @@ describe("SidebarV2 の下部", () => {
   it("ログアウトを選ぶと共通のログアウトを呼ぶ", async () => {
     const user = userEvent.setup();
     renderSidebar();
-    await user.click(screen.getByRole("button", { name: "アカウントメニュー" }));
+    await user.click(screen.getByRole("button", { name: "アカウントメニュー（owner）" }));
     await user.click(screen.getByRole("menuitem", { name: "ログアウト" }));
     expect(logout).toHaveBeenCalledTimes(1);
   });

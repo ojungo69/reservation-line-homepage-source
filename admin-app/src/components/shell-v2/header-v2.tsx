@@ -1,9 +1,11 @@
+import type { Ref } from "react";
 import { Menu, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PRESSABLE } from "./pressable";
 import { StoreSwitchV2 } from "./store-switch-v2";
 
 type HeaderV2Props = Readonly<{
+  menuButtonRef?: Ref<HTMLButtonElement>;
   menuOpen: boolean;
   onMenuToggle: () => void;
   onOpenPalette: () => void;
@@ -14,10 +16,11 @@ type HeaderV2Props = Readonly<{
  * calendar its own floating top bar). It sits above <main>, never over a
  * scroller, so it carries no blur.
  */
-export function HeaderV2({ menuOpen, onMenuToggle, onOpenPalette }: HeaderV2Props) {
+export function HeaderV2({ menuButtonRef, menuOpen, onMenuToggle, onOpenPalette }: HeaderV2Props) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 px-2 text-cal-text lg:px-1">
       <button
+        ref={menuButtonRef}
         type="button"
         onClick={onMenuToggle}
         aria-label="メニュー"

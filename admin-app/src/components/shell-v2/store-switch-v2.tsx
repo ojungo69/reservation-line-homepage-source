@@ -8,7 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PRESSABLE } from "./pressable";
+import { MENU_ITEM_FOCUS, PRESSABLE } from "./pressable";
 
 /**
  * Store scope control for the V2 shell (and, in T005, the calendar's top bar).
@@ -24,7 +24,7 @@ export function StoreSwitchV2() {
 
   if (isStoreFixed || stores.length < 2) {
     return (
-      <span className="flex min-h-11 max-w-48 items-center gap-2 px-3 text-sm font-medium text-cal-text">
+      <span title={name} className="flex min-h-11 max-w-48 items-center gap-2 px-3 text-sm font-medium text-cal-text">
         <Store className="size-4 shrink-0" aria-hidden="true" />
         <span className="truncate">{name}</span>
       </span>
@@ -52,6 +52,7 @@ export function StoreSwitchV2() {
           role="menuitemradio"
           aria-checked={selectedStoreId === null}
           onSelect={() => selectStore(null)}
+          className={MENU_ITEM_FOCUS}
         >
           <Check className={cn("size-4", selectedStoreId !== null && "invisible")} aria-hidden="true" />
           全店舗
@@ -63,7 +64,7 @@ export function StoreSwitchV2() {
             role="menuitemradio"
             aria-checked={selectedStoreId === store.id}
             onSelect={() => selectStore(store.id)}
-            className={cn(selectedStoreId === store.id && "font-medium")}
+            className={cn(MENU_ITEM_FOCUS, selectedStoreId === store.id && "font-medium")}
           >
             <Check className={cn("size-4", selectedStoreId !== store.id && "invisible")} aria-hidden="true" />
             {store.name}
