@@ -19,7 +19,6 @@ The following files contain code copied from or adapted from [shadcn/ui](https:/
 - `admin-app/src/components/ui/input.tsx`
 - `admin-app/src/components/ui/label.tsx`
 - `admin-app/src/components/ui/popover.tsx`
-- `admin-app/src/components/ui/scroll-area.tsx`
 - `admin-app/src/components/ui/select.tsx`
 - `admin-app/src/components/ui/separator.tsx`
 - `admin-app/src/components/ui/sheet.tsx`
@@ -64,7 +63,6 @@ The following packages are reachable from production dependency declarations in 
 | admin-browser | @radix-ui/react-presence@1.1.10 | MIT | [text](third-party-licenses/MIT-0e80a2d229d2.txt) |
 | admin-browser | @radix-ui/react-primitive@2.1.10 | MIT | [text](third-party-licenses/MIT-0e80a2d229d2.txt) |
 | admin-browser | @radix-ui/react-roving-focus@1.1.19 | MIT | [text](third-party-licenses/MIT-0e80a2d229d2.txt) |
-| admin-browser | @radix-ui/react-scroll-area@1.2.18 | MIT | [text](third-party-licenses/MIT-0e80a2d229d2.txt) |
 | admin-browser | @radix-ui/react-select@2.3.7 | MIT | [text](third-party-licenses/MIT-0e80a2d229d2.txt) |
 | admin-browser | @radix-ui/react-separator@1.1.15 | MIT | [text](third-party-licenses/MIT-0e80a2d229d2.txt) |
 | admin-browser | @radix-ui/react-slot@1.3.3 | MIT | [text](third-party-licenses/MIT-0e80a2d229d2.txt) |

@@ -22,8 +22,10 @@ describe("TimelineGridの描画負荷", () => {
     const { container } = render(<TimelineGrid {...props} />);
     const scroller = container.querySelector<HTMLElement>("[data-schedule-scroll]");
     assert(scroller);
+    // A variant prefix (md:, dark:, supports-…:) or the important marker must not hide a blur.
+    const isBlur = (token: string) => /^!?(backdrop-blur|glass-)/.test(token.split(":").pop() ?? "");
     const blurred = [scroller, ...scroller.querySelectorAll<HTMLElement>("*")]
-      .filter((element) => /(^|\s)(backdrop-blur\S*|glass-\S+)(\s|$)/.test(element.getAttribute("class") ?? ""));
+      .filter((element) => (element.getAttribute("class") ?? "").split(/\s+/).some(isBlur));
     expect(blurred.map((element) => element.getAttribute("class"))).toEqual([]);
     // Native overflow scroller: no scrollbar component that runs script per scroll frame.
     expect(scroller.className).toContain("overflow-auto");

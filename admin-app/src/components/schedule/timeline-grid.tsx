@@ -182,8 +182,10 @@ export function TimelineGrid({
 }
 
 function TimeLabels({ slots, slotPx }: Readonly<{ slots: TimeSlot[]; slotPx: number }>) {
+  // z-30: the day view scrolls sideways, so the column headers (z-20) and the
+  // reservation cards (z-10) must slide under this sticky column, not over it.
   return (
-    <div className="sticky left-0 z-10 w-14 shrink-0 border-r bg-background">
+    <div className="sticky left-0 z-30 w-14 shrink-0 border-r bg-background">
       <div className="sticky top-0 z-20 h-[30px] border-b bg-muted" />
       {slots.map((slot) => (
         <div
