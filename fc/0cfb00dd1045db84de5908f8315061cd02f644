@@ -1,0 +1,38 @@
+test/admin-calendar-tokens.test.ts
+  s_d52c2d995f51c6::t_c7c12a0ee2ea6a 110-113,120-126
+  s_d52c2d995f51c6::t_193eff5891d1eb 40-41
+  s_d52c2d995f51c6::t_55593052608660 55-59
+  s_d52c2d995f51c6::t_1fca823bc939d6 153
+  s_d52c2d995f51c6::t_0ca5156d8451fb 134
+  s_d52c2d995f51c6::t_f657ed4f339c76 136,138
+DESIGN.md
+  s_d52c2d995f51c6::t_b8e7bd04d224d8 74,92,100,109
+specs/008-admin-calendar-ux/interactions.md
+  s_d52c2d995f51c6::t_50e7cf42992adf 11-12,19,30,45,92,234,263,277
+specs/008-admin-calendar-ux/plan.md
+  s_d52c2d995f51c6::t_5a1350c459247e 38
+specs/008-admin-calendar-ux/quickstart.md
+  s_d52c2d995f51c6::t_3528a329b5ed9a 32-36
+specs/008-admin-calendar-ux/spec.md
+  s_d52c2d995f51c6::t_449c361a7fdb4d 20,68,70
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_43f4f045a477f6 21,28,30-31
+specs/008-admin-calendar-ux/verify-tasks-report.md
+  s_d52c2d995f51c6::t_250cec151311ba 1,3-8,10,12-18,20,22,24-26,28,30-36,38,40-42,44,46,48,50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fc0cfb00dd1045db84de5908f8315061cd02f644",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
