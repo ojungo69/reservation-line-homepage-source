@@ -1,0 +1,19 @@
+specs/008-admin-calendar-ux/tasks.md
+  s_6ed2c09622cab6::t_0e94e35fdf0c1b 29,50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "38696c141d54f1019f0ba3cfde0441e9c177765d",
+  "prompts": {},
+  "sessions": {
+    "s_6ed2c09622cab6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ba1fb074-e979-4bc7-8a32-7cf29a3f64f0",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
