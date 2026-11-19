@@ -10,9 +10,11 @@ import { StoreProvider } from "@/providers/store-provider";
 import { HeaderV2 } from "./header-v2";
 import { SidebarV2 } from "./sidebar-v2";
 
-// The docked sidebar's breakpoint (Tailwind lg). Only one SidebarV2 is mounted at a
+// The docked sidebar's breakpoint: Tailwind's lg, in the same unit. Media queries
+// size rem from the browser's default font size, so a px value would part from the
+// lg: classes when that setting is not 16px. Only one SidebarV2 is mounted at a
 // time: the docked one, or the drawer's while it is open.
-export const DOCKED_QUERY = "(min-width: 1024px)";
+export const DOCKED_QUERY = "(min-width: 64rem)";
 
 /**
  * The admin shell on the calendar switch's on side (spec 008 T004b).
@@ -70,8 +72,20 @@ export default function AppShellV2() {
     if (paletteOpen || !paletteReturnRef.current) return;
     const target = paletteReturnRef.current;
     paletteReturnRef.current = null;
-    (target.isConnected && target !== document.body ? target : mainRef.current)?.focus();
+    target.focus();
+    // Gone, hidden or disabled meanwhile: focus did not land, so use the page.
+    if (target === document.body || document.activeElement !== target) mainRef.current?.focus();
   }, [paletteOpen]);
+
+  // A page change can remove the focused element (page move returns focus to the
+  // old page, then a lazy page commits and replaces it). Focus the new page then
+  // instead of leaving it on <body>. Skips the first render.
+  const shownPath = useRef(pathname);
+  useEffect(() => {
+    if (shownPath.current === pathname) return;
+    shownPath.current = pathname;
+    if (document.activeElement === document.body) mainRef.current?.focus();
+  }, [pathname]);
 
   return (
     <StoreProvider>
@@ -118,6 +132,7 @@ export default function AppShellV2() {
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <HeaderV2
+            showMenuButton={!docked}
             menuButtonRef={menuButtonRef}
             menuOpen={drawerOpen}
             onMenuToggle={() => setDrawerOpen(true)}

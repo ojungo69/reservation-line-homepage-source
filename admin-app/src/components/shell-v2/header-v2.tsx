@@ -5,6 +5,9 @@ import { PRESSABLE } from "./pressable";
 import { StoreSwitchV2 } from "./store-switch-v2";
 
 type HeaderV2Props = Readonly<{
+  // Set from the shell's docked state, not a CSS breakpoint, so the button and the
+  // drawer it opens always agree.
+  showMenuButton: boolean;
   menuButtonRef?: Ref<HTMLButtonElement>;
   menuOpen: boolean;
   onMenuToggle: () => void;
@@ -16,19 +19,21 @@ type HeaderV2Props = Readonly<{
  * calendar its own floating top bar). It sits above <main>, never over a
  * scroller, so it carries no blur.
  */
-export function HeaderV2({ menuButtonRef, menuOpen, onMenuToggle, onOpenPalette }: HeaderV2Props) {
+export function HeaderV2({ showMenuButton, menuButtonRef, menuOpen, onMenuToggle, onOpenPalette }: HeaderV2Props) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 px-2 text-cal-text lg:px-1">
-      <button
-        ref={menuButtonRef}
-        type="button"
-        onClick={onMenuToggle}
-        aria-label="メニュー"
-        aria-expanded={menuOpen}
-        className={cn("grid min-h-11 min-w-11 place-items-center rounded-full hover:bg-cal-detail lg:hidden", PRESSABLE)}
-      >
-        <Menu className="size-5" aria-hidden="true" />
-      </button>
+      {showMenuButton && (
+        <button
+          ref={menuButtonRef}
+          type="button"
+          onClick={onMenuToggle}
+          aria-label="メニュー"
+          aria-expanded={menuOpen}
+          className={cn("grid min-h-11 min-w-11 place-items-center rounded-full hover:bg-cal-detail", PRESSABLE)}
+        >
+          <Menu className="size-5" aria-hidden="true" />
+        </button>
+      )}
 
       <button
         type="button"

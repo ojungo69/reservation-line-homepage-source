@@ -71,7 +71,12 @@ function NavigateFromOutside() {
     window.addEventListener("test:navigate", go);
     return () => window.removeEventListener("test:navigate", go);
   }, [navigate]);
-  return <p>予定表のページ</p>;
+  return (
+    <>
+      <p>予定表のページ</p>
+      <button type="button">予定表のボタン</button>
+    </>
+  );
 }
 
 const renderShell = (path = "/") =>
@@ -137,6 +142,8 @@ describe("AppShellV2 の役目", () => {
     expect(main.id).toBe("main-content");
     expect(main.getAttribute("tabindex")).toBe("-1");
     expect(within(main).getByText("予定表のページ")).toBeTruthy();
+    // The first render leaves focus alone; only a later page change moves it.
+    expect(document.activeElement).toBe(document.body);
   });
 
   it("本文は今の色のままにし、カレンダーの色を持ち込まない", () => {
@@ -179,6 +186,34 @@ describe("AppShellV2 のフォーカス (UX-22)", () => {
     await user.click(opener);
     await closePalette(user);
     expect(document.activeElement).toBe(opener);
+  });
+
+  it("ページ移動を開いた場所がフォーカスを受け取れなくなっていたら、本文へフォーカスを移す", async () => {
+    const user = userEvent.setup();
+    renderShell();
+    const main = screen.getByRole("main");
+    const pageButton = screen.getByRole<HTMLButtonElement>("button", { name: "予定表のボタン" });
+    pageButton.focus();
+    await user.keyboard("{Control>}k{/Control}");
+    pageButton.disabled = true;
+    await closePalette(user);
+    expect(document.activeElement).toBe(main);
+  });
+
+  it("ページ移動で戻した場所が、続く画面の切り替えで消えたら、新しい画面の本文へフォーカスを移す", async () => {
+    const user = userEvent.setup();
+    renderShell();
+    const main = screen.getByRole("main");
+    const pageButton = screen.getByRole("button", { name: "予定表のボタン" });
+    pageButton.focus();
+    await user.keyboard("{Control>}k{/Control}");
+    await closePalette(user);
+    expect(document.activeElement).toBe(pageButton);
+    act(() => {
+      window.dispatchEvent(new Event("test:navigate"));
+    });
+    expect(screen.getByText("顧客のページ")).toBeTruthy();
+    expect(document.activeElement).toBe(main);
   });
 
   it("キーボードで開いたページ移動を閉じると、戻る先が無いので本文へフォーカスを移す", async () => {
@@ -232,10 +267,11 @@ describe("AppShellV2 のフォーカス (UX-22)", () => {
 });
 
 describe("AppShellV2 のサイドバーと引き出し", () => {
-  it("広い画面では常設のサイドバーを 1 つだけ置く", () => {
+  it("広い画面では常設のサイドバーを 1 つだけ置き、引き出しを開くボタンは出さない", () => {
     renderShell();
     expect(navs()).toHaveLength(1);
     expect(drawer()).toBeNull();
+    expect(screen.queryByRole("button", { name: "メニュー" })).toBeNull();
   });
 
   it("狭い画面では、引き出しを開いた間だけサイドバーを 1 つ置く", async () => {
@@ -243,6 +279,7 @@ describe("AppShellV2 のサイドバーと引き出し", () => {
     const user = userEvent.setup();
     renderShell();
     expect(navs()).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "メニュー" })).toBeTruthy();
     await openDrawer(user);
     expect(navs()).toHaveLength(1);
   });

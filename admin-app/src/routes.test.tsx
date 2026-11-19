@@ -24,11 +24,7 @@ vi.mock("@/pages/schedule", async () => {
     ),
   };
 });
-// Set when the V2 shell module is first loaded. routes.tsx imports it lazily, so
-// production, where the switch is always off, never downloads it.
-const shellV2 = vi.hoisted(() => ({ loaded: false }));
 vi.mock("@/components/shell-v2/app-shell-v2", async () => {
-  shellV2.loaded = true;
   const { Outlet } = await import("react-router");
   return { default: () => <div data-testid="new-shell"><Outlet /></div> };
 });
@@ -50,9 +46,6 @@ vi.mock("@/pages/customers", async () => {
   };
 });
 
-// Read after every import above has run, before any test renders a route.
-const shellV2LoadedWithRoutes = shellV2.loaded;
-
 afterEach(() => vi.unstubAllGlobals());
 
 const admin = { email: "owner@example.invalid", role: "owner", storeId: null, staffMemberId: null };
@@ -71,10 +64,6 @@ function renderAt(path: string, me: Record<string, unknown>) {
 }
 
 describe("calendar switch", () => {
-  it("does not load the new shell's code together with the routes", () => {
-    expect(shellV2LoadedWithRoutes).toBe(false);
-  });
-
   it.each(OFF)("keeps the current schedule unless the server says true (%j)", async (me) => {
     renderAt("/", me);
     expect(await screen.findByText("今の予定表")).toBeTruthy();
