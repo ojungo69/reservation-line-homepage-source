@@ -1,0 +1,33 @@
+admin-app/src/routes.lazy-shell.test.tsx
+  s_d52c2d995f51c6::t_14eb1df84861ec 1-44
+DESIGN.md
+  s_d52c2d995f51c6::t_d80ac2a44b3e2a 96
+admin-app/src/components/shell-v2/app-shell-v2.test.tsx
+  s_d52c2d995f51c6::t_44b1db4fbb844b 74-79,145-146,191-218,270,274,282
+admin-app/src/components/shell-v2/app-shell-v2.tsx
+  s_d52c2d995f51c6::t_9eac0f09f2da29 13-15,17,75-77,80-89,135
+admin-app/src/components/shell-v2/header-v2.test.tsx
+  s_d52c2d995f51c6::t_d14db4177c7c19 13,18,25,32-37,39
+admin-app/src/components/shell-v2/header-v2.tsx
+  s_d52c2d995f51c6::t_3886c51b1c637b 8-10,22,25-36
+admin-app/src/components/shell-v2/pressable.ts
+  s_d52c2d995f51c6::t_f82cc8211f7a84 9-12
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_9a2350a0bbdce1 29,50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4fa1f4e2b07932c823f13400c0446ce69689f1cd",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
