@@ -1,0 +1,29 @@
+test/admin-calendar-tokens.test.ts
+  s_d52c2d995f51c6::t_c7f87160365f93 108-113
+DESIGN.md
+  s_d52c2d995f51c6::t_bc9596d44ee740 100
+specs/008-admin-calendar-ux/interactions.md
+  s_d52c2d995f51c6::t_68c0deca2389d6 30,277
+specs/008-admin-calendar-ux/quickstart.md
+  s_d52c2d995f51c6::t_4205186ec04004 33
+specs/008-admin-calendar-ux/spec.md
+  s_d52c2d995f51c6::t_3cdafaa6674b89 20
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_a094a2a9b16f2b 28,31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "20515813ad08c2ba0d83a2b5f86241af71e23312",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
