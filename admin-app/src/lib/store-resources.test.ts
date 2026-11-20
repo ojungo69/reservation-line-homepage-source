@@ -94,6 +94,29 @@ describe("resolveStoreResources", () => {
   );
 });
 
+describe("resolveStoreResources: 利用者が選んでいた枠（keepChoice）", () => {
+  const A = resource("k-a", "k1");
+  const B = resource("k-b", "k1");
+  const A_STOPPED = resource("k-a", "k1", false);
+
+  it("選んでいた同じ店舗の枠が止まって 1 つだけ残ったら、置き換えずに選び直しを求める", () => {
+    expect(resolveStoreResources([A_STOPPED, B], "k1", "k-a", true)).toEqual({ kind: "multiple", resources: [B], resourceId: "" });
+  });
+
+  it("選んでいた枠がその唯一の稼働中の枠なら、そのまま決める", () => {
+    expect(resolveStoreResources([A], "k1", "k-a", true)).toEqual({ kind: "single", resource: A, resourceId: "k-a" });
+  });
+
+  it("何も選んでいない、または別の店舗の枠なら、唯一の枠に決める", () => {
+    expect(resolveStoreResources([A_STOPPED, B], "k1", "", true)).toEqual({ kind: "single", resource: B, resourceId: "k-b" });
+    expect(resolveStoreResources([A_STOPPED, B, S2_A], "k1", "s2-a", true)).toEqual({ kind: "single", resource: B, resourceId: "k-b" });
+  });
+
+  it("前の予約から引き継いだ初期値（keepChoice なし）は、唯一の枠に置き換える", () => {
+    expect(resolveStoreResources([A_STOPPED, B], "k1", "k-a")).toEqual({ kind: "single", resource: B, resourceId: "k-b" });
+  });
+});
+
 describe("resolveCreateTarget", () => {
   const ONE_STORE = settingsWith([store("s1", "本店")]);
   const TWO_STORES = settingsWith([store("s1", "本店"), store("s2", "二号店")]);
@@ -143,5 +166,8 @@ describe("resolveCreateTarget", () => {
   it("店舗を変えると、前の店舗の枠は送らない", () => {
     expect(resolveCreateTarget(TWO_STORES, "s2", "s1-a").resources.resourceId).toBe("");
     expect(resolveCreateTarget(TWO_STORES, "s1", "s2-b").resources.resourceId).toBe("s1-a");
+    expect(resolveCreateTarget(settingsWith([store("s1", "本店")]), "s1", "s1-off", true).resources).toEqual({
+      kind: "multiple", resources: [S1_ACTIVE], resourceId: "",
+    });
   });
 });

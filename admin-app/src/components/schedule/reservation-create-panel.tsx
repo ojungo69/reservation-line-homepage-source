@@ -545,11 +545,6 @@ function confirmationResourceName(
   return allResources.find((r) => r.id === sentResourceId)?.name ?? sentResourceId;
 }
 
-// 予定表の空きのクリックは時刻と枠を一緒に渡す。時刻の無い初期値（前の予約から作る）の枠は、空き枠の枠ではない。
-function scheduleSlotResourceId(defaultMinutes: number | null, defaultResourceId: string | null): string {
-  return defaultMinutes == null ? "" : defaultResourceId ?? "";
-}
-
 // フォームが送れる枠（枠が 1 つならその枠、2 つ以上なら稼働中の候補）の空きだけを一覧にする。
 function sendableResourceIds(resources: StoreResources): string[] {
   if (resources.kind === "single") return [resources.resourceId];
@@ -599,8 +594,8 @@ export function ReservationCreatePanel({
   const [time, setTime] = useState(initialTime);
   // 空き枠クリック由来の時刻か（メニュー変更時にリセットするかの判定に使う）。
   const [timeFromSlot, setTimeFromSlot] = useState(false);
-  // 時刻を空き枠（予定表の空きのクリックを含む）から選んだときの枠。リソースの欄の値とは別に持つ。
-  const [slotResourceId, setSlotResourceId] = useState(() => scheduleSlotResourceId(defaultMinutes, defaultResourceId));
+  // 枠を利用者が選んだか（欄・空き枠・予定表の空きのクリック）。前の予約から引き継いだ初期値は時刻を伴わないので含めない。
+  const [resourceChosen, setResourceChosen] = useState(() => defaultMinutes != null && Boolean(defaultResourceId));
   // rebook 初期値のうち現在選択できないメニューを外したときの警告。
   const [unavailableNotice, setUnavailableNotice] = useState<string | null>(null);
 
@@ -651,7 +646,7 @@ export function ReservationCreatePanel({
   };
 
   // 店舗と枠は利用者の選択（state）を書き換えず、描画のたびに導く。
-  const target = resolveCreateTarget(settings, storeId, resourceId);
+  const target = resolveCreateTarget(settings, storeId, resourceId, resourceChosen);
 
   const storeServices = useMemo(
     () => settings?.services.filter((s) => s.active && s.storeId === target.storeId) ?? [],
@@ -708,7 +703,6 @@ export function ReservationCreatePanel({
     );
     // 合算時間が変わると空き枠クリックで選んだ時刻は無効になり得るためリセットする。
     setTime((prev) => nextTimeAfterServiceChange(prev, timeFromSlot));
-    if (timeFromSlot) setSlotResourceId("");
     setTimeFromSlot(false);
     setError(null);
   };
@@ -740,16 +734,16 @@ export function ReservationCreatePanel({
     const m = String(d.getUTCMinutes()).padStart(2, "0");
     setTime(`${h}:${m}`);
     setTimeFromSlot(true);
-    setSlotResourceId(slot.resourceId);
+    setResourceChosen(true);
   };
 
-  // 店舗を変えたら、前の店舗の枠・メニュー・お客様と空き枠の枠を空にする（時刻は今どおり残す）。
+  // 店舗を変えたら、前の店舗の枠・メニュー・お客様を空にする（時刻は今どおり残す）。
   const handleStoreChange = (value: string) => {
     setStoreId(value);
     setServiceIds([]);
     setUnavailableNotice(null);
     setResourceId("");
-    setSlotResourceId("");
+    setResourceChosen(false);
     setSelectedCustomer(null);
     setCustomerSearch("");
   };
@@ -768,11 +762,6 @@ export function ReservationCreatePanel({
 
   const handleSubmit = () => {
     setError(null);
-    // 空き枠で選んだ時刻はその枠の空きなので、送る枠が違えば選び直してもらう。
-    if (slotResourceId !== "" && slotResourceId !== target.resources.resourceId) {
-      setError("選んだ空き枠と送る枠が合いません。空き枠を選び直すか、時刻を入れ直してください。");
-      return;
-    }
     const baseValid = target.storeId && serviceIds.length > 0 && target.resources.resourceId && date && time;
     if (!baseValid) {
       setError("必須項目を入力してください");
@@ -823,12 +812,6 @@ export function ReservationCreatePanel({
 
   const handleConfirm = () => {
     if (!pendingPayload) return;
-    // 確認の間に、送る枠が今の店舗の送れる枠から外れたら、古い内容のまま送らない。
-    if (pendingPayload.storeId !== target.storeId || !sendableResourceIds(target.resources).includes(pendingPayload.resourceId)) {
-      setPendingPayload(null);
-      setError("店舗の設定が変わりました。内容を確かめてから、もう一度保存してください。");
-      return;
-    }
     create(pendingPayload, {
       onSuccess: () => {
         idempotencyStateRef.current = null;
@@ -892,7 +875,7 @@ export function ReservationCreatePanel({
 
             {target.resources.kind === "multiple" && (
               <Field id="rcp-resource" label="リソース">
-                <Select value={target.resources.resourceId} onValueChange={setResourceId}>
+                <Select value={target.resources.resourceId} onValueChange={(value) => { setResourceId(value); setResourceChosen(true); }}>
                   <SelectTrigger id="rcp-resource"><SelectValue placeholder="リソースを選択" /></SelectTrigger>
                   <SelectContent>
                     {target.resources.resources.map((r) => (
@@ -912,7 +895,7 @@ export function ReservationCreatePanel({
                 <Input id="rcp-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
               </Field>
               <Field id="rcp-time" label="時間">
-                <Input id="rcp-time" type="time" value={time} onChange={(e) => { setTime(e.target.value); setTimeFromSlot(false); setSlotResourceId(""); }} step="300" />
+                <Input id="rcp-time" type="time" value={time} onChange={(e) => { setTime(e.target.value); setTimeFromSlot(false); }} step="300" />
               </Field>
             </div>
           </div>
@@ -925,7 +908,7 @@ export function ReservationCreatePanel({
                   fetching: slotsFetching,
                   failed: slotsError || slotsData?.ok === false,
                   slotsByResource,
-                  resourceId: slotResourceId || target.resources.resourceId,
+                  resourceId: target.resources.resourceId,
                   showResourceNames: target.resources.kind === "multiple",
                   time,
                   onSlotClick: handleSlotClick,

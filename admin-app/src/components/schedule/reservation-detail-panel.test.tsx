@@ -34,7 +34,7 @@ vi.mock("@/hooks/use-auth", () => ({
 
 // 設定は試験ごとに差し替える（取得中・失敗は data を undefined にして表す）。
 const settingsMock = vi.hoisted(() => ({
-  result: { data: undefined as unknown, isPending: false },
+  result: { data: undefined as unknown, isPending: false, isError: false },
 }));
 vi.mock("@/hooks/use-settings", () => ({
   useSettings: () => settingsMock.result,
@@ -48,7 +48,7 @@ const resourceRow = (id: string, active = true) => ({
   active,
 });
 function givenResources(resources: ReturnType<typeof resourceRow>[]) {
-  settingsMock.result = { data: { ok: true, settings: { resources } }, isPending: false };
+  settingsMock.result = { data: { ok: true, settings: { resources } }, isPending: false, isError: false };
 }
 
 vi.mock("./reservation-reschedule-dialog", () => ({
@@ -651,7 +651,7 @@ describe("ReservationDetailPanel のリソース行・操作名・来店履歴",
   });
 
   it("設定の読み込み中はリソースの行を出さない", () => {
-    settingsMock.result = { data: undefined, isPending: true };
+    settingsMock.result = { data: undefined, isPending: true, isError: false };
     render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
     expect(screen.queryByText("リソース")).toBeNull();
   });
@@ -668,10 +668,16 @@ describe("ReservationDetailPanel のリソース行・操作名・来店履歴",
     expect(screen.getByText("リソース")).toBeTruthy();
   });
 
-  it("設定の取得に失敗したときは、リソースの行を出す", () => {
-    settingsMock.result = { data: undefined, isPending: false };
+  it("設定の最初の取得に失敗したときは、リソースの行を出す", () => {
+    settingsMock.result = { data: undefined, isPending: false, isError: true };
     render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
     expect(screen.getByText("リソース")).toBeTruthy();
+  });
+
+  it("取り直しに失敗しても前の設定があれば、それで判断してリソースの行を出さない", () => {
+    settingsMock.result = { data: { ok: true, settings: { resources: [resourceRow("resource-1")] } }, isPending: false, isError: true };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.queryByText("リソース")).toBeNull();
   });
 
   it.each(["confirmed", "pending_approval"])("%s の予約には「開始時刻を変更」「長さを変更」を出す", (status) => {

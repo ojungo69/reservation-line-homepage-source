@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -39,6 +39,7 @@ function renderTab() {
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
+  return client;
 }
 
 const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
@@ -122,27 +123,68 @@ describe("RecurringBlocksTab: 枠の数による出し分け", () => {
     expect(screen.queryByText(NO_RESOURCE_NOTICE)).toBeNull();
   });
 
-  it("読み込みが終わったあとに作った冪等性のキーで、作成を送る", async () => {
-    resources = [room("resource-1", "施術室1")];
-    let issued = 0;
-    vi.spyOn(crypto, "randomUUID").mockImplementation(() => `00000000-0000-4000-8000-${String(++issued).padStart(12, "0")}`);
+  it("選んだ枠が止まって 1 つだけ残っても、黙って置き換えず、選び直すまでプレビューできない", async () => {
+    resources = [room("resource-1", "施術室1"), room("resource-2", "施術室2")];
     const user = userEvent.setup();
-    renderTab();
-
+    const client = renderTab();
+    releaseSettings();
     await user.click(screen.getByRole("button", { name: "月曜" }));
     fireEvent.change(screen.getByLabelText("開始日"), { target: { value: "2026-12-07" } });
     fireEvent.change(screen.getByLabelText("終了日"), { target: { value: "2026-12-14" } });
-    // 読み込み前に入力しただけでキーは 5 回作られている（最初の 1 回、マウント、曜日、開始日、終了日）。
-    expect(issued).toBe(5);
+    (await screen.findByRole("combobox", { name: "リソース" })).focus();
+    await user.keyboard("施術室2");
+    await waitFor(() => expect(button("プレビュー").disabled).toBe(false));
+
+    resources = [room("resource-1", "施術室1"), { ...room("resource-2", "施術室2"), active: false }];
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["settings"] });
+    });
+    // TanStack Query は描画への知らせを setTimeout の後に送るので、それを待ってから見る。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(screen.getByRole("combobox", { name: "リソース" })).toBeTruthy();
+    expect(button("プレビュー").disabled).toBe(true);
+  });
+
+  it("読み込み前に作ったキーは送らず、同じ内容の作り直しでは送ったキーを使い続ける", async () => {
+    resources = [room("resource-1", "施術室1")];
+    const issued: string[] = [];
+    vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      const key = `00000000-0000-4000-8000-${String(issued.length + 1).padStart(12, "0")}` as const;
+      issued.push(key);
+      return key;
+    });
+    let commits = 0;
+    api.post.mockImplementation(async (path: string) => {
+      if (path === "/api/admin/recurring/preview") {
+        return { ok: true, occurrences: ["2026-12-07T03:00:00.000Z"], truncatedByWindow: false, truncatedByCap: false, windowCapped: false };
+      }
+      commits += 1;
+      if (commits === 1) throw new Error("network");
+      return { ok: true, createdCount: 1, replayedCount: 0, skippedPastCount: 0, failedCount: 0 };
+    });
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(screen.getByRole("button", { name: "月曜" }));
+    fireEvent.change(screen.getByLabelText("開始日"), { target: { value: "2026-12-07" } });
+    fireEvent.change(screen.getByLabelText("終了日"), { target: { value: "2026-12-14" } });
+    const beforeLoad = [...issued];
 
     releaseSettings();
     await waitFor(() => expect(button("プレビュー").disabled).toBe(false));
     await user.click(button("プレビュー"));
     await waitFor(() => expect(button("作成").disabled).toBe(false));
     await user.click(button("作成"));
+    await waitFor(() => expect(commits).toBe(1));
+    await waitFor(() => expect(button("作成").disabled).toBe(false));
+    await user.click(button("作成"));
+    await waitFor(() => expect(commits).toBe(2));
 
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/admin/recurring/commit", expect.objectContaining({
-      idempotencyKey: "00000000-0000-4000-8000-000000000006",
-    })));
+    const keys = api.post.mock.calls
+      .filter(([path]) => path === "/api/admin/recurring/commit")
+      .map(([, body]) => (body as { idempotencyKey: string }).idempotencyKey);
+    expect(beforeLoad).not.toContain(keys[0]);
+    expect(keys[1]).toBe(keys[0]);
   });
 });

@@ -14,16 +14,21 @@ export const NO_RESOURCE_CREATE_NOTICE = "この店舗は予約枠が未設定�
 export const NO_RESOURCE_SETTINGS_NOTICE =
   "この店舗は予約枠が未設定です。店舗設定の「リソース」タブで追加してください。";
 
+// keepChoice は、selectedId が利用者の選んだ枠（前の予約から引き継いだ初期値ではない）であることを示す。
+// その枠が止まって 1 つだけ残ったときは、見ていない枠へ黙って置き換えず、欄を出して選び直してもらう。
 export function resolveStoreResources(
   resources: readonly Resource[] | undefined,
   storeId: string | null | undefined,
   selectedId = "",
+  keepChoice = false,
 ): StoreResources {
   if (!resources || !storeId) return { kind: "unknown", resourceId: "" };
   const active = resources.filter((r) => r.active && r.storeId === storeId);
   const [only, ...rest] = active;
   if (!only) return { kind: "none", resourceId: "" };
-  if (rest.length === 0) return { kind: "single", resource: only, resourceId: only.id };
+  const choice = resources.find((r) => r.id === selectedId);
+  const replacesChoice = keepChoice && choice?.storeId === storeId && choice.id !== only.id;
+  if (rest.length === 0 && !replacesChoice) return { kind: "single", resource: only, resourceId: only.id };
   const resourceId = active.some((r) => r.id === selectedId) ? selectedId : "";
   return { kind: "multiple", resources: active, resourceId };
 }
@@ -43,11 +48,12 @@ export function resolveCreateTarget(
   settings: SettingsResponse["settings"] | null,
   chosenStoreId: string,
   chosenResourceId: string,
+  keepChoice = false,
 ): CreateTarget {
   const stores = settings?.stores ?? [];
   const soleStore = stores.length === 1 ? stores[0] : undefined;
   const storeId = soleStore ? soleStore.id : chosenStoreId;
-  const resources = resolveStoreResources(settings?.resources, storeId, chosenResourceId);
+  const resources = resolveStoreResources(settings?.resources, storeId, chosenResourceId, keepChoice);
   return {
     storeId,
     storeName: stores.find((s) => s.id === storeId)?.name ?? null,

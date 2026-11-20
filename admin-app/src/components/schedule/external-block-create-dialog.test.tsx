@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -144,6 +144,34 @@ describe("ExternalBlockCreateDialog: 枠の数による出し分け", () => {
     expect(api.post).toHaveBeenCalledWith("/api/admin/external-blocks", expect.objectContaining({
       resourceId: "resource-2",
     }));
+  });
+
+  it("選んだ枠が止まって 1 つだけ残っても、黙って置き換えず、選び直すまで作成できない", async () => {
+    resources = [room("resource-1", "施術室1"), room("resource-2", "施術室2")];
+    const user = userEvent.setup();
+    const client = renderDialog(openDialog());
+    fillTimes();
+    await user.click(await screen.findByRole("combobox", { name: "リソース" }));
+    await user.click(await screen.findByRole("option", { name: "施術室2" }));
+    await waitFor(() => expect((createButton() as HTMLButtonElement).disabled).toBe(false));
+
+    resources = [room("resource-1", "施術室1"), { ...room("resource-2", "施術室2"), active: false }];
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["settings"] });
+    });
+    // TanStack Query は描画への知らせを setTimeout の後に送るので、それを待ってから見る。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(screen.getByRole("combobox", { name: "リソース" })).toBeTruthy();
+    expect((createButton() as HTMLButtonElement).disabled).toBe(true);
+
+    await user.click(screen.getByRole("combobox", { name: "リソース" }));
+    await user.click(await screen.findByRole("option", { name: "施術室1" }));
+    await waitFor(() => expect((createButton() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(createButton());
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post).toHaveBeenCalledWith("/api/admin/external-blocks", expect.objectContaining({ resourceId: "resource-1" }));
   });
 
   it("設定の取得に失敗したら、0 件の案内を出さず、作成できない", async () => {

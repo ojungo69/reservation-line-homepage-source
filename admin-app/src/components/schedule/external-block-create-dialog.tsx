@@ -57,7 +57,8 @@ export function ExternalBlockCreateDialog({
 
   const { resourceList, isLoaded } = useResourceList(storeId || null);
   // 枠が 1 つなら選ばせずその枠に決める。取得に失敗したときは 0 件とは扱わない。
-  const resources = resolveStoreResources(isLoaded ? resourceList : undefined, storeId, chosenResourceId);
+  // 欄で選んだ枠が止まって 1 つだけ残ったときは、黙って置き換えず選び直してもらう。
+  const resources = resolveStoreResources(isLoaded ? resourceList : undefined, storeId, chosenResourceId, true);
   const resourceId = resources.resourceId;
 
   // ダイアログを開くたびに defaultStoreId を反映し、入力をリセットする。
