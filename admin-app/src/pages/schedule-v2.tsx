@@ -30,10 +30,10 @@ import type { ExternalBlock } from "@/types/api";
 // The pending list's row limit (listPendingReservations in src/admin/reservations.ts).
 const PENDING_ROW_CAP = 200;
 
-/** The bar's heading and the step of 前/次 for the view. */
+/** The bar's heading, the period read out when it changes, and the step of 前/次 for the view. */
 function barText(week: boolean, narrow: boolean, date: Date, dayDates: readonly Date[]) {
-  if (week) return { heading: weekHeading(dayDates), stepUnit: "週" as const, stepDays: 7 };
-  return { heading: narrow ? shortDayLabel(date) : dayLabel(date), stepUnit: "日" as const, stepDays: 1 };
+  if (week) return { heading: weekHeading(dayDates), spoken: `${dayLabel(dayDates[0])}から${dayLabel(dayDates[6])}`, stepUnit: "週" as const, stepDays: 7 };
+  return { heading: narrow ? shortDayLabel(date) : dayLabel(date), spoken: dayLabel(date), stepUnit: "日" as const, stepDays: 1 };
 }
 
 /** The pending count for the store shown; null until the list is read. */
@@ -142,6 +142,11 @@ export default function ScheduleV2Page() {
     const open = opens.length > 0 ? Math.min(...opens) : FALLBACK_OPENING_MINUTE;
     scroller.scrollTop = Math.max(0, (open - 30) * PX_PER_MINUTE);
   }, [scrollKey]);
+  // A move that stayed in the shown period (a day picked in the week) changed no
+  // key; its flag must not carry over to a later change of view or store.
+  useLayoutEffect(() => {
+    keepHours.current = false;
+  });
 
   // 次回予約 from a customer's chart lands here with the customer in the history
   // state; it opens the booking form once, as on the current calendar.
@@ -246,6 +251,7 @@ export default function ScheduleV2Page() {
       <div ref={overlayRef} className="pointer-events-none absolute inset-x-0 top-0 z-40">
         <CalendarTopBar
           heading={bar.heading}
+          spoken={bar.spoken}
           headingRef={headingRef}
           date={date}
           onPickDate={goTo}

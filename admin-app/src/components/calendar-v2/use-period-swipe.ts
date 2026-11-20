@@ -47,6 +47,7 @@ export function usePeriodSwipe(
     if (!scroller) return;
     let gesture: Gesture | null = null;
     let unblock: (() => void) | null = null;
+    let wheelAxis: "x" | "y" | null = null;
     let wheelSum = 0;
     let wheelDone = false;
     let wheelTimer = 0;
@@ -144,19 +145,23 @@ export function usePeriodSwipe(
     const onHidden = () => {
       if (document.hidden) stop();
     };
-    // INT-05: a gesture is wheel input without a 250ms gap, momentum included;
-    // it moves one period at most, once its sideways sum reaches 80px.
+    // INT-05: a gesture is wheel input without a 250ms gap, momentum included.
+    // Its first input fixes its axis (INT-03-08); a sideways one moves one period
+    // at most, once the signed sum of all its sideways input reaches 80px.
     const onWheel = (event: WheelEvent) => {
       // INT-05-04: ctrl + wheel is the trackpad's pinch zoom.
       if (event.ctrlKey) return;
       window.clearTimeout(wheelTimer);
       wheelTimer = window.setTimeout(() => {
+        wheelAxis = null;
         wheelSum = 0;
         wheelDone = false;
       }, WHEEL_GAP_MS);
-      // INT-05-01: vertical input scrolls the hours. INT-05-07: input the page
-      // cannot cancel may still become the browser's back or forward.
-      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || !event.cancelable) return;
+      if (event.deltaX === 0 && event.deltaY === 0) return;
+      wheelAxis ??= Math.abs(event.deltaX) > Math.abs(event.deltaY) ? "x" : "y";
+      // INT-05-01: a vertical gesture scrolls the hours. INT-05-07: input the
+      // page cannot cancel may still become the browser's back or forward.
+      if (wheelAxis !== "x" || !event.cancelable) return;
       event.preventDefault();
       if (wheelDone) return;
       wheelSum += wheelPx(event.deltaX, event.deltaMode, scroller.clientWidth);

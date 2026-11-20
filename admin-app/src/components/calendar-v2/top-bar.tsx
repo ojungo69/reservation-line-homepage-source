@@ -29,6 +29,7 @@ const VIEWS: Array<{ view: CalendarView; label: string }> = [
  */
 export function CalendarTopBar({
   heading,
+  spoken,
   headingRef,
   date,
   onPickDate,
@@ -44,6 +45,9 @@ export function CalendarTopBar({
   dayHeader,
 }: Readonly<{
   heading: string;
+  // The shown period in full, read out when it changes: a week keeps its month
+  // heading while its days change (INT-12-05).
+  spoken: string;
   // Focus lands here when the control that had it goes away (a day header in the
   // week, a retry button once its alert clears).
   headingRef: Ref<HTMLHeadingElement>;
@@ -103,7 +107,7 @@ export function CalendarTopBar({
           <ChevronRight className="size-5" aria-hidden="true" />
         </button>
         <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-          <h1 ref={headingRef} tabIndex={-1} aria-live="polite" className="min-w-0 outline-hidden">
+          <h1 ref={headingRef} tabIndex={-1} className="min-w-0 outline-hidden">
             <PopoverTrigger asChild>
               <button
                 type="button"
@@ -114,7 +118,8 @@ export function CalendarTopBar({
               </button>
             </PopoverTrigger>
           </h1>
-          <PopoverContent align="start">
+          {/* Opaque: DESIGN.md §3 keeps glass to the bar, the + button, details and page move. */}
+          <PopoverContent align="start" material="surface" aria-label="日付選択">
             <MiniCalendar
               selected={date}
               weekStartsOn={1}
@@ -125,6 +130,9 @@ export function CalendarTopBar({
             />
           </PopoverContent>
         </Popover>
+        <p className="sr-only" aria-live="polite">
+          {spoken}
+        </p>
         <div className="flex-1" />
         {shell && (
           // Not on phones: the drawer lists every page there, and one more button

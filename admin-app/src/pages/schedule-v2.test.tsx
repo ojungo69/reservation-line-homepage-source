@@ -1269,6 +1269,23 @@ describe("ScheduleV2Page の横スクロール（T006）", () => {
     expect(heading()).toBe("11月22日（日）");
   });
 
+  it("縦で始まった操作は途中で横に変わっても動かさず、横の操作は逆向きの量も足す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wheel(0, 100);
+    wheel(45, 5);
+    wheel(45, 5);
+    expect(heading()).toBe("11月20日（金）");
+    await quiet();
+    wheel(70, 0);
+    wheel(-60, 70);
+    wheel(20, 0);
+    expect(heading()).toBe("11月20日（金）");
+    wheel(50, 0);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
   it("縦が主の入力・拡大の入力・取り消せない入力では動かさず、縦と拡大はブラウザに任せる", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -1302,6 +1319,46 @@ describe("ScheduleV2Page の日付選択（T006）", () => {
     expect(heading()).toBe("11月25日（水）");
     expect(screen.queryByRole("group", { name: "日付選択カレンダー" })).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "11月25日（水）" }));
+  });
+});
+
+describe("ScheduleV2Page の日付選択（T006）の細部", () => {
+  it("キーボードで開くと名前のあるダイアログになり、Escape で見出しに戻る。面はぼかしの無い不透明な面", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const trigger = screen.getByRole("button", { name: "11月20日（金）" });
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "日付選択" });
+    expect(dialog.classList.contains("surface")).toBe(true);
+    expect(dialog.classList.contains("glass-mid")).toBe(false);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "日付選択" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("同じ週の日を選んだあとで日表示に切り替えると、営業開始の位置で開く", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await eventButton(/^山田 花子、/);
+    scroller().scrollTop = 700;
+    await user.click(screen.getByRole("button", { name: "2026年11月" }));
+    const calendar = await screen.findByRole("group", { name: "日付選択カレンダー" });
+    await user.click(within(calendar).getByRole("button", { name: "2026年11月18日 (水)" }));
+    await user.click(screen.getByRole("button", { name: "日" }));
+    expect(heading()).toBe("11月18日（水）");
+    // 10:00 opening less 30 minutes, at 48px an hour.
+    expect(scroller().scrollTop).toBe(456);
+  });
+
+  it("表示中の期間が変わると、見出しが同じ年月のままでも期間を読み上げる", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: /^11月16日（月）の日表示を開く/ });
+    swipe(scroller(), -80);
+    expect(heading()).toBe("2026年11月");
+    const spoken = screen.getByText("11月23日（月）から11月29日（日）");
+    expect(spoken.getAttribute("aria-live")).toBe("polite");
   });
 });
 
