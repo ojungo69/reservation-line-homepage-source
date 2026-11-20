@@ -729,7 +729,7 @@ export function ReservationDetailPanel({
         onConfirm={{ rebook: rebookAndClose, chart: openChart, close: closePanel }[discardDraftNext ?? "close"]}
       />
 
-      {/* パネル(Sheet)は常時マウントで reservationId 切替のみ。時間変更ダイアログを詳細パネルの
+      {/* パネル(Sheet)は常時マウントで reservationId 切替のみ。開始時刻の変更ダイアログを詳細パネルの
           対象に同期させ、別予約へ切替・パネルを閉じた後に前回対象で開いたままにならないようにする。 */}
       <ReservationRescheduleDialog
         reservation={rescheduleTarget?.id === reservationId ? rescheduleTarget : null}
