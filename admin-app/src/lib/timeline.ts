@@ -76,7 +76,7 @@ export function getTimeSlots(
   return buildSlots(0, 24 * 60);
 }
 
-function parseHHMM(time: string): number {
+export function parseHHMM(time: string): number {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;
 }

@@ -4,8 +4,8 @@ import { getInitialScrollMinutes, isScheduleVisibleReservationStatus, jstWeekday
 import { cn } from "@/lib/utils";
 import type { ExternalBlock, SettingsResponse } from "@/types/api";
 import { CalendarColumnView, type CalendarItem, type ClosureBand } from "./column";
-import type { CalendarColumn } from "./columns";
-import { clipToDay, closedRanges, DAY_MINUTES, openSlotMinutes, SLOT_MINUTES, type Span } from "./geometry";
+import { activeResourceIds, type CalendarColumn } from "./columns";
+import { clipToDay, closedRanges, openSlotMinutes, SLOT_MINUTES, type Span } from "./geometry";
 import { dayLabel, dayOfMonth, weekdayOf } from "./labels";
 import type { DayData } from "./use-calendar-days";
 
@@ -59,6 +59,8 @@ export type ColumnState = Readonly<{
   items: CalendarItem[];
   closed: Span[];
   closures: ClosureBand[];
+  // The slot that takes Tab first: the opening time, where work starts.
+  entryMinute: number;
   // None while the day's data is incomplete (UX-21: it must not read as free
   // time) or the store has no active resource to book.
   slots: number[];
@@ -77,7 +79,7 @@ export function columnState(
   const items = columnItems(column, day);
   const closures = closureBands(column, settings);
   const closed = settings ? closedRanges(settings.businessHours, column.storeId, jstWeekday(column.date)) : [];
-  const noResource = settings !== null && !settings.resources.some((resource) => resource.storeId === column.storeId && resource.active);
+  const noResource = settings !== null && activeResourceIds(column.storeId, settings.resources).length === 0;
   const closuresUnknown =
     settings !== null && settings.closures.filter((closure) => closure.storeId === column.storeId).length >= CLOSURE_ROW_CAP;
   const offers = settingsUsable && reservationsComplete(day) && !closuresUnknown && !noResource;
@@ -86,6 +88,7 @@ export function columnState(
     items,
     closed,
     closures,
+    entryMinute: Math.floor(openingMinute(settings, column) / SLOT_MINUTES) * SLOT_MINUTES,
     slots: offers ? openSlotMinutes([...closed, ...closures.map((band) => band.span)]) : [],
     noResource,
     closuresUnknown,
@@ -101,7 +104,6 @@ function dayStatus(day: DayData | undefined): string {
 /** The columns of the grid, each with its bookings, closed times and slots. */
 export function CalendarColumns({
   states,
-  settings,
   week,
   todayKey,
   nowMinute,
@@ -112,7 +114,6 @@ export function CalendarColumns({
   onBlock,
 }: Readonly<{
   states: readonly ColumnState[];
-  settings: CalendarSettings | null;
   week: boolean;
   todayKey: string;
   nowMinute: number;
@@ -126,7 +127,6 @@ export function CalendarColumns({
   return states.map((state) => {
     const { column } = state;
     const today = column.dateKey === todayKey;
-    const entry = Math.floor(openingMinute(settings, column) / SLOT_MINUTES) * SLOT_MINUTES;
     return (
       <CalendarColumnView
         key={column.key}
@@ -135,7 +135,7 @@ export function CalendarColumns({
         items={state.items}
         closed={state.closed}
         closures={state.closures}
-        entryMinute={Math.min(entry, DAY_MINUTES - SLOT_MINUTES)}
+        entryMinute={state.entryMinute}
         slots={state.slots}
         tint={week && today}
         nowMinute={today ? nowMinute : null}

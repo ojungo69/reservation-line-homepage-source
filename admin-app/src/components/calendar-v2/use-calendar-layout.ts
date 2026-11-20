@@ -7,7 +7,7 @@ type Layout = Readonly<{ barPx: number; scrollbarPx: number; columnPx: number | 
  * and scrolls under it), the scrollbar's width (the bar's day header lines up
  * with the columns), and one column's width (blocks choose what text fits).
  */
-export function useCalendarLayout(columnCount: number, gutterPx: number) {
+export function useCalendarLayout(columnCount: number) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState<Layout>({ barPx: 0, scrollbarPx: 0, columnPx: null });
@@ -20,7 +20,7 @@ export function useCalendarLayout(columnCount: number, gutterPx: number) {
       const next: Layout = {
         barPx: overlay.offsetHeight,
         scrollbarPx: scroller.offsetWidth - scroller.clientWidth,
-        columnPx: columnCount > 0 ? (scroller.clientWidth - gutterPx) / columnCount : null,
+        columnPx: scroller.querySelector<HTMLElement>("[data-calendar-column]")?.offsetWidth ?? null,
       };
       setLayout((prev) =>
         prev.barPx === next.barPx && prev.scrollbarPx === next.scrollbarPx && prev.columnPx === next.columnPx ? prev : next,
@@ -31,6 +31,7 @@ export function useCalendarLayout(columnCount: number, gutterPx: number) {
     observer.observe(overlay);
     observer.observe(scroller);
     return () => observer.disconnect();
-  }, [columnCount, gutterPx]);
+  // columnCount: measure again when columns appear or change in number.
+  }, [columnCount]);
   return { overlayRef, scrollerRef, layout };
 }

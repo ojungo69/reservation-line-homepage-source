@@ -3,7 +3,7 @@ import type { Resource, Store } from "@/types/api";
 import { mondayWeek } from "./geometry";
 
 export type CalendarView = "list" | "day" | "week";
-export type GridView = Exclude<CalendarView, "list">;
+type GridView = Exclude<CalendarView, "list">;
 
 export type CalendarColumn = Readonly<{
   key: string;
@@ -36,15 +36,10 @@ export function buildColumns(view: GridView, date: Date, storeId: string | null,
   });
 }
 
-export type SlotResource = { kind: "one"; resourceId: string } | { kind: "choose" } | { kind: "none" };
-
 /**
- * The resource a booking made from an empty slot starts with: the store's only
- * active one. With two or more the form asks; with none the store cannot take a
- * booking, and the caller says so instead of opening an unfinishable form.
+ * The store's active resources. None: the grid offers no slots there. One: a
+ * booking from a slot starts with it. Two or more: the form asks.
  */
-export function slotResource(storeId: string, resources: readonly Resource[]): SlotResource {
-  const active = resources.filter((resource) => resource.storeId === storeId && resource.active);
-  if (active.length === 1) return { kind: "one", resourceId: active[0].id };
-  return active.length === 0 ? { kind: "none" } : { kind: "choose" };
+export function activeResourceIds(storeId: string, resources: readonly Resource[]): string[] {
+  return resources.filter((resource) => resource.storeId === storeId && resource.active).map((resource) => resource.id);
 }

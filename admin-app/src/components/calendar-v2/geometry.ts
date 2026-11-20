@@ -1,4 +1,4 @@
-import { addDays, jstWeekday } from "@/lib/timeline";
+import { addDays, jstWeekday, parseHHMM } from "@/lib/timeline";
 import type { BusinessHour } from "@/types/api";
 
 // The approved prototype's grid: 48px per hour over the whole day (DESIGN.md §5).
@@ -11,7 +11,7 @@ export const MIN_EVENT_PX = 18;
 
 const DAY_MS = 86_400_000;
 export const SLOT_MINUTES = 15;
-export const SLOTS = Array.from({ length: DAY_MINUTES / SLOT_MINUTES }, (_, index) => index * SLOT_MINUTES);
+const SLOTS = Array.from({ length: DAY_MINUTES / SLOT_MINUTES }, (_, index) => index * SLOT_MINUTES);
 
 export type Span = Readonly<{ start: number; end: number }>;
 
@@ -27,7 +27,7 @@ export function clipToDay(startAt: string, endAt: string, dayKey: string): Span 
   return { start: (start - dayStart) / 60_000, end: (end - dayStart) / 60_000 };
 }
 
-export type Placed<T> = Readonly<{ item: T; start: number; end: number; lane: number; lanes: number; span: number }>;
+type Placed<T> = Readonly<{ item: T; start: number; end: number; lane: number; lanes: number; span: number }>;
 
 type Laned<T> = { item: T; start: number; end: number; lane: number };
 
@@ -89,11 +89,6 @@ export function mondayWeek(date: Date): Date[] {
   return Array.from({ length: 7 }, (_, index) => addDays(monday, index));
 }
 
-function minutesOf(time: string): number {
-  const [hours, minutes] = time.split(":").map(Number);
-  return hours * 60 + minutes;
-}
-
 /**
  * The parts of a store's day outside its opening hours. A store with hours set up
  * but none open that weekday is closed all day; a store with no hours at all is
@@ -104,7 +99,7 @@ export function closedRanges(businessHours: readonly BusinessHour[], storeId: st
   if (rows.length === 0) return [];
   const open = rows
     .filter((row) => row.active && row.weekday === weekday)
-    .map((row) => ({ start: minutesOf(row.opensAt), end: minutesOf(row.closesAt) }))
+    .map((row) => ({ start: parseHHMM(row.opensAt), end: parseHHMM(row.closesAt) }))
     .sort((a, b) => a.start - b.start);
   const closed: Span[] = [];
   let cursor = 0;

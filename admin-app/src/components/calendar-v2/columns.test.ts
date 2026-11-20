@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatJstDate } from "@/lib/timeline";
 import type { Resource, Store } from "@/types/api";
-import { buildColumns, effectiveView, slotResource, visibleStoreId } from "./columns";
+import { activeResourceIds, buildColumns, effectiveView, visibleStoreId } from "./columns";
 
 const store = (id: string, name: string): Store => ({
   id,
@@ -72,19 +72,15 @@ describe("buildColumns", () => {
   });
 });
 
-describe("slotResource", () => {
-  it("preselects the store's only active resource", () => {
-    expect(slotResource("s1", [resource("r1", "s1"), resource("r-off", "s1", false), resource("r2", "s2")])).toEqual({
-      kind: "one",
-      resourceId: "r1",
-    });
+describe("activeResourceIds", () => {
+  it("keeps the store's active resources only", () => {
+    expect(activeResourceIds("s1", [resource("r1", "s1"), resource("r-off", "s1", false), resource("r2", "s2"), resource("r3", "s1")])).toEqual([
+      "r1",
+      "r3",
+    ]);
   });
 
-  it("leaves the choice to the form when the store has two or more", () => {
-    expect(slotResource("s1", [resource("r1", "s1"), resource("r2", "s1")])).toEqual({ kind: "choose" });
-  });
-
-  it("reports a store with no active resource, which cannot take a booking", () => {
-    expect(slotResource("s1", [resource("r-off", "s1", false), resource("r2", "s2")])).toEqual({ kind: "none" });
+  it("is empty for a store without an active resource", () => {
+    expect(activeResourceIds("s1", [resource("r-off", "s1", false), resource("r2", "s2")])).toEqual([]);
   });
 });

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { CalendarColumns, DayHeaderCells, DayList, columnState, openingMinute } from "@/components/calendar-v2/body";
-import { buildColumns, effectiveView, slotResource, visibleStoreId, type CalendarColumn, type CalendarView } from "@/components/calendar-v2/columns";
+import { activeResourceIds, buildColumns, effectiveView, visibleStoreId, type CalendarColumn, type CalendarView } from "@/components/calendar-v2/columns";
 import { PX_PER_MINUTE, mondayWeek } from "@/components/calendar-v2/geometry";
 import { CalendarGrid } from "@/components/calendar-v2/grid";
 import { dayLabel, shortDayLabel, weekHeading } from "@/components/calendar-v2/labels";
@@ -76,7 +76,7 @@ export default function ScheduleV2Page() {
   const states = columns.map((column) => columnState(column, dayByKey, settings, settingsUsable));
   const storesWhere = (test: (state: (typeof states)[number]) => boolean) =>
     [...new Set(states.filter(test).map((state) => state.column.storeName))];
-  const { overlayRef, scrollerRef, layout } = useCalendarLayout(columns.length, narrow ? 48 : 56);
+  const { overlayRef, scrollerRef, layout } = useCalendarLayout(columns.length);
 
   // Page move stays shut while a sheet of this page is open (see ShellV2).
   const sheetOpen = selectedReservationId !== null || createDefaults !== null || pendingOpen || cancelBlock !== null;
@@ -89,9 +89,6 @@ export default function ScheduleV2Page() {
   // The sheets open without a Radix trigger, so Radix has nowhere to return focus
   // when they close. Remember what opened one and go back there, else to the grid.
   const opener = useRef<HTMLElement | null>(null);
-  const remember = (element: HTMLElement) => {
-    opener.current = element;
-  };
   useEffect(() => {
     if (sheetOpen || !opener.current) return;
     const target = opener.current;
@@ -130,25 +127,21 @@ export default function ScheduleV2Page() {
     navigate(".", { replace: true, state: null });
   }, [location.state, navigate]);
 
-  const onSlot = useCallback(
-    (column: CalendarColumn, minutes: number, from: HTMLElement) => {
-      if (!settings) return;
-      // A store without an active resource offers no slots (the notice says why).
-      const resource = slotResource(column.storeId, settings.resources);
-      opener.current = from;
-      const resourceId = resource.kind === "one" ? resource.resourceId : null;
-      setCreateDefaults({ storeId: column.storeId, resourceId, minutes, date: column.date });
-    },
-    [settings],
-  );
-  const onReservation = useCallback((id: string, from: HTMLElement) => {
+  const onSlot = (column: CalendarColumn, minutes: number, from: HTMLElement) => {
+    if (!settings) return;
+    // Slots exist only where the store has an active resource (columnState).
+    const ids = activeResourceIds(column.storeId, settings.resources);
+    opener.current = from;
+    setCreateDefaults({ storeId: column.storeId, resourceId: ids.length === 1 ? ids[0] : null, minutes, date: column.date });
+  };
+  const onReservation = (id: string, from: HTMLElement) => {
     opener.current = from;
     setSelectedReservationId(id);
-  }, []);
-  const onBlock = useCallback((block: ExternalBlock, from: HTMLElement) => {
+  };
+  const onBlock = (block: ExternalBlock, from: HTMLElement) => {
     opener.current = from;
     setCancelBlock(block);
-  }, []);
+  };
   // The pressed day header goes away with the week, so focus moves to the heading,
   // which names the day just opened.
   const focusHeading = useRef(false);
@@ -157,14 +150,11 @@ export default function ScheduleV2Page() {
     focusHeading.current = false;
     headingRef.current?.focus();
   });
-  const openDay = useCallback(
-    (day: Date) => {
-      setDate(day);
-      setRequested("day");
-      focusHeading.current = true;
-    },
-    [setDate],
-  );
+  const openDay = (day: Date) => {
+    setDate(day);
+    setRequested("day");
+    focusHeading.current = true;
+  };
   const onView = (next: CalendarView) => {
     setRequested(next);
     setWeekAsked(next === "week");
@@ -200,7 +190,6 @@ export default function ScheduleV2Page() {
         <CalendarGrid>
           <CalendarColumns
             states={states}
-            settings={settings}
             week={week}
             todayKey={todayKey}
             nowMinute={nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes()}
@@ -229,7 +218,7 @@ export default function ScheduleV2Page() {
           stepUnit={week ? "週" : "日"}
           pendingCount={pendingCount}
           onOpenPending={(from) => {
-            remember(from);
+            opener.current = from;
             setPendingOpen(true);
           }}
           dayHeader={view === "list" ? null : dayHeader}
