@@ -508,7 +508,7 @@ export const linkLineFriend = async (input: {
       JSON.stringify({
         lineUserId: input.lineUserId,
         channelId: input.channelId,
-        // Selected store, or the first store when all are shown (not an owner's choice); used only for the existence check and this record.
+        // The store the admin screen showed (the first one when all are shown); not the link target, as customers belong to no store. Sent for the existence check and kept in this record.
         storeId: input.request.storeId,
         mode: input.request.mode,
         adminRole: input.admin.role

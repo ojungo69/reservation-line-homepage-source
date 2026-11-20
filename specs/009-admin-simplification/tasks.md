@@ -158,10 +158,10 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
 
 ### FR-011 の試験と実装（PR B）
 
-- [ ] T018 [P] [US2] `admin-app/src/components/schedule/reservation-list-card.test.tsx` に、`resourceName` を持つ予約でも、店舗名だけが出て、リソース名と「 · 」が出ないことを書き、赤を確かめる。今の「店舗名 · リソース名」を期待する試験も直す
-- [ ] T019 [P] [US2] `admin-app/src/components/customers/customer-detail-panel.test.tsx` に、予約履歴のカードにリソース名が出ず、店舗名が出ることを書く（カードの中に絞って探す）
-- [ ] T020 [US2] `admin-app/src/components/schedule/reservation-list-card.tsx` の受け取る型から `resourceName` を消し、店舗名だけを出す（T018 を緑に）
-- [ ] T021 [US2] `admin-app/src/components/customers/customer-detail-panel.tsx` の予約履歴のカードを、店舗名だけにする（T019 を緑に）。API の型の `resourceName` は残す
+- [X] T018 [P] [US2] `admin-app/src/components/schedule/reservation-list-card.test.tsx` に、`resourceName` を持つ予約でも、店舗名だけが出て、リソース名と「 · 」が出ないことを書き、赤を確かめる。今の「店舗名 · リソース名」を期待する試験も直す
+- [X] T019 [P] [US2] `admin-app/src/components/customers/customer-detail-panel.test.tsx` に、予約履歴のカードにリソース名が出ず、店舗名が出ることを書く（カードの中に絞って探す）
+- [X] T020 [US2] `admin-app/src/components/schedule/reservation-list-card.tsx` の受け取る型から `resourceName` を消し、店舗名だけを出す（T018 を緑に）
+- [X] T021 [US2] `admin-app/src/components/customers/customer-detail-panel.tsx` の予約履歴のカードを、店舗名だけにする（T019 を緑に）。API の型の `resourceName` は残す
 
 **Checkpoint**: US2 の試験が緑。
 
@@ -221,43 +221,43 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
 
 ### Tests for User Story 4（先に書き、赤を確かめる）
 
-- [ ] T032 [US4] `admin-app/src/components/schedule/reservation-list-card.test.tsx` に、次を書く（T020 の後）。`showStoreName={false}` のときは、店舗名もリソース名も出ず、店舗の行そのものが無い。渡さないときは、店舗名が出る
-- [ ] T033 [P] [US4] `admin-app/src/lib/reservation-search-state.test.ts` に、次を書く。保存された絞り込みの状態が `"checked_in"` や選択肢に無い値なら、復元しない（`null`）。`"confirmed"` と「全ステータス」は復元する
-- [ ] T034 [US4] `admin-app/src/pages/reservations.test.tsx` に、次を書く
+- [X] T032 [US4] `admin-app/src/components/schedule/reservation-list-card.test.tsx` に、次を書く（T020 の後）。`showStoreName={false}` のときは、店舗名もリソース名も出ず、店舗の行そのものが無い。渡さないときは、店舗名が出る
+- [X] T033 [P] [US4] `admin-app/src/lib/reservation-search-state.test.ts` に、次を書く。保存された絞り込みの状態が `"checked_in"` や選択肢に無い値なら、復元しない（`null`）。`"confirmed"` と「全ステータス」は復元する
+- [X] T034 [US4] `admin-app/src/pages/reservations.test.tsx` に、次を書く
   - FR-016: 店舗を選んでいると、表の「店舗」の見出し・並べ替えの選択肢・カードの店舗名が無い。全店舗なら出る。店舗を選んだ状態で、店舗で並べ替えた保存値を復元すると、日時の並べ替えになる
   - FR-017: 状態の選択肢に「来店中」が無い。来店中の保存値で開くと、既定の絞り込みになる
   - CSV の URL を作る関数（`buildCsvExportUrl`）のモックを外す
-- [ ] T035 [P] [US4] `admin-app/src/pages/reservations-search.test.tsx` の、CSV のボタンを見ている 3 か所を消す。結果が出たあとに CSV のボタンが無いことを書く（FR-018）
-- [ ] T036 [P] [US4] `admin-app/src/lib/link-store-id.test.ts`（新規）に、次を書く
+- [X] T035 [P] [US4] `admin-app/src/pages/reservations-search.test.tsx` の、CSV のボタンを見ている 3 か所を消す。結果が出たあとに CSV のボタンが無いことを書く（FR-018）
+- [X] T036 [P] [US4] `admin-app/src/lib/link-store-id.test.ts`（新規）に、次を書く
   - 店舗が [a, b] で、選んでいるのが b → b
   - `null`・`undefined`・一覧に無い id → a
   - 店舗が 0 件 → `""`
-- [ ] T037 [P] [US4] `admin-app/src/pages/line-friends.test.tsx` に、次を書く
+- [X] T037 [P] [US4] `admin-app/src/pages/line-friends.test.tsx` に、次を書く
   - FR-019: 「紐付け先の店舗」のラベルと欄が無い。複数の店舗でも「既存客に紐付け」が押せて、画面で選んでいる店舗の `storeId` で送る（全店舗のときは先頭の店舗）
   - FR-020: 「未紐付け」「紐付け済み」「すべて」のボタンが無く、一覧は未紐付けだけを取る
   - 店舗の選択を前提にした既存の試験は外す。店舗が 0 件のときに操作を止める試験は残す
-- [ ] T038 [P] [US4] 顧客カルテからの紐付けの試験（`admin-app/src/components/customers/` の `link-line-from-card-dialog` の試験）に、店舗の欄が無く、選んでいる店舗の `storeId` で送ることを書く
+- [X] T038 [P] [US4] 顧客カルテからの紐付けの試験（`admin-app/src/components/customers/` の `link-line-from-card-dialog` の試験）に、店舗の欄が無く、選んでいる店舗の `storeId` で送ることを書く
 
 ### Implementation for User Story 4
 
-- [ ] T039 [US4] `admin-app/src/components/schedule/reservation-list-card.tsx` に `showStoreName`（既定は `true`）を足す。`false` のときは、店舗の行を出さない（T032 を緑に）
-- [ ] T040 [US4] `admin-app/src/lib/reservation-search-state.ts` を直す（T033 を緑に）
+- [X] T039 [US4] `admin-app/src/components/schedule/reservation-list-card.tsx` に `showStoreName`（既定は `true`）を足す。`false` のときは、店舗の行を出さない（T032 を緑に）
+- [X] T040 [US4] `admin-app/src/lib/reservation-search-state.ts` を直す（T033 を緑に）
   - 状態の選択肢の一覧（「来店中」を除く）と、「全ステータス」の印を、このファイルに移して export する
   - 復元のとき、状態が一覧に無ければ `null` を返す
-- [ ] T041 [US4] `admin-app/src/pages/reservations.tsx` を直す（T034・T035 を緑に）
+- [X] T041 [US4] `admin-app/src/pages/reservations.tsx` を直す（T034・T035 を緑に）
   - 状態の一覧は T040 から読む
   - 表示している店舗が 1 つに決まっているとき（画面の上の店舗の選択が `null` でないとき）は、次を出さない: 表の「店舗」の見出しとセル、並べ替えの選択肢の「店舗」、カードの店舗名（`showStoreName`）
   - 店舗で並べ替えた状態が残っていたら、日時で並べる。見出しの並べ替えの表示も、それに合わせる
   - 空の表の列の数を合わせる
   - CSV のボタンと、それだけが使う読み込みと処理を消す
-- [ ] T042 [P] [US4] `admin-app/src/hooks/use-reservation-search.ts` の `buildCsvExportUrl` を消す。ほかに使う所が無いことを確かめる
-- [ ] T043 [P] [US4] `admin-app/src/lib/link-store-id.ts` に `pickLinkStoreId(stores, selectedStoreId)` を実装する（T036 を緑に）
-- [ ] T044 [US4] `admin-app/src/pages/line-friends.tsx` を直す（T037 を緑に）
+- [X] T042 [P] [US4] `admin-app/src/hooks/use-reservation-search.ts` の `buildCsvExportUrl` を消す。ほかに使う所が無いことを確かめる
+- [X] T043 [P] [US4] `admin-app/src/lib/link-store-id.ts` に `pickLinkStoreId(stores, selectedStoreId)` を実装する（T036 を緑に）
+- [X] T044 [US4] `admin-app/src/pages/line-friends.tsx` を直す（T037 を緑に）
   - 「紐付け先の店舗」の欄と、それを求める案内の文を消す。送る店舗は `pickLinkStoreId` で決める
   - 「読み込み中」「店舗情報がない」ときに操作を止める処理は残す
   - 「未紐付け・紐付け済み・すべて」の切り替えと、その状態を消す。一覧は常に未紐付けで取る。検索の欄は残す
-- [ ] T045 [US4] `admin-app/src/components/customers/link-line-from-card-dialog.tsx` を直す（T038 を緑に）。店舗の欄・状態・案内と、古いコメントを消し、`pickLinkStoreId` で送る
-- [ ] T046 [P] [US4] `src/admin/line-friends.ts` で、操作の記録の詳しい情報に入れる `storeId` に、1 行のコメントを足す。コードと検査は変えない。コメントの内容は次のとおり
+- [X] T045 [US4] `admin-app/src/components/customers/link-line-from-card-dialog.tsx` を直す（T038 を緑に）。店舗の欄・状態・案内と、古いコメントを消し、`pickLinkStoreId` で送る
+- [X] T046 [P] [US4] `src/admin/line-friends.ts` で、操作の記録の詳しい情報に入れる `storeId` に、1 行のコメントを足す。コードと検査は変えない。コメントの内容は次のとおり
   - 紐付けの操作をしたときに、管理画面が表示していた店舗
   - 紐付け先ではない（お客様は店舗に属さない）
   - 存在の確認のために送られる
@@ -278,14 +278,14 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
   - `admin-app/src/components/settings/settings-tabs-status.test.tsx` に、リソース一覧に「削除」のボタンが無く、「無効化」「有効化」が出ることを書く
   - 同じファイルで、リソースの削除の確認を開く試験を、休業日の削除の確認だけにする
   - `admin-app/src/hooks/use-settings-hooks.test.tsx` から、`useResourceDelete` の試験を消す
-- [ ] T048 [US5] PR B の試験を足す（T019 の後）。`admin-app/src/components/customers/customer-detail-panel.test.tsx` で、アレルギーの記録があるお客様について、次を書く
+- [X] T048 [US5] PR B の試験を足す（T019 の後）。`admin-app/src/components/customers/customer-detail-panel.test.tsx` で、アレルギーの記録があるお客様について、次を書く
   - 「アレルギー」の行が無い
   - 「注意事項」に値が出る
   - 生年月日・性別・紹介者が出る
-- [ ] T049 [P] [US5] PR B の試験を足す。`admin-app/src/lib/google-sync-view-model.test.ts` と `admin-app/src/pages/google-sync.test.tsx` に、次を書く。期待値は固定の文字列で書く
+- [X] T049 [P] [US5] PR B の試験を足す。`admin-app/src/lib/google-sync-view-model.test.ts` と `admin-app/src/pages/google-sync.test.tsx` に、次を書く。期待値は固定の文字列で書く
   - 競合の一覧で、店舗名が出る
   - 名前が分からない店舗は、今の番号の表示（先頭 8 文字と「…」）になる
-- [ ] T050 [P] [US5] PR B の試験を足す。`test/admin-reservations-period.test.ts` の CSV 出力の試験に、次を書いて、今のコードで赤になるのを確かめる
+- [X] T050 [P] [US5] PR B の試験を足す。`test/admin-reservations-period.test.ts` の CSV 出力の試験に、次を書いて、今のコードで赤になるのを確かめる
   - 古い設定が残った環境を用意する（保管場所へのつなぎ込みと、有効の値）
   - その環境でも控えを書かない（`put` も、後処理の登録も呼ばれない）
   - 応答の中身とヘッダーは変わらない
@@ -300,9 +300,9 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
   - `src/admin/settings-common.ts`
   - `src/admin/settings-resources.ts`
   - `docs/admin-authz-matrix.md`
-- [ ] T053 [US5] PR B。`admin-app/src/components/customers/customer-detail-panel.tsx` の基本情報から、「アレルギー」の行だけを消す（T048 を緑に）
-- [ ] T054 [US5] PR B。`admin-app/src/lib/google-sync-view-model.ts` に、店舗名を引く関数を足す（名前が無ければ、先頭 8 文字と「…」）。`admin-app/src/pages/google-sync.tsx` の競合の一覧で使う（T049 を緑に）
-- [ ] T055 [US5] PR B。`src/storage/r2-helpers.ts` を中心に、CSV の控えのコードを消す（T050 を緑に）
+- [X] T053 [US5] PR B。`admin-app/src/components/customers/customer-detail-panel.tsx` の基本情報から、「アレルギー」の行だけを消す（T048 を緑に）
+- [X] T054 [US5] PR B。`admin-app/src/lib/google-sync-view-model.ts` に、店舗名を引く関数を足す（名前が無ければ、先頭 8 文字と「…」）。`admin-app/src/pages/google-sync.tsx` の競合の一覧で使う（T049 を緑に）
+- [X] T055 [US5] PR B。`src/storage/r2-helpers.ts` を中心に、CSV の控えのコードを消す（T050 を緑に）
   - `src/storage/r2-helpers.ts` と `test/r2-helpers.test.ts` を消す
   - `src/routes/admin-api.ts` の読み込みと、CSV 出力の中の控えの処理を消す。応答は、元のストリームをそのまま返す
   - `src/bindings.ts` の、使われなくなる 2 つの型を消す
@@ -314,9 +314,9 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T056 `admin-app/src/` と `src/` で、変えた関数・型・export の呼び出し元を、全部確かめる。消した関数がほかで使われていないこと、型から消した値を渡している所が無いことを見る。そのあと `git diff --check` を通し、`git diff --name-only` に配備と検査の設定ファイルが無いことを確かめる
-- [ ] T057 plan.md の「検証」にある、CI と同じ一式を通す（PR A と PR B のそれぞれで）
-- [ ] T058 quickstart.md の 2（手元の画面）を、今の予定表と新しい予定表の両方で確かめる
+- [X] T056 `admin-app/src/` と `src/` で、変えた関数・型・export の呼び出し元を、全部確かめる。消した関数がほかで使われていないこと、型から消した値を渡している所が無いことを見る。そのあと `git diff --check` を通し、`git diff --name-only` に配備と検査の設定ファイルが無いことを確かめる
+- [X] T057 plan.md の「検証」にある、CI と同じ一式を通す（PR A と PR B のそれぞれで）
+- [X] T058 quickstart.md の 2（手元の画面）を、今の予定表と新しい予定表の両方で確かめる
 - [X] T059 [P] `specs/008-admin-calendar-ux/tasks.md` の T005 の後半の項目に、1 行を足す（PR A）。詳細の小窓の操作の名前は、spec 009 の「開始時刻を変更」「長さを変更」を使う、という内容
 
 ---
