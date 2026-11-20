@@ -429,7 +429,7 @@ describe("ScheduleV2Page の取得失敗と件数の上限 (UX-21)", () => {
       reservation(`many-${index}`, "2026-11-19", "09:00", "09:05", { storeId: "s2" }),
     );
     renderPage();
-    expect(await screen.findByText(/11月19日（木）の予定が表示できる件数を超えています。/)).toBeTruthy();
+    expect(await screen.findByText(/11月19日（木）の予定が表示できる上限の件数に達しました。/)).toBeTruthy();
     // Only the capped day stops offering slots.
     await waitFor(() => expect(slotsIn("2026-11-20:s1")).toBeGreaterThan(0));
     expect(slotsIn("2026-11-19:s1")).toBe(0);
@@ -696,7 +696,7 @@ describe("ScheduleV2Page の空き枠と予約の描き方 (Codex の指摘)", (
       source: "google_external_block",
     }));
     renderPage();
-    expect(await screen.findByText(/本店の休業の件数が多く、すべてを読み込めないため/)).toBeTruthy();
+    expect(await screen.findByText(/本店の休業が読み込める上限の件数に達しました。/)).toBeTruthy();
     expect(document.querySelectorAll("[data-slot-minutes]")).toHaveLength(0);
   });
 
@@ -768,7 +768,7 @@ describe("ScheduleV2Page の一覧 (Codex の指摘)", () => {
       reservation(`many-${index}`, "2026-11-20", "09:00", "09:05", { storeId: "s2" }),
     );
     renderPage();
-    expect(await screen.findByText(/11月20日（金）の予定が表示できる件数を超えています。/)).toBeTruthy();
+    expect(await screen.findByText(/11月20日（金）の予定が表示できる上限の件数に達しました。/)).toBeTruthy();
     expect(screen.queryByText("この日の予約はありません")).toBeNull();
   });
 
@@ -887,7 +887,7 @@ describe("ScheduleV2Page の最終レビュー (Codex の指摘)", () => {
     failingBlockDays.add("2026-11-18");
     truncatedBlockDays.add("2026-11-19");
     renderPage();
-    expect(await screen.findByText(/11月19日（木）の予定が表示できる件数を超えています。/)).toBeTruthy();
+    expect(await screen.findByText(/11月19日（木）の予定が表示できる上限の件数に達しました。/)).toBeTruthy();
     await waitFor(() => expect(slotsIn("2026-11-20:s1")).toBeGreaterThan(0));
     expect(slotsIn("2026-11-18:s1")).toBe(0);
     expect(slotsIn("2026-11-19:s1")).toBe(0);

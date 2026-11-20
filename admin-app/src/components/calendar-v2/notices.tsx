@@ -110,13 +110,13 @@ export function CalendarNotices({
       )}
       {closuresUnknownStores.length > 0 && (
         <p role="alert" className={ALERT}>
-          {closuresUnknownStores.join("・")}の休業の件数が多く、すべてを読み込めないため、空いた時間を表示していません。
+          {closuresUnknownStores.join("・")}の休業が読み込める上限の件数に達しました。読み込めていない休業がある可能性があるため、空いた時間は表示していません。
         </p>
       )}
       {capped.length > 0 && (
         <p role="alert" className={ALERT}>
           {capped.map((day) => dayName(day.dateKey)).join("・")}
-          の予定が表示できる件数を超えています。一部が表示されていないため、空き状況を正確に確認できません。
+          の予定が表示できる上限の件数に達しました。表示されていない予定がある可能性があるため、空いた時間は表示していません。
         </p>
       )}
     </div>
