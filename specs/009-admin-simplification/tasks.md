@@ -37,13 +37,14 @@
 **⚠️ CRITICAL**: US1・US2（FR-008）・US3 は、この段が終わってから始める。PR B の作業は、この段を待たなくてよい。
 
 - [X] T002 `admin-app/src/lib/store-resources.test.ts` を新しく書き、赤を確かめる。
-  - `resolveStoreResources(resources, storeId, selectedId)`:
+  - `resolveStoreResources(resources, storeId, selectedId, keepChoice = false)`:
     - `resources` が `undefined` → `{ kind: "unknown", resourceId: "" }`
     - `storeId` が `""`・`null`・`undefined` → `unknown`（ほかの店舗の枠があっても選ばない）
     - 稼働中の枠が 0（停止中だけ、またはほかの店舗の枠だけ）→ `{ kind: "none", resourceId: "" }`
     - 稼働中がちょうど 1 → `single`。`resourceId` はその枠の id。`selectedId` が停止中の枠・ほかの店舗の枠でも、その店舗の稼働中の枠になる
     - 稼働中が 2 つ以上 → `multiple`。`resources` は稼働中の枠だけ。`selectedId` が候補にあればその値、空・停止中・ほかの店舗・存在しない id なら `""`
-  - `resolveCreateTarget(settings, chosenStoreId, chosenResourceId)`:
+    - `keepChoice` が真（利用者が選んだ枠）で、`selectedId` が同じ店舗の枠なのに稼働中の唯一の枠と違う（選んでいた枠が止まった）→ `single` にせず `multiple`（残った枠だけ、`resourceId` は `""`）。レビューで足した（前の予約から引き継いだ初期値は `keepChoice` にしない）
+  - `resolveCreateTarget(settings, chosenStoreId, chosenResourceId, keepChoice = false)`:
     - 設定の店舗が 1 件 → `soleStore: true`。`chosenStoreId` が空でも `storeId` はその店舗の id、`storeName` はその店舗名
     - 店舗が 2 件 → `soleStore: false`。`storeId` は選んだ値のまま
     - `settings` が `null` → `saveBlocked: true`、`resources.kind` は `unknown`
