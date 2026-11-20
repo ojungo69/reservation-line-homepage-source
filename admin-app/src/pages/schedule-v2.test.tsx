@@ -430,6 +430,8 @@ describe("ScheduleV2Page の取得失敗と件数の上限 (UX-21)", () => {
     );
     renderPage();
     expect(await screen.findByText(/11月19日（木）の予定が表示できる上限の件数に達しました。/)).toBeTruthy();
+    // The week's day header says it too, in words and in its name.
+    expect(screen.getByRole("button", { name: "11月19日（木）の日表示を開く（上限到達）" }).textContent).toContain("上限到達");
     // Only the capped day stops offering slots.
     await waitFor(() => expect(slotsIn("2026-11-20:s1")).toBeGreaterThan(0));
     expect(slotsIn("2026-11-19:s1")).toBe(0);

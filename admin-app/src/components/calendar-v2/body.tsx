@@ -111,7 +111,7 @@ export function columnState(
 function dayStatus(day: DayData | undefined): string {
   if (!day || day.loading) return "読み込み中";
   if (day.failed.length > 0) return "読み込み失敗";
-  return day.capped ? "件数超過" : "";
+  return day.capped ? "上限到達" : "";
 }
 
 /** The columns of the grid, each with its bookings, closed times and slots. */
