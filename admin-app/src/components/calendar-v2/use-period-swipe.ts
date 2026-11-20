@@ -1,0 +1,139 @@
+import { useEffect, useEffectEvent, type RefObject } from "react";
+import { flushSync } from "react-dom";
+import { swipeAxis, swipeStep } from "./swipe";
+
+// INT-04-09: a touch that starts this close to a screen edge belongs to the
+// system's back gesture.
+const EDGE_PX = 24;
+// INT-01-04, INT-08-08: fields keep their own touch handling.
+const FIELDS = "input, textarea, select, [contenteditable]";
+// How far the new period's content travels in from the side it came from.
+const ENTER_PX = 80;
+// The click a swiped touch may still produce comes right after it lifts.
+const CLICK_GRACE_MS = 400;
+
+type Gesture = { id: number; x: number; y: number; axis: "x" | "y" | null; dx: number };
+
+// The motion tokens of public/glass-tokens.css, read because animate() takes no var().
+function motion() {
+  const tokens = getComputedStyle(document.documentElement);
+  return {
+    easing: tokens.getPropertyValue("--mg-ease-out").trim() || "ease-out",
+    duration: Number.parseFloat(tokens.getPropertyValue("--mg-motion-base")) || 0,
+  };
+}
+
+/**
+ * One-finger swipes on the calendar body move by one period (spec 008 T006,
+ * interactions.md INT-04, INT-13). The body scrolls vertically with
+ * touch-action: pan-y pinch-zoom, so the browser keeps vertical scrolling and
+ * zoom and hands over sideways touches; mouse and pen are left for dragging
+ * bookings (INT-03, T011). While a swipe moves, every [data-swipe-pane] under
+ * the root follows the finger; reduced motion keeps them still (DESIGN.md §8).
+ */
+export function usePeriodSwipe(
+  scrollerRef: RefObject<HTMLElement | null>,
+  rootRef: RefObject<HTMLElement | null>,
+  onStep: (direction: -1 | 1) => void,
+) {
+  // flushSync: the next period is on screen before its entrance is played.
+  const step = useEffectEvent((direction: -1 | 1) => flushSync(() => onStep(direction)));
+
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    let gesture: Gesture | null = null;
+    let unblock: (() => void) | null = null;
+
+    const panes = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-pane]") ?? [])];
+    const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const place = (dx: number) => {
+      for (const pane of panes()) pane.style.transform = dx ? `translateX(${dx}px)` : "";
+    };
+    const play = (from: Keyframe, to: Keyframe) => {
+      const options = motion();
+      for (const pane of panes()) pane.animate?.([from, to], options);
+    };
+    const settle = (dx: number) => {
+      place(0);
+      if (!reduced()) play({ transform: `translateX(${dx}px)` }, { transform: "translateX(0)" });
+    };
+    const enter = (direction: -1 | 1) => {
+      const from = reduced() ? { opacity: 0.4 } : { transform: `translateX(${direction * ENTER_PX}px)`, opacity: 0 };
+      play(from, { transform: "translateX(0)", opacity: 1 });
+    };
+    // A sideways touch is a swipe, not a press of the slot or booking under it.
+    const blockClick = () => {
+      const swallow = (event: Event) => {
+        event.stopPropagation();
+        event.preventDefault();
+      };
+      scroller.addEventListener("click", swallow, { capture: true, once: true });
+      const timer = window.setTimeout(() => unblock?.(), CLICK_GRACE_MS);
+      unblock = () => {
+        scroller.removeEventListener("click", swallow, { capture: true });
+        window.clearTimeout(timer);
+        unblock = null;
+      };
+    };
+    const stop = () => {
+      if (gesture?.axis === "x") settle(gesture.dx);
+      gesture = null;
+    };
+
+    const onDown = (event: PointerEvent) => {
+      unblock?.();
+      // INT-04-07: a second finger ends the swipe and leaves the pinch to the browser.
+      if (gesture) {
+        stop();
+        return;
+      }
+      if (event.pointerType !== "touch" || !event.isPrimary) return;
+      if (event.clientX < EDGE_PX || event.clientX > window.innerWidth - EDGE_PX) return;
+      if (event.target instanceof Element && event.target.closest(FIELDS)) return;
+      for (const pane of panes()) for (const animation of pane.getAnimations?.() ?? []) animation.cancel();
+      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, axis: null, dx: 0 };
+    };
+    const onMove = (event: PointerEvent) => {
+      if (event.pointerId !== gesture?.id) return;
+      const dx = event.clientX - gesture.x;
+      // INT-04-02, 03: once decided, a vertical touch stays the browser's scroll.
+      gesture.axis ??= swipeAxis(dx, event.clientY - gesture.y);
+      if (gesture.axis !== "x") return;
+      gesture.dx = dx;
+      if (!reduced()) place(dx);
+    };
+    const onUp = (event: PointerEvent) => {
+      if (event.pointerId !== gesture?.id) return;
+      const { axis, dx } = gesture;
+      gesture = null;
+      if (axis !== "x") return;
+      blockClick();
+      const direction = swipeStep(dx, scroller.clientWidth);
+      if (direction === 0) {
+        settle(dx);
+        return;
+      }
+      place(0);
+      step(direction);
+      enter(direction);
+    };
+    // INT-04-08: the browser took the touch over (a scroll, the OS, a lost touch).
+    const onCancel = (event: PointerEvent) => {
+      if (event.pointerId === gesture?.id) stop();
+    };
+
+    scroller.addEventListener("pointerdown", onDown);
+    scroller.addEventListener("pointermove", onMove);
+    scroller.addEventListener("pointerup", onUp);
+    scroller.addEventListener("pointercancel", onCancel);
+    return () => {
+      scroller.removeEventListener("pointerdown", onDown);
+      scroller.removeEventListener("pointermove", onMove);
+      scroller.removeEventListener("pointerup", onUp);
+      scroller.removeEventListener("pointercancel", onCancel);
+      unblock?.();
+      place(0);
+    };
+  }, [scrollerRef, rootRef]);
+}
