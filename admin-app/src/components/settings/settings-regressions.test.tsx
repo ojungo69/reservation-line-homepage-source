@@ -55,6 +55,7 @@ beforeEach(() => {
   settingsFail = false;
   settings.settings.stores = [store];
   settings.settings.services = [];
+  settings.settings.resources = [];
   vi.clearAllMocks();
   api.put.mockResolvedValue({ ok: true });
   api.get.mockImplementation(async (path: string) => {
@@ -90,13 +91,17 @@ describe("F13 設定フォームのラベル", () => {
   });
 
   it("繰り返しブロックの各入力と曜日の複数選択に名前が付く", async () => {
+    // 枠が 2 つ以上のときだけ「リソース」の欄が出る（設定の読み込み後）。
+    settings.settings.resources = ["resource-1", "resource-2"].map((id) => ({
+      id, storeId: store.id, name: id, resourceType: "staff_calendar", active: true,
+    }));
     const user = userEvent.setup();
     renderUi(<RecurringBlocksTab selectedStoreId={store.id} />);
     expect(screen.getByRole("combobox", { name: "開始時刻" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "終了時刻" })).toBeTruthy();
     expect(screen.getByLabelText("開始日")).toBeTruthy();
     expect(screen.getByLabelText("終了日")).toBeTruthy();
-    expect(screen.getByRole("combobox", { name: "リソース" })).toBeTruthy();
+    expect(await screen.findByRole("combobox", { name: "リソース" })).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "タイトル（任意）" })).toBeTruthy();
     expect(screen.getByRole("group", { name: "曜日" })).toBeTruthy();
     const monday = screen.getByRole("button", { name: "月曜" });

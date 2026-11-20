@@ -33,7 +33,12 @@ import {
 } from "@/lib/reservation-create-idempotency";
 import { cn } from "@/lib/utils";
 import { displayServiceName } from "@/lib/service-pricing";
-import { RESERVATION_ORIGIN_OPTIONS } from "@/lib/reservation-origin";
+import { DEFAULT_CREATE_ORIGIN, RESERVATION_ORIGIN_OPTIONS } from "@/lib/reservation-origin";
+import {
+  NO_RESOURCE_CREATE_NOTICE,
+  resolveCreateTarget,
+  type StoreResources,
+} from "@/lib/store-resources";
 import {
   MAX_ADMIN_TOTAL_SERVICE_DURATION_MINUTES,
   MAX_SERVICE_SELECTIONS,
@@ -45,7 +50,7 @@ import {
   totalServiceDuration,
   type SelectableService,
 } from "@/lib/service-selection";
-import type { AvailableSlot, CustomerSearchItem, CreateReservationPayload, CreateReservationOrigin } from "@/types/api";
+import type { AvailableSlot, AvailableSlotsResponse, CustomerSearchItem, CreateReservationPayload, CreateReservationOrigin, Resource } from "@/types/api";
 
 type ReservationCreatePanelProps = {
   open: boolean;
@@ -83,6 +88,7 @@ function renderSlotsField({
   failed,
   slotsByResource,
   resourceId,
+  showResourceNames,
   time,
   onSlotClick,
 }: {
@@ -90,6 +96,7 @@ function renderSlotsField({
   failed: boolean;
   slotsByResource: Map<string, { name: string; slots: AvailableSlot[] }>;
   resourceId: string;
+  showResourceNames: boolean;
   time: string;
   onSlotClick: (slot: { resourceId: string; startAt: string }) => void;
 }) {
@@ -115,9 +122,9 @@ function renderSlotsField({
     <div className="space-y-3">
       {Array.from(slotsByResource.entries()).map(([resId, { name, slots }]) => (
         <div key={resId} className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">{name}</p>
+          {showResourceNames && <p className="text-xs font-medium text-muted-foreground">{name}</p>}
           <div className="flex flex-wrap gap-1">
-            {slots.filter((s) => s.available).map((slot) => {
+            {slots.map((slot) => {
               const selected = resourceId === slot.resourceId &&
                 time === formatTime(slot.startAt);
               return (
@@ -128,6 +135,7 @@ function renderSlotsField({
                     badgeVariants({ variant: selected ? "default" : "outline" }),
                     "min-h-11 min-w-11 cursor-pointer justify-center text-xs",
                   )}
+                  aria-pressed={selected}
                   onClick={() => onSlotClick(slot)}
                 >
                   {formatTime(slot.startAt)}
@@ -457,7 +465,7 @@ function ReservationConfirmationDialog({
   storeName: string;
   serviceNames: string[];
   totalMinutes: number;
-  resourceName: string;
+  resourceName: string | null;
   date: string;
   time: string;
   onClose: () => void;
@@ -480,10 +488,12 @@ function ReservationConfirmationDialog({
           <span className="text-muted-foreground">（施術 合計{totalMinutes}分）</span>
         )}
       </span>
-      <span className="block">
-        <span className="text-muted-foreground">担当：</span>
-        {resourceName}
-      </span>
+      {resourceName !== null && (
+        <span className="block">
+          <span className="text-muted-foreground">担当：</span>
+          {resourceName}
+        </span>
+      )}
       <span className="block">
         <span className="text-muted-foreground">日時：</span>
         {date} {time}
@@ -524,6 +534,34 @@ function confirmationServiceNames(
     : selectedIds;
 }
 
+// 担当は、送る枠（保留中の payload）が今の唯一の枠と同じときだけ省く。名前は停止中の枠も含めて引く。
+function confirmationResourceName(
+  resources: StoreResources,
+  sentResourceId: string | undefined,
+  allResources: readonly Resource[],
+): string | null {
+  if (!sentResourceId) return null;
+  if (resources.kind === "single" && resources.resourceId === sentResourceId) return null;
+  return allResources.find((r) => r.id === sentResourceId)?.name ?? sentResourceId;
+}
+
+// フォームが送れる枠（枠が 1 つならその枠、2 つ以上なら稼働中の候補）の空きだけを一覧にする。
+function sendableResourceIds(resources: StoreResources): string[] {
+  if (resources.kind === "single") return [resources.resourceId];
+  if (resources.kind === "multiple") return resources.resources.map((r) => r.id);
+  return [];
+}
+
+function groupSlotsByResource(data: AvailableSlotsResponse | undefined, resourceIds: string[]) {
+  const map = new Map<string, { name: string; slots: AvailableSlot[] }>();
+  for (const slot of data?.ok ? data.slots : []) {
+    if (!slot.available || !resourceIds.includes(slot.resourceId)) continue;
+    const group = map.get(slot.resourceId) ?? { name: slot.resourceName, slots: [] };
+    group.slots.push(slot);
+    map.set(slot.resourceId, group);
+  }
+  return map;
+}
 
 export function ReservationCreatePanel({
   open,
@@ -556,6 +594,8 @@ export function ReservationCreatePanel({
   const [time, setTime] = useState(initialTime);
   // 空き枠クリック由来の時刻か（メニュー変更時にリセットするかの判定に使う）。
   const [timeFromSlot, setTimeFromSlot] = useState(false);
+  // 枠を利用者が選んだか（欄・空き枠・予定表の空きのクリック）。前の予約から引き継いだ初期値は時刻を伴わないので含めない。
+  const [resourceChosen, setResourceChosen] = useState(() => defaultMinutes != null && Boolean(defaultResourceId));
   // rebook 初期値のうち現在選択できないメニューを外したときの警告。
   const [unavailableNotice, setUnavailableNotice] = useState<string | null>(null);
 
@@ -563,7 +603,7 @@ export function ReservationCreatePanel({
   // 既存客は role を問わず customerId で予約する（staff には電話番号がマスク表示
   // されるため、手入力経路では既存客を指定できない）。
   const [mode, setMode] = useState<CreateMode>("existing");
-  const [origin, setOrigin] = useState<CreateReservationOrigin>("minimo");
+  const [origin, setOrigin] = useState<CreateReservationOrigin>(DEFAULT_CREATE_ORIGIN);
 
   // 既存客モード: 選択済みの既存客（customerId で予約）。
   const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(
@@ -605,14 +645,12 @@ export function ReservationCreatePanel({
     setError(null);
   };
 
-  const storeResources = useMemo(
-    () => settings?.resources.filter((r) => r.active && r.storeId === storeId) ?? [],
-    [settings, storeId],
-  );
+  // 店舗と枠は利用者の選択（state）を書き換えず、描画のたびに導く。
+  const target = resolveCreateTarget(settings, storeId, resourceId, resourceChosen);
 
   const storeServices = useMemo(
-    () => settings?.services.filter((s) => s.active && s.storeId === storeId) ?? [],
-    [settings, storeId],
+    () => settings?.services.filter((s) => s.active && s.storeId === target.storeId) ?? [],
+    [settings, target.storeId],
   );
 
   // rebook 初期値のうち現在の店舗メニュー（active）に無い ID は state に残さない
@@ -678,7 +716,7 @@ export function ReservationCreatePanel({
     isFetching: slotsFetching,
     isError: slotsError,
   } = useAvailableSlots(
-    durationMinutes !== undefined ? storeId || null : null,
+    durationMinutes !== undefined ? target.storeId || null : null,
     date || null,
     {
       durationMinutes,
@@ -686,17 +724,8 @@ export function ReservationCreatePanel({
     },
   );
 
-  const slotsByResource = useMemo(() => {
-    const availableSlots = slotsData?.ok ? slotsData.slots : [];
-    const map = new Map<string, { name: string; slots: typeof availableSlots }>();
-    for (const slot of availableSlots) {
-      if (!map.has(slot.resourceId)) {
-        map.set(slot.resourceId, { name: slot.resourceName, slots: [] });
-      }
-      map.get(slot.resourceId)!.slots.push(slot);
-    }
-    return map;
-  }, [slotsData]);
+  const sendableIds = sendableResourceIds(target.resources);
+  const slotsByResource = groupSlotsByResource(slotsData, sendableIds);
 
   const handleSlotClick = (slot: { resourceId: string; startAt: string }) => {
     setResourceId(slot.resourceId);
@@ -706,6 +735,19 @@ export function ReservationCreatePanel({
     const m = String(d.getUTCMinutes()).padStart(2, "0");
     setTime(`${h}:${m}`);
     setTimeFromSlot(true);
+    setResourceChosen(true);
+  };
+
+  // 店舗を変えたら、前の店舗の枠・メニュー・お客様を空にする（時刻は今どおり残す）。
+  // 空き枠で選んだ時刻は、新しい店舗で空いているとは限らないので、今どおり次のメニューの変更で消える。
+  const handleStoreChange = (value: string) => {
+    setStoreId(value);
+    setServiceIds([]);
+    setUnavailableNotice(null);
+    setResourceId("");
+    setResourceChosen(false);
+    setSelectedCustomer(null);
+    setCustomerSearch("");
   };
 
   const resetForm = () => {
@@ -716,13 +758,13 @@ export function ReservationCreatePanel({
     setCustomerKana("");
     setCustomerPhone("");
     setCustomerSearch("");
-    setOrigin("minimo");
+    setOrigin(DEFAULT_CREATE_ORIGIN);
     setError(null);
   };
 
   const handleSubmit = () => {
     setError(null);
-    const baseValid = storeId && serviceIds.length > 0 && resourceId && date && time;
+    const baseValid = target.storeId && serviceIds.length > 0 && target.resources.resourceId && date && time;
     if (!baseValid) {
       setError("必須項目を入力してください");
       return;
@@ -746,9 +788,9 @@ export function ReservationCreatePanel({
       return;
     }
     const payloadWithoutKey = {
-      storeId,
+      storeId: target.storeId,
       ...servicePayload,
-      resourceId,
+      resourceId: target.resources.resourceId,
       startAt,
       origin,
       ...customerPart.part,
@@ -790,7 +832,7 @@ export function ReservationCreatePanel({
   const isDirty = serviceIds.length > 0 || selectedCustomer !== null ||
     [customerSearch, customerName, customerKana, customerPhone].some((value) => value.trim().length > 0) ||
     storeId !== (defaultStoreId ?? "") || resourceId !== (defaultResourceId ?? "") ||
-    date !== initialDate || time !== initialTime || origin !== "minimo";
+    date !== initialDate || time !== initialTime || origin !== DEFAULT_CREATE_ORIGIN;
   const requestClose = () => {
     if (isPending) return;
     if (isDirty) setDiscardOpen(true);
@@ -808,19 +850,21 @@ export function ReservationCreatePanel({
           <Separator />
 
           <div className="space-y-3">
-            <Field id="rcp-store" label="店舗">
-              <Select value={storeId} onValueChange={(v) => { setStoreId(v); setServiceIds([]); setUnavailableNotice(null); setResourceId(""); setSelectedCustomer(null); setCustomerSearch(""); }}>
-                <SelectTrigger id="rcp-store"><SelectValue placeholder="店舗を選択" /></SelectTrigger>
-                <SelectContent>
-                  {settings?.stores.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            {!target.soleStore && (
+              <Field id="rcp-store" label="店舗">
+                <Select value={storeId} onValueChange={handleStoreChange}>
+                  <SelectTrigger id="rcp-store"><SelectValue placeholder="店舗を選択" /></SelectTrigger>
+                  <SelectContent>
+                    {settings?.stores.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
 
             <ServiceSelectionFieldset
-              storeId={storeId}
+              storeId={target.storeId}
               services={storeServices}
               selectedIds={serviceIds}
               totalMinutes={totalMinutes}
@@ -831,16 +875,22 @@ export function ReservationCreatePanel({
               onToggle={toggleService}
             />
 
-            <Field id="rcp-resource" label="リソース">
-              <Select value={resourceId} onValueChange={setResourceId}>
-                <SelectTrigger id="rcp-resource"><SelectValue placeholder="リソースを選択" /></SelectTrigger>
-                <SelectContent>
-                  {storeResources.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            {target.resources.kind === "multiple" && (
+              <Field id="rcp-resource" label="リソース">
+                <Select value={target.resources.resourceId} onValueChange={(value) => { setResourceId(value); setResourceChosen(true); }}>
+                  <SelectTrigger id="rcp-resource"><SelectValue placeholder="リソースを選択" /></SelectTrigger>
+                  <SelectContent>
+                    {target.resources.resources.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
+            {/* 設定の取得後に文言が入っても読み上げられるよう、通知欄は常に置く（role="status" ではなく <output> の暗黙のロール）。 */}
+            <output className="block text-sm text-muted-foreground empty:sr-only">
+              {target.resources.kind === "none" && NO_RESOURCE_CREATE_NOTICE}
+            </output>
 
             <div className="grid grid-cols-2 gap-2">
               <Field id="rcp-date" label="日付">
@@ -852,7 +902,7 @@ export function ReservationCreatePanel({
             </div>
           </div>
 
-          {storeId && date && serviceIds.length > 0 && !overLimit && (
+          {settings && target.storeId && date && serviceIds.length > 0 && !overLimit && (
             <>
               <Separator />
               <Field label="空き枠">
@@ -860,7 +910,9 @@ export function ReservationCreatePanel({
                   fetching: slotsFetching,
                   failed: slotsError || slotsData?.ok === false,
                   slotsByResource,
-                  resourceId,
+                  resourceId: target.resources.resourceId,
+                  // 選び直しの間に枠が 1 つだけ残ったときも、見出しは出さない（FR-007）。
+                  showResourceNames: sendableIds.length > 1,
                   time,
                   onSlotClick: handleSlotClick,
                 })}
@@ -923,7 +975,7 @@ export function ReservationCreatePanel({
             <Button variant="outline" className="flex-1" onClick={requestClose} disabled={isPending}>
               キャンセル
             </Button>
-            <Button className="flex-1" onClick={handleSubmit} disabled={isPending}>
+            <Button className="flex-1" onClick={handleSubmit} disabled={isPending || target.saveBlocked}>
               {isPending ? "作成中..." : "予約作成"}
             </Button>
           </div>
@@ -932,12 +984,10 @@ export function ReservationCreatePanel({
             open={pendingPayload !== null}
             pending={isPending}
             customerName={confirmationCustomerName(mode, selectedCustomer, customerName)}
-            storeName={settings?.stores.find((store) => store.id === storeId)?.name ?? storeId}
+            storeName={target.storeName ?? target.storeId}
             serviceNames={confirmationServiceNames(selectedServices, serviceIds)}
             totalMinutes={totalMinutes}
-            resourceName={
-              storeResources.find((resource) => resource.id === resourceId)?.name ?? resourceId
-            }
+            resourceName={confirmationResourceName(target.resources, pendingPayload?.resourceId, settings?.resources ?? [])}
             date={date}
             time={time}
             onClose={() => setPendingPayload(null)}

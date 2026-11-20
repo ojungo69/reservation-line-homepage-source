@@ -32,6 +32,25 @@ vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ isPrivileged: privileged }),
 }));
 
+// 設定は試験ごとに差し替える（取得中・失敗は data を undefined にして表す）。
+const settingsMock = vi.hoisted(() => ({
+  result: { data: undefined as unknown, isPending: false, isError: false },
+}));
+vi.mock("@/hooks/use-settings", () => ({
+  useSettings: () => settingsMock.result,
+}));
+
+const resourceRow = (id: string, active = true) => ({
+  id,
+  storeId: "store-1",
+  name: id,
+  resourceType: "chair",
+  active,
+});
+function givenResources(resources: ReturnType<typeof resourceRow>[]) {
+  settingsMock.result = { data: { ok: true, settings: { resources } }, isPending: false, isError: false };
+}
+
 vi.mock("./reservation-reschedule-dialog", () => ({
   ReservationRescheduleDialog: () => null,
 }));
@@ -50,6 +69,7 @@ beforeEach(() => {
   updateCancellationFee.mockReset();
   privileged = true;
   feePending = false;
+  givenResources([resourceRow("resource-1"), resourceRow("resource-2")]);
   reservation = {
     id: "reservation-1",
     status: "no_show",
@@ -258,6 +278,20 @@ describe("ReservationDetailPanel", () => {
     expect(memoBody.className).toContain("whitespace-pre-wrap");
     expect(screen.getByText("アレルギー・注意事項")).toBeTruthy();
     expect(screen.getByText("金属アレルギー")).toBeTruthy();
+  });
+
+  it("店舗スタッフにも顧客メモとアレルギー・注意事項の値を出す", () => {
+    privileged = false;
+    reservation = {
+      ...reservation,
+      customerMemo: "ご来店は午前希望",
+      customerAllergyNotes: "ニッケルアレルギー",
+    };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.getByText("顧客メモ")).toBeTruthy();
+    expect(screen.getByText("ご来店は午前希望")).toBeTruthy();
+    expect(screen.getByText("アレルギー・注意事項")).toBeTruthy();
+    expect(screen.getByText("ニッケルアレルギー")).toBeTruthy();
   });
 
   it("未完了の予約でも同じ顧客の過去の施術メモを出す", () => {
@@ -606,4 +640,83 @@ it("予約詳細の施術メモも元値を送信し、競合後は確認して�
   await user.click(screen.getByRole("button", { name: "確認して下書きを再編集" }));
   await user.click(screen.getByRole("button", { name: "保存" }));
   expect(saveNotes.mock.calls.at(-1)?.[0].expectedTreatmentNotes).toBe("他担当の更新");
+});
+
+describe("ReservationDetailPanel のリソース行・操作名・来店履歴", () => {
+  it("店舗の稼働中の枠が1つで予約がその枠なら、リソースの行を出さない", () => {
+    givenResources([resourceRow("resource-1")]);
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.queryByText("リソース")).toBeNull();
+    expect(screen.queryByText("担当A")).toBeNull();
+  });
+
+  it("設定の読み込み中はリソースの行を出さない", () => {
+    settingsMock.result = { data: undefined, isPending: true, isError: false };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.queryByText("リソース")).toBeNull();
+  });
+
+  it("稼働中の枠が2つなら、リソースの行を出す", () => {
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.getByText("リソース")).toBeTruthy();
+    expect(screen.getByText("担当A")).toBeTruthy();
+  });
+
+  it("予約の枠が停止中なら、枠が1つでもリソースの行を出す", () => {
+    givenResources([resourceRow("resource-1", false), resourceRow("resource-2")]);
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.getByText("リソース")).toBeTruthy();
+  });
+
+  it("設定の最初の取得に失敗したときは、リソースの行を出す", () => {
+    settingsMock.result = { data: undefined, isPending: false, isError: true };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.getByText("リソース")).toBeTruthy();
+  });
+
+  it("取り直しに失敗しても前の設定があれば、それで判断してリソースの行を出さない", () => {
+    settingsMock.result = { data: { ok: true, settings: { resources: [resourceRow("resource-1")] } }, isPending: false, isError: true };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.queryByText("リソース")).toBeNull();
+  });
+
+  it.each(["confirmed", "pending_approval"])("%s の予約には「開始時刻を変更」「長さを変更」を出す", (status) => {
+    reservation = { ...reservation, status };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.getByRole("button", { name: "開始時刻を変更" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "長さを変更" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "時間変更" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "施術時間変更" })).toBeNull();
+  });
+
+  it("完了の予約には、開始時刻と長さの変更のボタンを出さない", () => {
+    reservation = { ...reservation, status: "completed" };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.queryByRole("button", { name: "開始時刻を変更" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "長さを変更" })).toBeNull();
+  });
+
+  it("「来店履歴」の欄は出さず、施術メモとその編集は残す", () => {
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    expect(screen.queryByText("来店履歴")).toBeNull();
+    expect(screen.getByText("施術メモ")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "編集" })).toBeTruthy();
+  });
+
+  it("「来店なしに訂正」の確認文は、消した欄ではなく来店の記録を指す", async () => {
+    const user = userEvent.setup();
+    reservation = { ...reservation, status: "completed" };
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "来店なしに訂正" }));
+    const text = screen.getByRole("alertdialog").textContent ?? "";
+    expect(text).not.toContain("来店履歴");
+    expect(text).toContain("この予約の来店の記録が無効になり");
+  });
+
+  it("「完了に戻す」の確認文に「来店履歴」を出さない", async () => {
+    const user = userEvent.setup();
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "完了に戻す" }));
+    expect(screen.getByRole("alertdialog").textContent ?? "").not.toContain("来店履歴");
+  });
 });

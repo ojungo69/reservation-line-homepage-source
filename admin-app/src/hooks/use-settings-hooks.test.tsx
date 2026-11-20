@@ -37,7 +37,6 @@ import {
 } from "./use-reservation-cap";
 import {
   useResourceCreate,
-  useResourceDelete,
   useResourceList,
   useResourceUpdate,
 } from "./use-resources";
@@ -431,16 +430,7 @@ const mutationCases = [
     invalidates: [["settings"]],
     success: "リソースを更新しました",
     error: "リソースの更新に失敗しました",
-  },
-  {
-    name: "resource delete",
-    useHook: useResourceDelete,
-    method: "delete",
-    variables: "resource-1",
-    call: ["/api/admin/settings/resources/resource-1"],
-    invalidates: [["settings"]],
-    success: "リソースを削除しました",
-    error: "リソースの削除に失敗しました",
+    errorOverrides: { has_future_reservations: "将来の予約があるため無効化できません" },
   },
   {
     name: "staff create",
@@ -818,6 +808,46 @@ describe("shared settings queries", () => {
     expect(staff.result.current.staffList).toEqual([]);
   });
 
+  it("reports resources as loaded only after the settings request succeeds", async () => {
+    mocks.api.get.mockResolvedValue(settingsResponse);
+    const { result } = renderHook(() => useResourceList("store-1"), {
+      wrapper: createWrapper(createClient()),
+    });
+
+    expect(result.current.isLoaded).toBe(false);
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    expect(result.current.resourceList).toEqual([resource1]);
+  });
+
+  it("keeps the previous resources and stays loaded when a later refetch fails", async () => {
+    mocks.api.get.mockResolvedValueOnce(settingsResponse).mockRejectedValueOnce(new Error("network"));
+    const client = createClient();
+    const { result } = renderHook(() => useResourceList("store-1"), { wrapper: createWrapper(client) });
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["settings"] });
+    });
+    expect(client.getQueryState(["settings"])?.status).toBe("error");
+    // TanStack Query は描画への知らせを setTimeout の後に送るので、それを待ってから見る。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(mocks.api.get).toHaveBeenCalledTimes(2);
+    expect(result.current.isLoaded).toBe(true);
+    expect(result.current.resourceList).toEqual([resource1]);
+  });
+
+  it("does not report resources as loaded when the settings request fails", async () => {
+    mocks.api.get.mockRejectedValue(new Error("network"));
+    const { result } = renderHook(() => useResourceList("store-1"), {
+      wrapper: createWrapper(createClient()),
+    });
+
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+    expect(result.current.isLoaded).toBe(false);
+  });
+
   it("defaults optional reminder offsets to an empty list", async () => {
     const response = {
       ...settingsResponse,
@@ -1091,6 +1121,7 @@ describe("settings mutations", () => {
       expect(mocks.showErrorToast).toHaveBeenCalledWith(
         error,
         testCase.error,
+        ...("errorOverrides" in testCase ? [testCase.errorOverrides] : []),
       );
       if ("invalidatesOnError" in testCase && testCase.invalidatesOnError) {
         expect(invalidate).toHaveBeenCalledWith({ queryKey: ["settings"] });

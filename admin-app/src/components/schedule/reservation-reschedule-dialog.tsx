@@ -22,7 +22,6 @@ export type RescheduleTarget = {
   id: string;
   storeId: string;
   resourceId: string;
-  resourceName: string;
   startAt: string;
   endAt: string;
 };
@@ -210,9 +209,9 @@ function RescheduleForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>予約時間の変更</DialogTitle>
+        <DialogTitle>開始時刻を変更</DialogTitle>
         <DialogDescription>
-          担当（{reservation.resourceName}）と施術時間はそのままに、開始時刻を移動します。確定済みの予約はお客様に変更が通知されます。
+          施術時間はそのままに、開始時刻を移動します。確定済みの予約はお客様に変更が通知されます。
         </DialogDescription>
       </DialogHeader>
 
@@ -246,7 +245,7 @@ function RescheduleForm({
         <Separator />
 
         <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">空き枠（{reservation.resourceName}）</p>
+          <p className="text-xs font-medium text-muted-foreground">空き枠</p>
           {renderRescheduleSlotsField({
             fetching: isFetching,
             failed: slotsFailed,
@@ -267,7 +266,7 @@ function RescheduleForm({
           キャンセル
         </Button>
         <Button onClick={handleSubmit} disabled={isPending}>
-          {isPending ? "変更中..." : "この時間に変更"}
+          {isPending ? "変更中..." : "この開始時刻に変更"}
         </Button>
       </DialogFooter>
     </>

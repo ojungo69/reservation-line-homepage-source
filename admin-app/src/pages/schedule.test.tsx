@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import type { Reservation } from "@/types/api";
+import type { Reservation, SettingsResponse } from "@/types/api";
 import type { ScheduleContext } from "@/lib/schedule-context";
 import { useSettings } from "@/hooks/use-settings";
 import { useExternalBlocks } from "@/hooks/use-external-blocks";
@@ -9,12 +9,15 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const cancelBlock = vi.fn();
+const createReservation = vi.fn();
 const routerState = vi.hoisted(() => {
   const location: { state: unknown } = { state: null };
   return { location, navigate: vi.fn() };
 });
 vi.mock("@/components/schedule/sync-attention", () => ({ ScheduleSyncAttention: () => null }));
 let privileged = true;
+// 2 店舗の設定は全店舗を見られるオーナーにだけ返る（店舗スタッフには自店舗だけ）。
+let signedInAsOwner = false;
 let isNarrow = false;
 let selectedStoreId: string | null = "store-1";
 let renderRealCreatePanel = false;
@@ -29,16 +32,23 @@ const reservationsQuery = {
   dataUpdatedAt: Date.parse("2026-07-24T01:00:00Z"),
   refetch: vi.fn(),
 };
-const settingsData = { ok: true, settings: {
+const storeDefaults = {
+  timezone: "Asia/Tokyo", googleCalendarId: null, googleControlledEditMode: false,
+  maxActiveReservationsPerCustomer: 3, bookingWindowDays: 30, customerNotice: null,
+};
+const settingsData: SettingsResponse = { ok: true, settings: {
   resources: [
-    { id: "resource-1", storeId: "store-1", name: "担当A", active: true },
-    { id: "resource-2", storeId: "store-2", name: "担当B", active: true },
+    { id: "resource-1", storeId: "store-1", name: "担当A", resourceType: "staff_calendar", active: true },
+    { id: "resource-2", storeId: "store-2", name: "担当B", resourceType: "staff_calendar", active: true },
   ],
-  services: [], businessHours: [],
-  stores: [{ id: "store-1", name: "渋谷店" }, { id: "store-2", name: "新宿店" }],
+  services: [], businessHours: [], closures: [],
+  stores: [
+    { id: "store-1", name: "渋谷店", ...storeDefaults },
+    { id: "store-2", name: "新宿店", ...storeDefaults },
+  ],
 } };
 const settingsQuery = {
-  data: settingsData as typeof settingsData | undefined,
+  data: settingsData as SettingsResponse | undefined,
   isPending: false,
   isError: false,
   dataUpdatedAt: Date.parse("2026-07-24T01:00:00Z"),
@@ -63,7 +73,12 @@ vi.mock("@/hooks/use-stores", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ isPrivileged: privileged, user: { email: "staff@example.test", role: "staff", storeId: "store-1" } }),
+  useAuth: () => ({
+    isPrivileged: privileged,
+    user: signedInAsOwner
+      ? { email: "owner@example.test", role: "owner", storeId: null }
+      : { email: "staff@example.test", role: "staff", storeId: "store-1" },
+  }),
 }));
 
 vi.mock("@/hooks/use-media-query", () => ({
@@ -76,7 +91,7 @@ vi.mock("@/hooks/use-reservations", () => ({
   usePendingReservations: () => ({
     data: { ok: true, reservations: pendingReservations },
   }),
-  useCreateReservation: () => ({ mutate: vi.fn(), isPending: false }),
+  useCreateReservation: () => ({ mutate: createReservation, isPending: false }),
   useAvailableSlots: () => ({ data: { ok: true, slots: [] }, isFetching: false, isError: false }),
 }));
 
@@ -201,9 +216,11 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-07-24T01:00:00Z"));
   cancelBlock.mockReset();
+  createReservation.mockReset();
   routerState.location.state = null;
   routerState.navigate.mockReset();
   privileged = true;
+  signedInAsOwner = false;
   isNarrow = false;
   selectedStoreId = "store-1";
   renderRealCreatePanel = false;
@@ -419,16 +436,43 @@ describe("SchedulePage", () => {
     expect(useReservations).toHaveBeenLastCalledWith("2026-07-25");
   });
 
-  it("F5: 全店舗の空き枠から店舗とリソースを選択した予約作成を開く", async () => {
+  it("F5: 全店舗の空き枠から店舗を選択した予約作成を開き、リソースの欄は出さずその店舗の枠で送る", async () => {
     selectedStoreId = null;
+    signedInAsOwner = true;
     renderRealCreatePanel = true;
+    settingsQuery.data = {
+      ...settingsData,
+      settings: {
+        ...settingsData.settings,
+        services: [{
+          id: "service-9", storeId: "store-2", name: "新宿メニュー", durationMinutes: 30,
+          priceLabel: null, priceAmount: null, comboPriceAmount: null, comboWithPrefix: null,
+          active: true, mensMenu: false,
+        }],
+      },
+    };
     render(<SchedulePage />);
+    const user = userEvent.setup();
 
-    await userEvent.setup().click(screen.getByRole("button", { name: "新宿店の空き枠" }));
+    await user.click(screen.getByRole("button", { name: "新宿店の空き枠" }));
 
     expect(screen.getByRole("combobox", { name: "店舗" }).textContent).toBe("新宿店");
-    expect(screen.getByRole("combobox", { name: "リソース" }).textContent).toBe("担当B");
+    expect(screen.queryByRole("combobox", { name: "リソース" })).toBeNull();
     expect((screen.getByLabelText("時間") as HTMLInputElement).value).toBe("11:30");
+
+    await user.click(screen.getByRole("checkbox", { name: /新宿メニュー/ }));
+    await user.click(screen.getByRole("tab", { name: "新規のお客様" }));
+    await user.type(screen.getByLabelText("氏名"), "新規 太郎");
+    await user.type(screen.getByLabelText("カナ"), "シンキ タロウ");
+    await user.type(screen.getByLabelText("電話番号"), "090-1111-2222");
+    await user.click(screen.getAllByRole("button", { name: "予約作成" }).at(-1)!);
+    // このファイルでは確認ダイアログを差し替えてあり、確定ボタンは「取消を確定」になる。
+    await user.click(screen.getByRole("button", { name: "取消を確定" }));
+
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: "store-2", resourceId: "resource-2" }),
+      expect.anything(),
+    );
   });
 
   it("スマホでは選択日の過去・深夜の予約を読め、詳細編集中も幅変更で内容を保持する", async () => {

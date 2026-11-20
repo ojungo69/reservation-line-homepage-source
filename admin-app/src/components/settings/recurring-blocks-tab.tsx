@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { useRecurringPreview, useRecurringCommit } from "@/hooks/use-recurring-blocks";
 import { useResourceList } from "@/hooks/use-resources";
+import { NO_RESOURCE_SETTINGS_NOTICE, resolveStoreResources, type StoreResources } from "@/lib/store-resources";
 import { WEEKDAYS, toggleWeekday } from "@/lib/timeline";
 
 type Props = {
@@ -34,6 +35,8 @@ const jstToIso = (date: string, time: string): string =>
 // 上から下の順で最初に満たされていない条件のみ、対象フィールドと合わせて示す。
 // 店舗 (早期 return で実質不達) と曜日 (複数選択で単一コントロールが
 // 無い) は field: null にしてヒント文言のみで伝える。
+// 枠が未設定 (kind: none) のときは、ほかの入力が何であれ最初にその理由を返す。
+// 枠が未判定 (kind: unknown。設定の読み込み中) は、店舗を選んだあとに読み込み中を返す。
 export function derivePreviewInvalid(
   selectedStoreId: string | null,
   selectedDays: number[],
@@ -41,8 +44,11 @@ export function derivePreviewInvalid(
   startDate: string,
   endDate: string,
   resourceId: string,
+  resourceKind: StoreResources["kind"],
 ): InvalidReason<"endTime" | "startDate" | "endDate" | "resourceId"> {
+  if (resourceKind === "none") return { field: null, message: NO_RESOURCE_SETTINGS_NOTICE };
   if (!selectedStoreId) return { field: null, message: "店舗を選択してください" };
+  if (resourceKind === "unknown") return { field: null, message: "店舗の設定を読み込み中です" };
   if (selectedDays.length === 0) return { field: null, message: "曜日を選択してください" };
   if (durationMinutes <= 0) return { field: "endTime", message: "終了時刻は開始時刻より後にしてください" };
   if (durationMinutes > 240) return { field: "endTime", message: "1件あたり4時間（240分）以内にしてください" };
@@ -54,7 +60,7 @@ export function derivePreviewInvalid(
 }
 
 export function RecurringBlocksTab({ selectedStoreId }: Readonly<Props>) {
-  const { resourceList } = useResourceList(selectedStoreId);
+  const { resourceList, isLoaded } = useResourceList(selectedStoreId);
   const previewMutation = useRecurringPreview();
   const commitMutation = useRecurringCommit();
 
@@ -63,12 +69,17 @@ export function RecurringBlocksTab({ selectedStoreId }: Readonly<Props>) {
   const [endTime, setEndTime] = useState("13:00");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [resourceId, setResourceId] = useState("");
+  const [chosenResourceId, setChosenResourceId] = useState("");
   const [title, setTitle] = useState("");
   const idempotencyKeyRef = useRef<string>("");
   if (!idempotencyKeyRef.current) {
     idempotencyKeyRef.current = crypto.randomUUID();
   }
+
+  // 枠が 1 つなら選ばせずその枠に決める。取得に失敗したときは 0 件とは扱わない。
+  // 欄で選んだ枠が止まって 1 つだけ残ったときは、黙って置き換えず選び直してもらう。
+  const resources = resolveStoreResources(isLoaded ? resourceList : undefined, selectedStoreId, chosenResourceId, true);
+  const resourceId = resources.resourceId;
 
   const toggleDay = (day: number) => {
     setSelectedDays((prev) => toggleWeekday(prev, day));
@@ -94,6 +105,7 @@ export function RecurringBlocksTab({ selectedStoreId }: Readonly<Props>) {
     startDate,
     endDate,
     resourceId,
+    resources.kind,
   );
 
   // 作成はプレビュー済みであることを追加で要求する。commit 専用の理由は
@@ -107,7 +119,7 @@ export function RecurringBlocksTab({ selectedStoreId }: Readonly<Props>) {
 
   useEffect(() => {
     previewReset();
-    setResourceId("");
+    setChosenResourceId("");
   }, [selectedStoreId, previewReset]);
 
   useEffect(() => {
@@ -245,17 +257,19 @@ export function RecurringBlocksTab({ selectedStoreId }: Readonly<Props>) {
           </div>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="recurring-resource">リソース</Label>
-          <Select value={resourceId} onValueChange={setResourceId}>
-            <SelectTrigger id="recurring-resource" {...invalidFieldProps(previewInvalid, "resourceId", "recurring-preview-hint")}><SelectValue placeholder="リソースを選択" /></SelectTrigger>
-            <SelectContent>
-              {resourceList.filter((r) => r.active).map((r) => (
-                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {resources.kind === "multiple" && (
+          <div className="space-y-2">
+            <Label htmlFor="recurring-resource">リソース</Label>
+            <Select value={resourceId} onValueChange={setChosenResourceId}>
+              <SelectTrigger id="recurring-resource" {...invalidFieldProps(previewInvalid, "resourceId", "recurring-preview-hint")}><SelectValue placeholder="リソースを選択" /></SelectTrigger>
+              <SelectContent>
+                {resources.resources.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="recurring-title">タイトル（任意）</Label>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_CREATE_ORIGIN,
   RESERVATION_ORIGIN_OPTIONS,
   reservationOriginLabel,
   reservationSourceLabel,
@@ -45,5 +46,12 @@ describe("RESERVATION_ORIGIN_OPTIONS", () => {
       "店頭",
       "その他",
     ]);
+  });
+});
+
+describe("DEFAULT_CREATE_ORIGIN", () => {
+  it("is walk_in and one of the selectable origins", () => {
+    expect(DEFAULT_CREATE_ORIGIN).toBe("walk_in");
+    expect(RESERVATION_ORIGIN_OPTIONS.map((o) => o.value)).toContain(DEFAULT_CREATE_ORIGIN);
   });
 });

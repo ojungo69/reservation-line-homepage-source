@@ -104,7 +104,7 @@ const mutationCases = [
     error: "予約作成に失敗しました",
   },
   {
-    name: "予約時間を変更する",
+    name: "開始時刻を変更する",
     useHook: useRescheduleReservation,
     method: "post",
     variables: {
@@ -120,11 +120,11 @@ const mutationCases = [
       },
     ],
     invalidates: [["reservations"]],
-    success: "予約時間を変更しました",
+    success: "開始時刻を変更しました",
     error: "変更に失敗しました",
   },
   {
-    name: "施術時間を変更する",
+    name: "長さを変更する",
     useHook: useRescheduleReservation,
     method: "post",
     variables: {
@@ -142,7 +142,7 @@ const mutationCases = [
       },
     ],
     invalidates: [["reservations"]],
-    success: "施術時間を変更しました",
+    success: "長さを変更しました",
     error: "変更に失敗しました",
   },
 ] as const;

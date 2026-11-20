@@ -177,7 +177,12 @@ export function actionErrorMessage(err: unknown): string {
   return "通信に失敗しました";
 }
 
-export function showErrorToast(err: unknown, fallback = "操作に失敗しました") {
+// overrides は、共通の文言がその操作に合わない理由だけを、呼び出し側の文言に差し替える。
+export function showErrorToast(
+  err: unknown,
+  fallback = "操作に失敗しました",
+  overrides?: Readonly<Record<string, string>>,
+) {
   if (err instanceof ApiOutcomeUnknownError) {
     toast.error(UNKNOWN_OUTCOME_MESSAGE);
   } else if (err instanceof ApiError) {
@@ -188,7 +193,7 @@ export function showErrorToast(err: unknown, fallback = "操作に失敗しま�
         action: { label: "再ログイン", onClick: logout },
       });
     } else {
-      toast.error(ERROR_MESSAGE_LOOKUP[code] ?? fallback);
+      toast.error(overrides?.[code] ?? ERROR_MESSAGE_LOOKUP[code] ?? fallback);
     }
   } else {
     toast.error(fallback);

@@ -69,12 +69,15 @@ export function ClosuresTab({ selectedStoreId }: Readonly<Props>) {
 
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
+  // 追加の画面では、終了日を触るまで開始日に合わせる（1 日だけの休業を日付 1 回で登録できる）。
+  const [endsAtTouched, setEndsAtTouched] = useState(false);
   const [reason, setReason] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const resetForm = () => {
     setStartsAt("");
     setEndsAt("");
+    setEndsAtTouched(false);
     setReason("");
     setIdempotencyKey(crypto.randomUUID());
   };
@@ -82,6 +85,16 @@ export function ClosuresTab({ selectedStoreId }: Readonly<Props>) {
   const closureInvalid = computeClosureInvalid(startsAt, endsAt);
   // 削除確認に対象期間を出す (日付ミスによる誤削除防止)。
   const deleteTarget = deleteId ? closureList.find((c) => c.id === deleteId) ?? null : null;
+
+  const handleStartsAtChange = (value: string) => {
+    setStartsAt(value);
+    if (!editClosure && !endsAtTouched) setEndsAt(value);
+  };
+
+  const handleEndsAtChange = (value: string) => {
+    setEndsAt(value);
+    setEndsAtTouched(true);
+  };
 
   const handleCreate = () => {
     if (!selectedStoreId || closureInvalid !== null) return;
@@ -211,7 +224,7 @@ export function ClosuresTab({ selectedStoreId }: Readonly<Props>) {
                 id="closure-start-date"
                 type="date"
                 value={startsAt}
-                onChange={(e) => setStartsAt(e.target.value)}
+                onChange={(e) => handleStartsAtChange(e.target.value)}
                 {...invalidFieldProps(closureInvalid, "startsAt", "closure-form-hint")}
               />
             </div>
@@ -221,7 +234,7 @@ export function ClosuresTab({ selectedStoreId }: Readonly<Props>) {
                 id="closure-end-date"
                 type="date"
                 value={endsAt}
-                onChange={(e) => setEndsAt(e.target.value)}
+                onChange={(e) => handleEndsAtChange(e.target.value)}
                 {...invalidFieldProps(closureInvalid, "endsAt", "closure-form-hint")}
               />
             </div>
