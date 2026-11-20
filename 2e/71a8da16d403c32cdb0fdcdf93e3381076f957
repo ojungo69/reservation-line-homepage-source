@@ -1,0 +1,35 @@
+admin-app/src/components/calendar-v2/use-return-focus.ts
+  s_d52c2d995f51c6::t_6829b815d941b9 1-28
+admin-app/src/components/calendar-v2/body.tsx
+  s_d52c2d995f51c6::t_2bbfd489e19c7a 199,205
+admin-app/src/components/calendar-v2/event.tsx
+  s_d52c2d995f51c6::t_5d9ed5a2e4bfb3 21-27,53
+admin-app/src/components/calendar-v2/geometry.test.ts
+  s_d52c2d995f51c6::t_5c7488d642695f 33
+admin-app/src/components/calendar-v2/geometry.ts
+  s_d52c2d995f51c6::t_9d897636be2e90 25-26
+admin-app/src/components/calendar-v2/notices.tsx
+  s_d52c2d995f51c6::t_1445ef773d5901 56,58,102,104,107,109
+admin-app/src/components/calendar-v2/top-bar.tsx
+  s_d52c2d995f51c6::t_7682f4aa0908b9 60-61,120
+admin-app/src/components/calendar-v2/use-calendar-days.ts
+  s_d52c2d995f51c6::t_439795cc4c0827 69,98
+admin-app/src/pages/schedule-v2.tsx
+  s_d52c2d995f51c6::t_98f94f80cea84f 12,93,116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2e71a8da16d403c32cdb0fdcdf93e3381076f957",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
