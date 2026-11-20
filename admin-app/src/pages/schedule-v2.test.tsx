@@ -724,9 +724,9 @@ describe("ScheduleV2Page の空き枠と予約の描き方 (Codex の指摘)", (
   it("DOM ではバーが予定表より先で、フォーカス中の空き枠は前に出ない（重なりの構造。当たり判定はブラウザで確認）", async () => {
     renderPage();
     await eventButton(/^山田 花子、/);
-    // The slot under a booking keeps its place under it; only the ring is raised,
-    // on a layer clicks pass through, so the booking still takes its clicks.
-    const slot = screen.getByRole("button", { name: "11月20日（金） 10:00 本店に予約を追加" });
+    // The slot under a booking keeps its place under it; only its ring (::after)
+    // is raised, on a layer clicks pass through, so the booking takes its clicks.
+    const slot = await screen.findByRole("button", { name: "11月20日（金） 10:00 本店に予約を追加" });
     expect(slot.className).not.toMatch(/(^|\s)focus-visible:z-/);
     expect(slot.className).toContain("focus-visible:after:pointer-events-none");
     const bar = document.querySelector(".glass-thick") as HTMLElement;

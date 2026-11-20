@@ -255,8 +255,8 @@ export default function ScheduleV2Page() {
         data-calendar-scroll=""
         // Focus falls back here when what opened a sheet is gone.
         tabIndex={-1}
-        // isolate: the grid's own layers (a focused slot is z-40) stay under the
-        // bar, which comes first in the DOM.
+        // isolate: the grid's own layers (a focused slot's ring is z-40) stay
+        // under the bar, which comes first in the DOM.
         className="isolate h-full overflow-y-auto overscroll-contain outline-hidden"
         style={{ paddingTop: layout.barPx, scrollPaddingTop: layout.barPx }}
       >
