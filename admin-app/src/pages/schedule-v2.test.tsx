@@ -1,5 +1,5 @@
 import { mocks } from "@/test-utils/hook-mocks";
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider, notifyManager } from "@tanstack/react-query";
@@ -183,10 +183,18 @@ function LocationProbe() {
   return <output aria-label="現在の場所">{`${location.pathname}${location.search}`}</output>;
 }
 
+// Renders the page again as a store switch does: the useStores mock is read while rendering.
+let refreshPage = () => {};
+function PageUnderTest() {
+  const [, setTick] = useState(0);
+  refreshPage = () => setTick((tick) => tick + 1);
+  return <ScheduleV2Page />;
+}
+
 function renderPage({ shell, state, strict = false }: { shell?: ShellV2; state?: unknown; strict?: boolean } = {}) {
   const page = (
     <>
-      <ScheduleV2Page />
+      <PageUnderTest />
       <LocationProbe />
     </>
   );
@@ -1299,7 +1307,11 @@ describe("ScheduleV2Page の横スクロール（T006）", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "日" }));
     expect(wheel(100, 120)).toBe(true);
+    // Each starts a gesture of its own, so no axis fixed before it hides its guard.
+    await quiet();
     expect(wheel(120, 0, { ctrlKey: true })).toBe(true);
+    expect(heading()).toBe("11月20日（金）");
+    await quiet();
     wheel(120, 0, { cancelable: false });
     expect(heading()).toBe("11月20日（金）");
   });
@@ -1415,6 +1427,26 @@ describe("ScheduleV2Page の表示の保存（T006）", () => {
     narrow = false;
     renderPage();
     expect((await screen.findByRole("button", { name: "週" })).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("週の見出しから開いた日は、店舗を選び直すと保存した週に戻る（INT-02-03）", async () => {
+    storeState.stores = STORES;
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "週" }));
+    await user.click(screen.getByRole("button", { name: /^11月18日（水）の日表示を開く/ }));
+    expect(screen.getByRole("button", { name: "日" }).getAttribute("aria-pressed")).toBe("true");
+    const pick = (store: string | null) => {
+      storeState.selected = store;
+      act(() => refreshPage());
+    };
+    pick(null);
+    expect(screen.getByRole("button", { name: "日" }).getAttribute("aria-pressed")).toBe("true");
+    pick("s2");
+    expect(screen.getByRole("button", { name: "週" }).getAttribute("aria-pressed")).toBe("true");
+    pick("s1");
+    expect(screen.getByRole("button", { name: "週" }).getAttribute("aria-pressed")).toBe("true");
+    expect(localStorage.getItem("admin-calendar-view")).toBe("week");
   });
 
   it("週の見出しから日を開いても、保存した表示は変えない", async () => {

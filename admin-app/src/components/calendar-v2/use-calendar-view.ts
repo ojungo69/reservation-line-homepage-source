@@ -16,19 +16,26 @@ function savedView(): CalendarView | null {
 /**
  * The view the user asked for, remembered per device (spec 008 T006, UX-07).
  * Without a saved choice a phone starts on the list and a wider screen on the
- * week (DESIGN.md §5). Only `choose` saves: a day opened from the week, and the
- * day shown in place of a week for all stores or on a phone (effectiveView),
- * leave the saved choice as it was (INT-02-03).
+ * week (DESIGN.md §5). Only `choose` saves. `openDay` shows a day opened from
+ * the week for the store shown, without saving it; picking a store ends it, so
+ * a saved week comes back (INT-02-03). The day shown in place of a week for all
+ * stores or on a phone (effectiveView) leaves the saved choice as it is too.
  */
-export function useCalendarView(narrow: boolean) {
-  const [requested, setRequested] = useState<CalendarView>(() => savedView() ?? (narrow ? "list" : "week"));
+export function useCalendarView(narrow: boolean, storeId: string | null) {
+  const [chosen, setChosen] = useState<CalendarView>(() => savedView() ?? (narrow ? "list" : "week"));
+  // The store a day was opened from the week for; undefined while none is.
+  const [dayFor, setDayFor] = useState<string | null | undefined>(undefined);
+  // Set while rendering, so a store switch never paints the day it ends.
+  if (dayFor !== undefined && dayFor !== storeId) setDayFor(undefined);
   const choose = (next: CalendarView) => {
-    setRequested(next);
+    setChosen(next);
+    setDayFor(undefined);
     try {
       localStorage.setItem(STORAGE_KEY, next);
     } catch {
       // The choice still applies to this visit.
     }
   };
-  return { requested, setRequested, choose };
+  const requested: CalendarView = dayFor === storeId ? "day" : chosen;
+  return { requested, choose, openDay: () => setDayFor(storeId) };
 }

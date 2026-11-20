@@ -74,7 +74,7 @@ export default function ScheduleV2Page() {
   const { stores, selectedStoreId } = useStores();
   const storeId = visibleStoreId(selectedStoreId, stores);
   const narrow = useMediaQuery(NARROW_QUERY);
-  const { requested, setRequested, choose: chooseView } = useCalendarView(narrow);
+  const { requested, choose: chooseView, openDay: showDay } = useCalendarView(narrow, storeId);
   // The 週 button was pressed while all stores are shown: say why the day stays.
   const [weekAsked, setWeekAsked] = useState(false);
   const view = effectiveView(requested, { narrow, storeId });
@@ -190,7 +190,7 @@ export default function ScheduleV2Page() {
   });
   const openDay = (day: Date) => {
     setDate(day);
-    setRequested("day");
+    showDay();
     focusHeading.current = true;
   };
   const onView = (next: CalendarView) => {
