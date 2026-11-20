@@ -126,22 +126,25 @@ export function usePeriodSwipe(
       step(direction);
       enter(direction);
     };
-    // INT-04-08: the browser took the touch over (a scroll, the OS, a lost touch).
+    // INT-04-08, INT-10-01・02: the browser took the touch over (a scroll, the OS),
+    // or its target was redrawn away mid-swipe. A capture released after a
+    // normal lift finds no gesture left.
     const onCancel = (event: PointerEvent) => {
       if (event.pointerId === gesture?.id) stop();
     };
 
-    // On the document: a touch whose target is redrawn away loses its capture,
-    // and its later events land wherever the finger is.
+    // On the document: a lost capture is reported there when its target is gone.
     document.addEventListener("pointerdown", onDown, true);
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
     document.addEventListener("pointercancel", onCancel);
+    document.addEventListener("lostpointercapture", onCancel, true);
     return () => {
       document.removeEventListener("pointerdown", onDown, true);
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       document.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("lostpointercapture", onCancel, true);
       unblock?.();
       place(0);
     };

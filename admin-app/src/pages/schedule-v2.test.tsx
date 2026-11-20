@@ -1085,18 +1085,24 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(heading()).toBe("11月21日（土）");
   });
 
-  it("掴んでいた予約が描き直しで消えて、本文の外で指を離しても、フリックを終える", async () => {
+  it("掴んでいた予約が描き直しで消えて捕捉を失ったら中止し、元の日のまま戻す（INT-10-02）", async () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole("button", { name: "日" }));
+    const lost = () => fireEvent(document, new PointerEvent("lostpointercapture", { pointerId: 1, bubbles: true }));
     const card = await eventButton(/^山田 花子、/);
     const title = screen.getByRole("heading", { level: 1 });
     point("pointerDown", card, 300, 400);
     point("pointerMove", card, 215, 400);
     card.remove();
+    lost();
     point("pointerUp", title, 215, 400);
-    expect(heading()).toBe("11月21日（土）");
+    expect(heading()).toBe("11月20日（金）");
     expect([...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")].map((pane) => pane.style.transform)).toEqual(["", ""]);
+    // After a normal lift the browser also releases the capture: nothing more happens.
+    swipe(scroller(), -80);
+    lost();
+    expect(heading()).toBe("11月21日（土）");
   });
 
   it("狭い画面の一覧でもフリックで日を送る", async () => {
