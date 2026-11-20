@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, type RefObject } from "react";
 import { flushSync } from "react-dom";
-import { swipeAxis, swipeStep } from "./swipe";
+import { swipeAxis, swipeStep, wheelPx, wheelStep } from "./swipe";
 
 // INT-04-09: a touch that starts this close to a screen edge belongs to the
 // system's back gesture.
@@ -11,6 +11,8 @@ const FIELDS = "input, textarea, select, [contenteditable]";
 const ENTER_PX = 80;
 // The click a swiped touch may still produce comes right after it lifts.
 const CLICK_GRACE_MS = 400;
+// INT-13-06: wheel input this far apart starts a new gesture.
+const WHEEL_GAP_MS = 250;
 
 type Gesture = { id: number; x: number; y: number; width: number; axis: "x" | "y" | null; dx: number };
 
@@ -24,8 +26,9 @@ function motion() {
 }
 
 /**
- * One-finger swipes on the calendar body move by one period (spec 008 T006,
- * interactions.md INT-04, INT-13). The body scrolls vertically with
+ * One-finger swipes and sideways wheel gestures (a Mac trackpad) on the
+ * calendar body move by one period (spec 008 T006, interactions.md INT-04,
+ * INT-05, INT-13). The body scrolls vertically with
  * touch-action: pan-y pinch-zoom, so the browser keeps vertical scrolling and
  * zoom and hands over sideways touches; mouse and pen are left for dragging
  * bookings (INT-03, T011). While a swipe moves, every [data-swipe-pane] under
@@ -44,6 +47,9 @@ export function usePeriodSwipe(
     if (!scroller) return;
     let gesture: Gesture | null = null;
     let unblock: (() => void) | null = null;
+    let wheelSum = 0;
+    let wheelDone = false;
+    let wheelTimer = 0;
 
     const panes = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-pane]") ?? [])];
     const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -138,6 +144,28 @@ export function usePeriodSwipe(
     const onHidden = () => {
       if (document.hidden) stop();
     };
+    // INT-05: a gesture is wheel input without a 250ms gap, momentum included;
+    // it moves one period at most, once its sideways sum reaches 80px.
+    const onWheel = (event: WheelEvent) => {
+      // INT-05-04: ctrl + wheel is the trackpad's pinch zoom.
+      if (event.ctrlKey) return;
+      window.clearTimeout(wheelTimer);
+      wheelTimer = window.setTimeout(() => {
+        wheelSum = 0;
+        wheelDone = false;
+      }, WHEEL_GAP_MS);
+      // INT-05-01: vertical input scrolls the hours. INT-05-07: input the page
+      // cannot cancel may still become the browser's back or forward.
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || !event.cancelable) return;
+      event.preventDefault();
+      if (wheelDone) return;
+      wheelSum += wheelPx(event.deltaX, event.deltaMode, scroller.clientWidth);
+      const direction = wheelStep(wheelSum);
+      if (direction === 0) return;
+      wheelDone = true;
+      step(direction);
+      enter(direction);
+    };
 
     // On the document: a lost capture is reported there when its target is gone.
     document.addEventListener("pointerdown", onDown, true);
@@ -157,6 +185,8 @@ export function usePeriodSwipe(
             if (gesture) stop();
           });
     sizes?.observe(scroller);
+    // Not passive: a sideways gesture is kept from the browser's history swipe.
+    scroller.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       document.removeEventListener("pointerdown", onDown, true);
       document.removeEventListener("pointermove", onMove);
@@ -167,6 +197,8 @@ export function usePeriodSwipe(
       window.removeEventListener("blur", stop);
       document.removeEventListener("visibilitychange", onHidden);
       sizes?.disconnect();
+      scroller.removeEventListener("wheel", onWheel);
+      window.clearTimeout(wheelTimer);
       unblock?.();
       place(0);
     };

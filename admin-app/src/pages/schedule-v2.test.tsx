@@ -253,6 +253,7 @@ beforeEach(() => {
   closures = [];
   narrow = false;
   reduceMotion = false;
+  localStorage.clear();
   mocks.api.get.mockReset();
   mocks.api.get.mockImplementation(respond);
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -1229,5 +1230,133 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(scroller().scrollTop).toBe(700);
     swipe(scroller(), -80);
     expect(scroller().scrollTop).toBe(700);
+  });
+});
+
+const wheel = (dx: number, dy = 0, init: { deltaMode?: number; ctrlKey?: boolean; cancelable?: boolean } = {}) =>
+  fireEvent.wheel(scroller(), { deltaX: dx, deltaY: dy, deltaMode: init.deltaMode ?? 0, ctrlKey: init.ctrlKey ?? false, cancelable: init.cancelable ?? true });
+const quiet = () => new Promise((resolve) => setTimeout(resolve, 300));
+
+describe("ScheduleV2Page の横スクロール（T006）", () => {
+  it("横の wheel は 80px たまると 1 日動き、入力が途切れるまで次へは進まない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wheel(50);
+    expect(heading()).toBe("11月20日（金）");
+    wheel(40);
+    expect(heading()).toBe("11月21日（土）");
+    wheel(200);
+    wheel(200);
+    expect(heading()).toBe("11月21日（土）");
+    await quiet();
+    wheel(-100);
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("逆向きの入力は打ち消し合い、行の単位の入力は px に直して数える", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wheel(60);
+    wheel(-30);
+    wheel(40);
+    expect(heading()).toBe("11月20日（金）");
+    wheel(10);
+    expect(heading()).toBe("11月21日（土）");
+    await quiet();
+    wheel(6, 0, { deltaMode: 1 });
+    expect(heading()).toBe("11月22日（日）");
+  });
+
+  it("縦が主の入力・拡大の入力・取り消せない入力では動かさず、縦と拡大はブラウザに任せる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    expect(wheel(100, 120)).toBe(true);
+    expect(wheel(120, 0, { ctrlKey: true })).toBe(true);
+    wheel(120, 0, { cancelable: false });
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("日付を動かす横の入力は、ブラウザの戻る・進むに渡さない", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: /^11月16日（月）の日表示を開く/ });
+    expect(wheel(100)).toBe(false);
+    expect(screen.getByRole("button", { name: /^11月23日（月）の日表示を開く/ })).toBeTruthy();
+  });
+});
+
+describe("ScheduleV2Page の日付選択（T006）", () => {
+  it("見出しを押すと月曜始まりの月のカレンダーが開き、選んだ日へ移って閉じる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const trigger = screen.getByRole("button", { name: "11月20日（金）" });
+    await user.click(trigger);
+    const calendar = await screen.findByRole("group", { name: "日付選択カレンダー" });
+    expect(within(calendar).getAllByText(/^[月火水木金土日]$/).map((cell) => cell.textContent)).toEqual(["月", "火", "水", "木", "金", "土", "日"]);
+    // 1 November 2026 is a Sunday, so a Monday-start grid begins on 26 October.
+    expect(within(calendar).getAllByRole("button", { name: /^2026年\d+月\d+日/ })[0].getAttribute("aria-label")).toBe("2026年10月26日 (月)");
+    await user.click(within(calendar).getByRole("button", { name: "2026年11月25日 (水)" }));
+    expect(heading()).toBe("11月25日（水）");
+    expect(screen.queryByRole("group", { name: "日付選択カレンダー" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "11月25日（水）" }));
+  });
+});
+
+describe("ScheduleV2Page の表示の保存（T006）", () => {
+  it("選んだ表示を端末に覚え、開き直すと同じ表示で開く", async () => {
+    const user = userEvent.setup();
+    const first = renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    first.unmount();
+    renderPage();
+    expect((await screen.findByRole("button", { name: "日" })).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("保存が使えない端末でも、既定の表示で開いて切り替えられる", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    try {
+      const user = userEvent.setup();
+      renderPage();
+      expect((await screen.findByRole("button", { name: "週" })).getAttribute("aria-pressed")).toBe("true");
+      await user.click(screen.getByRole("button", { name: "日" }));
+      expect(screen.getByRole("button", { name: "日" }).getAttribute("aria-pressed")).toBe("true");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("全店舗や狭い画面で一時的に日表示にしても、保存した週は上書きしない", async () => {
+    localStorage.setItem("admin-calendar-view", "week");
+    storeState.selected = null;
+    storeState.stores = STORES;
+    const wide = renderPage();
+    expect((await screen.findByRole("button", { name: "日" })).getAttribute("aria-pressed")).toBe("true");
+    wide.unmount();
+    storeState.selected = "s1";
+    narrow = true;
+    const phone = renderPage();
+    expect((await screen.findByRole("button", { name: "日" })).getAttribute("aria-pressed")).toBe("true");
+    phone.unmount();
+    expect(localStorage.getItem("admin-calendar-view")).toBe("week");
+    narrow = false;
+    renderPage();
+    expect((await screen.findByRole("button", { name: "週" })).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("週の見出しから日を開いても、保存した表示は変えない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "週" }));
+    await user.click(screen.getByRole("button", { name: /^11月18日（水）の日表示を開く/ }));
+    expect(heading()).toBe("11月18日（水）");
+    expect(localStorage.getItem("admin-calendar-view")).toBe("week");
   });
 });

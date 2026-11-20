@@ -14,15 +14,18 @@ import {
 type MiniCalendarProps = {
   selected: Date;
   onSelect: (date: Date) => void;
+  // 週の始まり。既定は日曜 (今の予定表)、新しい予定表は月曜 (1)。
+  weekStartsOn?: 0 | 1;
 };
 
 // 自作の月グリッド (外部カレンダーライブラリなし)。表示月 state はマウント時に
 // selected の月から導出し、以後の月ナビはローカルで完結する。呼び出し側
 // (ScheduleHeader) が Popover close でこのコンポーネントを unmount する構成に
 // しているため、次に開いたときは常に selected の最新月へ戻る。
-export function MiniCalendar({ selected, onSelect }: Readonly<MiniCalendarProps>) {
+export function MiniCalendar({ selected, onSelect, weekStartsOn = 0 }: Readonly<MiniCalendarProps>) {
   const [monthAnchor, setMonthAnchor] = useState(() => firstOfJstMonth(selected));
-  const grid = useMemo(() => getMonthGrid(monthAnchor), [monthAnchor]);
+  const grid = useMemo(() => getMonthGrid(monthAnchor, weekStartsOn), [monthAnchor, weekStartsOn]);
+  const weekdays = [...WEEKDAYS.slice(weekStartsOn), ...WEEKDAYS.slice(0, weekStartsOn)];
   const jstMonthAnchor = toJstDate(monthAnchor);
   const displayYear = jstMonthAnchor.getUTCFullYear();
   const displayMonth = jstMonthAnchor.getUTCMonth();
@@ -86,7 +89,7 @@ export function MiniCalendar({ selected, onSelect }: Readonly<MiniCalendarProps>
           は見送り)。運用がタッチ/マウス中心のため、フォーカス可能・aria-label
           付きのベースラインで足りると判断した。 */}
       <div className="grid grid-cols-7 gap-y-1 text-center">
-        {WEEKDAYS.map((w) => (
+        {weekdays.map((w) => (
           <div key={w} className="text-xs font-medium text-muted-foreground">
             {w}
           </div>

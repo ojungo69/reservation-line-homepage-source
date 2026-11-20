@@ -264,12 +264,13 @@ export function firstOfJstMonth(anchor: Date, monthOffset = 0): Date {
   return new Date(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth() + monthOffset, 1) - JST_OFFSET_MS);
 }
 
-// ミニカレンダー用の月グリッド: anchor の月を含む、日曜始まり・前後月を含む
-// 42 セル (6週) 固定の Date 配列。local getter (getDate 等) を使わず
-// toJstDate/addDays/jstWeekday 経由で JST に固定する (ブラウザ TZ 非依存)。
-export function getMonthGrid(anchor: Date): Date[] {
+// ミニカレンダー用の月グリッド: anchor の月を含む、週の始まり (既定は日曜、
+// 新しい予定表は月曜の 1) から前後月を含む 42 セル (6週) 固定の Date 配列。
+// local getter (getDate 等) を使わず toJstDate/addDays/jstWeekday 経由で JST に
+// 固定する (ブラウザ TZ 非依存)。
+export function getMonthGrid(anchor: Date, weekStartsOn: 0 | 1 = 0): Date[] {
   const firstOfMonth = firstOfJstMonth(anchor);
-  const gridStart = addDays(firstOfMonth, -jstWeekday(firstOfMonth));
+  const gridStart = addDays(firstOfMonth, -((jstWeekday(firstOfMonth) - weekStartsOn + 7) % 7));
   return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
 }
 
