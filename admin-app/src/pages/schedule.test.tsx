@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const cancelBlock = vi.fn();
+const createReservation = vi.fn();
 const routerState = vi.hoisted(() => {
   const location: { state: unknown } = { state: null };
   return { location, navigate: vi.fn() };
@@ -76,7 +77,7 @@ vi.mock("@/hooks/use-reservations", () => ({
   usePendingReservations: () => ({
     data: { ok: true, reservations: pendingReservations },
   }),
-  useCreateReservation: () => ({ mutate: vi.fn(), isPending: false }),
+  useCreateReservation: () => ({ mutate: createReservation, isPending: false }),
   useAvailableSlots: () => ({ data: { ok: true, slots: [] }, isFetching: false, isError: false }),
 }));
 
@@ -201,6 +202,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-07-24T01:00:00Z"));
   cancelBlock.mockReset();
+  createReservation.mockReset();
   routerState.location.state = null;
   routerState.navigate.mockReset();
   privileged = true;
@@ -419,16 +421,38 @@ describe("SchedulePage", () => {
     expect(useReservations).toHaveBeenLastCalledWith("2026-07-25");
   });
 
-  it("F5: 全店舗の空き枠から店舗とリソースを選択した予約作成を開く", async () => {
+  it("F5: 全店舗の空き枠から店舗を選択した予約作成を開き、リソースの欄は出さずその店舗の枠で送る", async () => {
     selectedStoreId = null;
     renderRealCreatePanel = true;
+    settingsQuery.data = {
+      ...settingsData,
+      settings: {
+        ...settingsData.settings,
+        services: [{ id: "service-9", storeId: "store-2", name: "新宿メニュー", durationMinutes: 30, active: true }],
+      },
+    } as unknown as typeof settingsData;
     render(<SchedulePage />);
+    const user = userEvent.setup();
 
-    await userEvent.setup().click(screen.getByRole("button", { name: "新宿店の空き枠" }));
+    await user.click(screen.getByRole("button", { name: "新宿店の空き枠" }));
 
     expect(screen.getByRole("combobox", { name: "店舗" }).textContent).toBe("新宿店");
-    expect(screen.getByRole("combobox", { name: "リソース" }).textContent).toBe("担当B");
+    expect(screen.queryByRole("combobox", { name: "リソース" })).toBeNull();
     expect((screen.getByLabelText("時間") as HTMLInputElement).value).toBe("11:30");
+
+    await user.click(screen.getByRole("checkbox", { name: /新宿メニュー/ }));
+    await user.click(screen.getByRole("tab", { name: "新規のお客様" }));
+    await user.type(screen.getByLabelText("氏名"), "新規 太郎");
+    await user.type(screen.getByLabelText("カナ"), "シンキ タロウ");
+    await user.type(screen.getByLabelText("電話番号"), "090-1111-2222");
+    await user.click(screen.getAllByRole("button", { name: "予約作成" }).at(-1)!);
+    // このファイルでは確認ダイアログを差し替えてあり、確定ボタンは「取消を確定」になる。
+    await user.click(screen.getByRole("button", { name: "取消を確定" }));
+
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: "store-2", resourceId: "resource-2" }),
+      expect.anything(),
+    );
   });
 
   it("スマホでは選択日の過去・深夜の予約を読め、詳細編集中も幅変更で内容を保持する", async () => {

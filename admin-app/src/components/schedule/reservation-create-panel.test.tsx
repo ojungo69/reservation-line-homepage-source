@@ -4,6 +4,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const createReservation = vi.fn();
 const customerState = vi.hoisted(() => ({ empty: false, isPrivileged: true, truncated: false, pending: false }));
+// 設定の状態は試験ごとに差し替える。undefined は「まだ取得できていない」。
+const settingsState = vi.hoisted(() => {
+  const stopped = { id: "resource-stopped", storeId: "store-1", name: "停止中の担当", active: false };
+  const resourceA = { id: "resource-1", storeId: "store-1", name: "担当A", active: true };
+  const resourceB = { id: "resource-1b", storeId: "store-1", name: "担当B", active: true };
+  const shibuyaResource = { id: "resource-2", storeId: "store-2", name: "渋谷担当", active: true };
+  const services = [
+    { id: "service-1", storeId: "store-1", name: "基本メニュー", durationMinutes: 60, active: true },
+    { id: "service-2", storeId: "store-1", name: "追加メニュー", durationMinutes: 30, active: true },
+    { id: "service-3", storeId: "store-2", name: "渋谷メニュー", durationMinutes: 45, active: true },
+  ];
+  const shinjuku = { id: "store-1", name: "新宿店" };
+  const fixtures = {
+    soleResource: { stores: [shinjuku], resources: [stopped, resourceA], services },
+    twoStores: {
+      stores: [shinjuku, { id: "store-2", name: "渋谷店" }],
+      resources: [resourceA, shibuyaResource],
+      services,
+    },
+    twoResources: { stores: [shinjuku], resources: [resourceA, resourceB], services },
+    noResource: { stores: [shinjuku], resources: [stopped], services },
+  };
+  type Settings = (typeof fixtures)[keyof typeof fixtures];
+  return { fixtures, current: undefined as Settings | undefined };
+});
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ isPrivileged: customerState.isPrivileged }),
@@ -28,34 +53,7 @@ vi.mock("@/hooks/use-reservations", () => ({
 
 vi.mock("@/hooks/use-settings", () => ({
   useSettings: () => ({
-    data: {
-      ok: true,
-      settings: {
-        stores: [{ id: "store-1", name: "新宿店" }],
-        resources: [{
-          id: "resource-1",
-          storeId: "store-1",
-          name: "担当A",
-          active: true,
-        }],
-        services: [
-          {
-            id: "service-1",
-            storeId: "store-1",
-            name: "基本メニュー",
-            durationMinutes: 60,
-            active: true,
-          },
-          {
-            id: "service-2",
-            storeId: "store-1",
-            name: "追加メニュー",
-            durationMinutes: 30,
-            active: true,
-          },
-        ],
-      },
-    },
+    data: settingsState.current ? { ok: true, settings: settingsState.current } : undefined,
   }),
 }));
 
@@ -96,6 +94,7 @@ beforeEach(() => {
   customerState.isPrivileged = true;
   customerState.truncated = false;
   customerState.pending = false;
+  settingsState.current = settingsState.fixtures.soleResource;
 });
 
 afterEach(() => {
@@ -196,6 +195,9 @@ describe("ReservationCreatePanel", () => {
   });
 
   it.each(["メニュー", "顧客検索", "既存顧客", "リソース", "日付", "時間", "カナ", "電話番号", "予約経路", "店舗"])("%s だけの入力でも閉じる前に確認する", async (field) => {
+    // 店舗・リソースの欄は、選べる候補が 2 つ以上ある設定でだけ出る。
+    if (field === "店舗") settingsState.current = settingsState.fixtures.twoStores;
+    if (field === "リソース") settingsState.current = settingsState.fixtures.twoResources;
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(
@@ -416,6 +418,7 @@ describe("ReservationCreatePanel", () => {
         storeId: "store-1",
         resourceId: "resource-1",
         serviceIds: ["service-1", "service-2"],
+        origin: "walk_in",
         customer: {
           displayName: "新規 太郎",
           displayNameKana: "シンキ タロウ",
@@ -426,7 +429,8 @@ describe("ReservationCreatePanel", () => {
     );
   });
 
-  it("店舗未選択時はメニュー選択前の案内を表示する", () => {
+  it("店舗が 2 つあって未選択のときは、メニュー選択前の案内を表示する", () => {
+    settingsState.current = settingsState.fixtures.twoStores;
     render(
       <ReservationCreatePanel
         open
@@ -438,5 +442,194 @@ describe("ReservationCreatePanel", () => {
       />,
     );
     expect(screen.getByText("店舗を選択してください")).toBeTruthy();
+  });
+});
+
+type PanelOverrides = Partial<React.ComponentProps<typeof ReservationCreatePanel>>;
+
+function renderPanel(overrides: PanelOverrides = {}) {
+  const onClose = vi.fn();
+  const props = {
+    open: true,
+    onClose,
+    defaultStoreId: "store-1",
+    defaultResourceId: null,
+    defaultDate: new Date("2026-07-24T00:00:00+09:00"),
+    defaultMinutes: 600,
+    defaultServiceIds: ["service-1"],
+    defaultCustomer: { id: "customer-1", displayName: "既存 花子" },
+    ...overrides,
+  };
+  const view = render(<ReservationCreatePanel {...props} />);
+  return { ...view, props, onClose };
+}
+
+async function selectByKeyboard(user: ReturnType<typeof userEvent.setup>, name: string, label: string) {
+  const select = screen.getByRole("combobox", { name });
+  select.focus();
+  await user.keyboard(label);
+  expect(select.textContent).toContain(label);
+}
+
+async function submitAndConfirm(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "予約作成" }));
+  await user.click(screen.getByRole("button", { name: "この内容で予約" }));
+}
+
+describe("ReservationCreatePanel のリソース・店舗・予約経路の自動決定", () => {
+  it("FR-001: 枠が 1 つの店舗ではリソースの欄を出さず、その枠で送る", async () => {
+    const user = userEvent.setup();
+    renderPanel({ defaultResourceId: "resource-stopped" });
+
+    expect(screen.queryByRole("combobox", { name: "リソース" })).toBeNull();
+    await submitAndConfirm(user);
+
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: "store-1", resourceId: "resource-1" }),
+      expect.anything(),
+    );
+  });
+
+  it("FR-002: 稼働中の枠が 0 の店舗では案内を出し、予約作成を押せず、作成も呼ばない", async () => {
+    settingsState.current = settingsState.fixtures.noResource;
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(screen.getByRole("status").textContent).toBe("この店舗は予約枠が未設定のため、予約を作成できません。");
+    const submit = screen.getByRole("button", { name: "予約作成" });
+    expect(submit).toHaveProperty("disabled", true);
+    await user.click(submit);
+
+    expect(screen.queryByRole("button", { name: "この内容で予約" })).toBeNull();
+    expect(createReservation).not.toHaveBeenCalled();
+  });
+
+  it("FR-003: 枠が 2 つ以上の店舗では欄が出て、選ばずに送ると必須の案内になり、選ぶとその枠で送る", async () => {
+    settingsState.current = settingsState.fixtures.twoResources;
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(screen.getByRole("combobox", { name: "リソース" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "予約作成" }));
+    expect(screen.getByRole("alert").textContent).toBe("必須項目を入力してください");
+    expect(createReservation).not.toHaveBeenCalled();
+
+    await selectByKeyboard(user, "リソース", "担当B");
+    await submitAndConfirm(user);
+
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: "store-1", resourceId: "resource-1b" }),
+      expect.anything(),
+    );
+  });
+
+  it("FR-004: 2 店舗で店舗を切り替えると、送る店舗と枠が新しい店舗のものになる", async () => {
+    settingsState.current = settingsState.fixtures.twoStores;
+    const user = userEvent.setup();
+    renderPanel({ defaultResourceId: "resource-1" });
+
+    await selectByKeyboard(user, "店舗", "渋谷店");
+    await user.click(screen.getByRole("checkbox", { name: /渋谷メニュー/ }));
+    await user.click(screen.getByRole("tab", { name: "新規のお客様" }));
+    await user.type(screen.getByLabelText("氏名"), "新規 太郎");
+    await user.type(screen.getByLabelText("カナ"), "シンキ タロウ");
+    await user.type(screen.getByLabelText("電話番号"), "090-1111-2222");
+    await submitAndConfirm(user);
+
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: "store-2", resourceId: "resource-2" }),
+      expect.anything(),
+    );
+  });
+
+  it("FR-004: 設定が未取得の間は予約作成を押せず、取得のあとで押せる", () => {
+    settingsState.current = undefined;
+    const { rerender, props } = renderPanel();
+    expect(screen.getByRole("button", { name: "予約作成" })).toHaveProperty("disabled", true);
+
+    settingsState.current = settingsState.fixtures.soleResource;
+    rerender(<ReservationCreatePanel {...props} />);
+    expect(screen.getByRole("button", { name: "予約作成" })).toHaveProperty("disabled", false);
+  });
+
+  it("FR-004: 初期値の枠が停止中でも、枠が 1 つの店舗ではその店舗の稼働中の枠で送る", async () => {
+    const user = userEvent.setup();
+    renderPanel({ defaultStoreId: "store-1", defaultResourceId: "resource-stopped" });
+
+    await submitAndConfirm(user);
+
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: "resource-1" }),
+      expect.anything(),
+    );
+  });
+
+  it("FR-005: 店舗が 1 つなら店舗の欄を出さず、メニューをすぐ選べ、確認の画面に店舗名が出る", async () => {
+    const user = userEvent.setup();
+    renderPanel({ defaultStoreId: null, defaultServiceIds: null });
+
+    expect(screen.queryByRole("combobox", { name: "店舗" })).toBeNull();
+    expect(screen.queryByText("店舗を選択してください")).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: /基本メニュー/ }));
+    await user.click(screen.getByRole("button", { name: "予約作成" }));
+
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByText("店舗：")).toBeTruthy();
+    expect(within(dialog).getByText("新宿店")).toBeTruthy();
+  });
+
+  it("FR-005: 店舗が 2 つなら店舗の欄を出す", () => {
+    settingsState.current = settingsState.fixtures.twoStores;
+    renderPanel();
+
+    expect(screen.getByRole("combobox", { name: "店舗" })).toBeTruthy();
+  });
+
+  it("FR-006: 開いた直後の予約経路は「店頭」で、そのまま送ると walk_in になる", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(screen.getByRole("combobox", { name: "予約経路" }).textContent).toContain("店頭");
+    await submitAndConfirm(user);
+
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: "walk_in" }),
+      expect.anything(),
+    );
+  });
+
+  it("FR-006: 店舗が 1 つで初期値が空でも、何も入れずに閉じれば破棄の確認は出ない", async () => {
+    const user = userEvent.setup();
+    const { onClose } = renderPanel({ defaultStoreId: null, defaultServiceIds: null, defaultCustomer: null });
+
+    await user.click(screen.getByRole("button", { name: "キャンセル" }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("FR-007: 枠が 1 つなら、確認の画面に担当が無く、空き枠の一覧にリソース名の見出しが無い", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(screen.getByRole("button", { name: "10:00" })).toBeTruthy();
+    expect(screen.queryByText("担当A")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "予約作成" }));
+
+    expect(within(screen.getByRole("alertdialog")).queryByText("担当：")).toBeNull();
+  });
+
+  it("FR-007: 枠が 2 つ以上なら、確認の画面に担当があり、空き枠の一覧にリソース名の見出しがある", async () => {
+    settingsState.current = settingsState.fixtures.twoResources;
+    const user = userEvent.setup();
+    renderPanel({ defaultResourceId: "resource-1" });
+
+    expect(screen.getByRole("button", { name: "10:00" })).toBeTruthy();
+    expect(screen.getAllByText("担当A").some((element) => element.tagName === "P")).toBe(true);
+    await user.click(screen.getByRole("button", { name: "予約作成" }));
+
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByText("担当：")).toBeTruthy();
+    expect(within(dialog).getByText("担当A")).toBeTruthy();
   });
 });

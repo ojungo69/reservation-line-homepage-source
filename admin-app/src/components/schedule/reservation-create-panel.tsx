@@ -33,7 +33,12 @@ import {
 } from "@/lib/reservation-create-idempotency";
 import { cn } from "@/lib/utils";
 import { displayServiceName } from "@/lib/service-pricing";
-import { RESERVATION_ORIGIN_OPTIONS } from "@/lib/reservation-origin";
+import { DEFAULT_CREATE_ORIGIN, RESERVATION_ORIGIN_OPTIONS } from "@/lib/reservation-origin";
+import {
+  NO_RESOURCE_CREATE_NOTICE,
+  resolveCreateTarget,
+  type StoreResources,
+} from "@/lib/store-resources";
 import {
   MAX_ADMIN_TOTAL_SERVICE_DURATION_MINUTES,
   MAX_SERVICE_SELECTIONS,
@@ -83,6 +88,7 @@ function renderSlotsField({
   failed,
   slotsByResource,
   resourceId,
+  showResourceNames,
   time,
   onSlotClick,
 }: {
@@ -90,6 +96,7 @@ function renderSlotsField({
   failed: boolean;
   slotsByResource: Map<string, { name: string; slots: AvailableSlot[] }>;
   resourceId: string;
+  showResourceNames: boolean;
   time: string;
   onSlotClick: (slot: { resourceId: string; startAt: string }) => void;
 }) {
@@ -115,7 +122,7 @@ function renderSlotsField({
     <div className="space-y-3">
       {Array.from(slotsByResource.entries()).map(([resId, { name, slots }]) => (
         <div key={resId} className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">{name}</p>
+          {showResourceNames && <p className="text-xs font-medium text-muted-foreground">{name}</p>}
           <div className="flex flex-wrap gap-1">
             {slots.filter((s) => s.available).map((slot) => {
               const selected = resourceId === slot.resourceId &&
@@ -457,7 +464,7 @@ function ReservationConfirmationDialog({
   storeName: string;
   serviceNames: string[];
   totalMinutes: number;
-  resourceName: string;
+  resourceName: string | null;
   date: string;
   time: string;
   onClose: () => void;
@@ -480,10 +487,12 @@ function ReservationConfirmationDialog({
           <span className="text-muted-foreground">（施術 合計{totalMinutes}分）</span>
         )}
       </span>
-      <span className="block">
-        <span className="text-muted-foreground">担当：</span>
-        {resourceName}
-      </span>
+      {resourceName !== null && (
+        <span className="block">
+          <span className="text-muted-foreground">担当：</span>
+          {resourceName}
+        </span>
+      )}
       <span className="block">
         <span className="text-muted-foreground">日時：</span>
         {date} {time}
@@ -524,6 +533,11 @@ function confirmationServiceNames(
     : selectedIds;
 }
 
+// 担当は、枠が 2 つ以上あって利用者が選んだときだけ確認の画面に出す。
+function confirmationResourceName(resources: StoreResources): string | null {
+  if (resources.kind !== "multiple") return null;
+  return resources.resources.find((r) => r.id === resources.resourceId)?.name ?? resources.resourceId;
+}
 
 export function ReservationCreatePanel({
   open,
@@ -563,7 +577,7 @@ export function ReservationCreatePanel({
   // 既存客は role を問わず customerId で予約する（staff には電話番号がマスク表示
   // されるため、手入力経路では既存客を指定できない）。
   const [mode, setMode] = useState<CreateMode>("existing");
-  const [origin, setOrigin] = useState<CreateReservationOrigin>("minimo");
+  const [origin, setOrigin] = useState<CreateReservationOrigin>(DEFAULT_CREATE_ORIGIN);
 
   // 既存客モード: 選択済みの既存客（customerId で予約）。
   const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(
@@ -605,14 +619,12 @@ export function ReservationCreatePanel({
     setError(null);
   };
 
-  const storeResources = useMemo(
-    () => settings?.resources.filter((r) => r.active && r.storeId === storeId) ?? [],
-    [settings, storeId],
-  );
+  // 店舗と枠は利用者の選択（state）を書き換えず、描画のたびに導く。
+  const target = resolveCreateTarget(settings, storeId, resourceId);
 
   const storeServices = useMemo(
-    () => settings?.services.filter((s) => s.active && s.storeId === storeId) ?? [],
-    [settings, storeId],
+    () => settings?.services.filter((s) => s.active && s.storeId === target.storeId) ?? [],
+    [settings, target.storeId],
   );
 
   // rebook 初期値のうち現在の店舗メニュー（active）に無い ID は state に残さない
@@ -678,7 +690,7 @@ export function ReservationCreatePanel({
     isFetching: slotsFetching,
     isError: slotsError,
   } = useAvailableSlots(
-    durationMinutes !== undefined ? storeId || null : null,
+    durationMinutes !== undefined ? target.storeId || null : null,
     date || null,
     {
       durationMinutes,
@@ -716,13 +728,13 @@ export function ReservationCreatePanel({
     setCustomerKana("");
     setCustomerPhone("");
     setCustomerSearch("");
-    setOrigin("minimo");
+    setOrigin(DEFAULT_CREATE_ORIGIN);
     setError(null);
   };
 
   const handleSubmit = () => {
     setError(null);
-    const baseValid = storeId && serviceIds.length > 0 && resourceId && date && time;
+    const baseValid = target.storeId && serviceIds.length > 0 && target.resources.resourceId && date && time;
     if (!baseValid) {
       setError("必須項目を入力してください");
       return;
@@ -746,9 +758,9 @@ export function ReservationCreatePanel({
       return;
     }
     const payloadWithoutKey = {
-      storeId,
+      storeId: target.storeId,
       ...servicePayload,
-      resourceId,
+      resourceId: target.resources.resourceId,
       startAt,
       origin,
       ...customerPart.part,
@@ -790,7 +802,7 @@ export function ReservationCreatePanel({
   const isDirty = serviceIds.length > 0 || selectedCustomer !== null ||
     [customerSearch, customerName, customerKana, customerPhone].some((value) => value.trim().length > 0) ||
     storeId !== (defaultStoreId ?? "") || resourceId !== (defaultResourceId ?? "") ||
-    date !== initialDate || time !== initialTime || origin !== "minimo";
+    date !== initialDate || time !== initialTime || origin !== DEFAULT_CREATE_ORIGIN;
   const requestClose = () => {
     if (isPending) return;
     if (isDirty) setDiscardOpen(true);
@@ -808,19 +820,21 @@ export function ReservationCreatePanel({
           <Separator />
 
           <div className="space-y-3">
-            <Field id="rcp-store" label="店舗">
-              <Select value={storeId} onValueChange={(v) => { setStoreId(v); setServiceIds([]); setUnavailableNotice(null); setResourceId(""); setSelectedCustomer(null); setCustomerSearch(""); }}>
-                <SelectTrigger id="rcp-store"><SelectValue placeholder="店舗を選択" /></SelectTrigger>
-                <SelectContent>
-                  {settings?.stores.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            {!target.soleStore && (
+              <Field id="rcp-store" label="店舗">
+                <Select value={storeId} onValueChange={(v) => { setStoreId(v); setServiceIds([]); setUnavailableNotice(null); setResourceId(""); setSelectedCustomer(null); setCustomerSearch(""); }}>
+                  <SelectTrigger id="rcp-store"><SelectValue placeholder="店舗を選択" /></SelectTrigger>
+                  <SelectContent>
+                    {settings?.stores.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
 
             <ServiceSelectionFieldset
-              storeId={storeId}
+              storeId={target.storeId}
               services={storeServices}
               selectedIds={serviceIds}
               totalMinutes={totalMinutes}
@@ -831,16 +845,21 @@ export function ReservationCreatePanel({
               onToggle={toggleService}
             />
 
-            <Field id="rcp-resource" label="リソース">
-              <Select value={resourceId} onValueChange={setResourceId}>
-                <SelectTrigger id="rcp-resource"><SelectValue placeholder="リソースを選択" /></SelectTrigger>
-                <SelectContent>
-                  {storeResources.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            {target.resources.kind === "multiple" && (
+              <Field id="rcp-resource" label="リソース">
+                <Select value={target.resources.resourceId} onValueChange={setResourceId}>
+                  <SelectTrigger id="rcp-resource"><SelectValue placeholder="リソースを選択" /></SelectTrigger>
+                  <SelectContent>
+                    {target.resources.resources.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
+            {target.resources.kind === "none" && (
+              <p className="text-sm text-muted-foreground" role="status">{NO_RESOURCE_CREATE_NOTICE}</p>
+            )}
 
             <div className="grid grid-cols-2 gap-2">
               <Field id="rcp-date" label="日付">
@@ -852,7 +871,7 @@ export function ReservationCreatePanel({
             </div>
           </div>
 
-          {storeId && date && serviceIds.length > 0 && !overLimit && (
+          {target.storeId && date && serviceIds.length > 0 && !overLimit && (
             <>
               <Separator />
               <Field label="空き枠">
@@ -860,7 +879,8 @@ export function ReservationCreatePanel({
                   fetching: slotsFetching,
                   failed: slotsError || slotsData?.ok === false,
                   slotsByResource,
-                  resourceId,
+                  resourceId: target.resources.resourceId,
+                  showResourceNames: target.resources.kind === "multiple",
                   time,
                   onSlotClick: handleSlotClick,
                 })}
@@ -923,7 +943,7 @@ export function ReservationCreatePanel({
             <Button variant="outline" className="flex-1" onClick={requestClose} disabled={isPending}>
               キャンセル
             </Button>
-            <Button className="flex-1" onClick={handleSubmit} disabled={isPending}>
+            <Button className="flex-1" onClick={handleSubmit} disabled={isPending || target.saveBlocked}>
               {isPending ? "作成中..." : "予約作成"}
             </Button>
           </div>
@@ -932,12 +952,10 @@ export function ReservationCreatePanel({
             open={pendingPayload !== null}
             pending={isPending}
             customerName={confirmationCustomerName(mode, selectedCustomer, customerName)}
-            storeName={settings?.stores.find((store) => store.id === storeId)?.name ?? storeId}
+            storeName={target.storeName ?? target.storeId}
             serviceNames={confirmationServiceNames(selectedServices, serviceIds)}
             totalMinutes={totalMinutes}
-            resourceName={
-              storeResources.find((resource) => resource.id === resourceId)?.name ?? resourceId
-            }
+            resourceName={confirmationResourceName(target.resources)}
             date={date}
             time={time}
             onClose={() => setPendingPayload(null)}

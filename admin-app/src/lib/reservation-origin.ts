@@ -25,6 +25,9 @@ export const RESERVATION_ORIGIN_OPTIONS: ReadonlyArray<{
   { value: "other", label: ORIGIN_LABELS.other },
 ];
 
+// 作成パネルを開いた直後の予約経路。
+export const DEFAULT_CREATE_ORIGIN: CreateReservationOrigin = "walk_in";
+
 export function reservationOriginLabel(origin: string | null): string | null {
   // hasOwnProperty.call (not `in`) so prototype keys ("toString"/"constructor")
   // never match and return undefined / a function. (gemini hardening)
