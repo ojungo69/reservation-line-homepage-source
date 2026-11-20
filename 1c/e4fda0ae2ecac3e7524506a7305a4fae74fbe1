@@ -1,0 +1,47 @@
+admin-app/src/components/calendar-v2/swipe.ts
+  s_d52c2d995f51c6::t_4bf5666db3ca22 1-28
+admin-app/src/components/calendar-v2/swipe.test.ts
+  s_d52c2d995f51c6::t_aa5ad8c2a0979f 1-38
+admin-app/src/pages/schedule-v2.tsx
+  s_d52c2d995f51c6::t_a5f5e6151bbb89 12
+  s_d52c2d995f51c6::t_3d530cb337157c 198-203
+  s_d52c2d995f51c6::t_dbf06d5e492454 88
+  s_d52c2d995f51c6::t_ded0e2d73779ea 250
+  s_d52c2d995f51c6::t_43b60f81dccbd1 240
+  s_d52c2d995f51c6::t_e1cad1632d8380 283-285,288
+  s_d52c2d995f51c6::t_6abfe64624b07a 123-124,126,128-129,136
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_16bc8a4b2fff5e 255,260
+  s_d52c2d995f51c6::t_cacd162c57bfd8 135
+  s_d52c2d995f51c6::t_cd05eef38b3baf 949-1076
+admin-app/src/components/calendar-v2/top-bar.tsx
+  s_d52c2d995f51c6::t_5192d43aeec983 24-25
+  s_d52c2d995f51c6::t_00d0c9125e73ad 154-155
+admin-app/src/components/calendar-v2/use-period-swipe.ts
+  s_d52c2d995f51c6::t_930259f2ed771a 100,102
+  s_d52c2d995f51c6::t_0524db02767cd3 113-116
+  s_d52c2d995f51c6::t_35e4cc85b854ea 87-90
+  s_d52c2d995f51c6::t_7e43e57be03359 17-25
+  s_d52c2d995f51c6::t_2d7a4696030680 53-55,59,63
+  s_d52c2d995f51c6::t_440e0107a9b15e 1-16,26-52,56-58,60-62,64-86,91-99,101,103-112,117-139
+specs/008-admin-calendar-ux/interactions.md
+  s_d52c2d995f51c6::t_e799a535fe9ac7 31,47,82
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_8e7ca6f6b14953 34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1ce4fda0ae2ecac3e7524506a7305a4fae74fbe1",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
