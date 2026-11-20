@@ -166,7 +166,7 @@ export function ExternalBlockCreateDialog({
             </div>
           )}
           {/* 設定の取得後に文言が入っても読み上げられるよう、通知欄は常に置く。 */}
-          <p role="status" className="text-sm text-muted-foreground">
+          <p role="status" className="text-sm text-muted-foreground empty:sr-only">
             {resources.kind === "none" && NO_RESOURCE_SETTINGS_NOTICE}
           </p>
 

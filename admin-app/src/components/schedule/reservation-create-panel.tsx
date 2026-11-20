@@ -872,7 +872,7 @@ export function ReservationCreatePanel({
               </Field>
             )}
             {/* 設定の取得後に文言が入っても読み上げられるよう、通知欄は常に置く。 */}
-            <p className="text-sm text-muted-foreground" role="status">
+            <p className="text-sm text-muted-foreground empty:sr-only" role="status">
               {target.resources.kind === "none" && NO_RESOURCE_CREATE_NOTICE}
             </p>
 
