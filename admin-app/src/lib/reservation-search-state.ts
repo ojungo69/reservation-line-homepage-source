@@ -17,7 +17,7 @@ export const RESERVATION_STATUSES = [
 ] as const;
 
 function isOfferedStatusFilter(value: unknown): value is string {
-  return value === ALL_SENTINEL || RESERVATION_STATUSES.some((status) => status === value);
+  return value === ALL_SENTINEL || (RESERVATION_STATUSES as readonly unknown[]).includes(value);
 }
 
 export type ReservationSearchState = {

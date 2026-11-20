@@ -169,7 +169,7 @@ export default function ReservationsPage() {
   const [debouncedKeyword, setDebouncedKeyword] = useDebouncedValue(keyword);
   const isDebouncing = keyword.trim() !== debouncedKeyword;
   const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);
-  const [rawSortKey, setSortKey] = useState<SortKey>(restored?.sortKey ?? "startAt");
+  const [rawSortKey, setRawSortKey] = useState<SortKey>(restored?.sortKey ?? "startAt");
   const sortKey = effectiveSortKey(rawSortKey, showStore);
   const [sortDir, setSortDir] = useState<SortDir>(restored?.sortDir ?? "asc");
   const [approveTarget, setApproveTarget] = useState<ReservationSearchItem | null>(null);
@@ -207,7 +207,7 @@ export default function ReservationsPage() {
       setDebouncedKeyword("");
       setServiceId(ALL_SENTINEL);
       setStatusFilter(ALL_SENTINEL);
-      setSortKey("startAt");
+      setRawSortKey("startAt");
       setSortDir("asc");
       return;
     }
@@ -227,7 +227,7 @@ export default function ReservationsPage() {
       const range = reservationPresetRange(mode);
       setFrom(range.from);
       setTo(range.to);
-      setSortKey("startAt");
+      setRawSortKey("startAt");
       setSortDir(mode === "history" ? "desc" : "asc");
     }
   };
@@ -296,14 +296,14 @@ export default function ReservationsPage() {
 
   // 隠れた店舗の並べ替えが全店舗へ戻したときに復活しないよう、表示中の並べ替えキーを state にも入れる。
   const flipSortDir = () => {
-    setSortKey(sortKey);
+    setRawSortKey(sortKey);
     setSortDir((d) => (d === "asc" ? "desc" : "asc"));
   };
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
       flipSortDir();
     } else {
-      setSortKey(key);
+      setRawSortKey(key);
       setSortDir("asc");
     }
   };
@@ -526,7 +526,7 @@ export default function ReservationsPage() {
             <Label htmlFor="mobile-sort-key" className="shrink-0 text-xs text-muted-foreground">
               並べ替え
             </Label>
-            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+            <Select value={sortKey} onValueChange={(v) => setRawSortKey(v as SortKey)}>
               <SelectTrigger id="mobile-sort-key" className="w-36">
                 <SelectValue />
               </SelectTrigger>
