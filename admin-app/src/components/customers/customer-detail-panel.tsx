@@ -810,9 +810,6 @@ export function CustomerDetailPanel({ customerId, onClose, originReservationId =
                     {customer.gender && (
                       <Row label="性別" value={{ male: "男性", female: "女性", other: "その他", unspecified: "未指定" }[customer.gender] ?? customer.gender} />
                     )}
-                    {customer.allergyNotes && (
-                      <Row label="アレルギー" value={customer.allergyNotes} />
-                    )}
                   </>
                 )}
               </Section>
@@ -1550,7 +1547,7 @@ function ChartReservationCard({ reservation, onSelect }: Readonly<{ reservation:
         <Badge variant="outline">{statusLabel(reservation.status)}</Badge>
       </div>
       <p className="break-words font-medium">{chartServiceName(reservation.serviceName, reservation.serviceNameSource)}</p>
-      <p className="text-xs text-muted-foreground">{reservation.storeName} · {reservation.resourceName}</p>
+      <p className="text-xs text-muted-foreground">{reservation.storeName}</p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <dt>登録日時</dt>
         <dd>{createdAt ? <time dateTime={createdAt}>{formatFullJstDate(new Date(createdAt))} {formatTime(createdAt)}</time> : "未記録"}</dd>

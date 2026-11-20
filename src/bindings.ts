@@ -3,7 +3,6 @@ import type { LineRateLimiter } from "./line/rate-limiter-do";
 export interface WorkerBindings {
   DB: D1Database;
   CACHE?: KVNamespace;
-  STORAGE?: R2Bucket;
   METRICS?: AnalyticsEngineDataset;
   EMAIL?: SendEmail;
   ASSETS: Fetcher;
@@ -66,7 +65,6 @@ export interface WorkerBindings {
   STAGING_SERVICE_TOKEN_AUTH?: string;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
   D1_SESSION_ENABLED?: string;
-  CSV_ARCHIVE_ENABLED?: string;
   RESERVATION_WORKFLOW?: Workflow;
   WORKFLOW_ENABLED?: string;
 }

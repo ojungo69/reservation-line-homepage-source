@@ -2,14 +2,15 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GoogleSyncPage from "./google-sync";
-import type { SyncDlqJob, SyncStatusResponse } from "@/types/api";
+import type { Store, SyncDlqJob, SyncStatusResponse } from "@/types/api";
 
 const mocks = vi.hoisted(() => ({
   syncStatus: null as SyncStatusResponse | null,
+  stores: [] as Store[],
   retry: vi.fn(),
   acknowledge: vi.fn(),
 }));
-vi.mock("@/hooks/use-settings", () => ({ useSettings: () => ({ data: null }) }));
+vi.mock("@/hooks/use-settings", () => ({ useSettings: () => ({ data: { ok: true, settings: { stores: mocks.stores } } }) }));
 vi.mock("@/hooks/use-sync-status", () => ({
   useSyncStatus: () => ({ syncStatus: mocks.syncStatus, isPending: false, isError: false }),
   useSyncJobRetry: () => ({ mutate: mocks.retry, isPending: false }),
@@ -34,7 +35,27 @@ const renderJob = async (overrides: Partial<SyncDlqJob> = {}) => {
 };
 
 describe("notification acknowledgement in GoogleSyncPage", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.stores = [];
+  });
+
+  it("shows the store name in the owner conflict summary, and the short id only when the name is unknown", () => {
+    mocks.stores = [{ id: "store-1", name: "新宿店" } as Store];
+    mocks.syncStatus = {
+      ok: true, role: "owner",
+      summary: { openGoogleConflicts: 3, googleSyncJobsNeedingAttention: 0, lineNotificationJobsNeedingAttention: 0, channelsNeedingAttention: 0 },
+      recoveryTasks: [],
+      conflictAggregate: { totalConflicts: 3, totalRequiringAction: 2, perStore: [
+        { storeId: "store-1", total: 2, actionRequired: 1 },
+        { storeId: "unknown-store-id", total: 1, actionRequired: 1 },
+      ] },
+      actionableConflicts: [],
+    };
+    render(<GoogleSyncPage />);
+    expect(screen.getByText("店舗 新宿店 — 合計 2件 / 要対応 1件")).toBeTruthy();
+    expect(screen.getByText("店舗 unknown-… — 合計 1件 / 要対応 1件")).toBeTruthy();
+  });
 
   it("lets owners review their business conflicts without technical recovery actions", () => {
     mocks.syncStatus = {
