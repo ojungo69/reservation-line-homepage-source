@@ -101,11 +101,6 @@ export function usePeriodSwipe(
     };
     const onMove = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
-      // INT-10-04: the body changed width under the swipe; the rest of the touch is ignored.
-      if (scroller.clientWidth !== gesture.width) {
-        stop();
-        return;
-      }
       const dx = event.clientX - gesture.x;
       // INT-04-02, 03: once decided, a vertical touch stays the browser's scroll.
       gesture.axis ??= swipeAxis(dx, event.clientY - gesture.y);
@@ -122,7 +117,7 @@ export function usePeriodSwipe(
       if (axis !== "x") return;
       blockClick();
       // INT-04-04: the distance where the finger lifts decides. INT-10-04: a body
-      // that changed width under the swipe (a rotation, a layout change) ends it.
+      // whose width changed before the size observer reported it ends the swipe.
       const direction = scroller.clientWidth === width ? swipeStep(event.clientX - x, width) : 0;
       if (direction === 0) {
         settle(shown);
@@ -153,6 +148,15 @@ export function usePeriodSwipe(
     window.addEventListener("resize", stop);
     window.addEventListener("blur", stop);
     document.addEventListener("visibilitychange", onHidden);
+    // INT-10-04: the body changing size under a swipe (a layout change without a
+    // window resize) ends it too, even while the finger is held still.
+    const sizes =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            if (gesture) stop();
+          });
+    sizes?.observe(scroller);
     return () => {
       document.removeEventListener("pointerdown", onDown, true);
       document.removeEventListener("pointermove", onMove);
@@ -162,6 +166,7 @@ export function usePeriodSwipe(
       window.removeEventListener("resize", stop);
       window.removeEventListener("blur", stop);
       document.removeEventListener("visibilitychange", onHidden);
+      sizes?.disconnect();
       unblock?.();
       place(0);
     };

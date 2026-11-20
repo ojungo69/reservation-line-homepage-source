@@ -1132,10 +1132,33 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     }
   });
 
-  it("フリックの途中で本文の幅が変わったら、確定せずに戻す（INT-10-04）", async () => {
+  it("フリックの途中で本文の大きさが変わったら中止し、指を離しても動かさない（INT-10-04）", async () => {
+    const resized: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resized.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole("button", { name: "日" }));
+    const panes = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")].map((pane) => pane.style.transform);
+    // Seen while the finger is held still: the swipe ends at once.
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    act(() => {
+      for (const callback of resized) callback([], {} as ResizeObserver);
+    });
+    expect(panes()).toEqual(["", ""]);
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月20日（金）");
+    // A width that differs where the finger lifts, before any observer has run.
     let width = 375;
     Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => width });
     point("pointerDown", scroller(), 300, 400);
@@ -1143,17 +1166,8 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     width = 360;
     point("pointerUp", scroller(), 200, 400);
     expect(heading()).toBe("11月20日（金）");
-    // A width that changes and comes back before the lift still ends the swipe.
+    // The same width moves as usual.
     width = 375;
-    point("pointerDown", scroller(), 300, 400);
-    point("pointerMove", scroller(), 250, 400);
-    width = 360;
-    point("pointerMove", scroller(), 220, 400);
-    width = 375;
-    point("pointerMove", scroller(), 200, 400);
-    point("pointerUp", scroller(), 200, 400);
-    expect(heading()).toBe("11月20日（金）");
-    // The same width at the lift still moves.
     swipe(scroller(), -100);
     expect(heading()).toBe("11月21日（土）");
   });
