@@ -66,7 +66,7 @@ export function useCalendarDays(dayKeys: readonly string[]): DayData[] {
  * stays until today is picked again, as in the current calendar.
  */
 export function useCalendarDate() {
-  const [date, setShownDate] = useState(() => new Date());
+  const [shownDate, setShownDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
   const followToday = useRef(true);
   const setDate = useCallback((next: Date) => {
@@ -95,5 +95,5 @@ export function useCalendarDate() {
     if (followToday.current) setShownDate(now);
   }, [todayKey, now]);
 
-  return { date, setDate, now };
+  return { date: shownDate, setDate, now };
 }

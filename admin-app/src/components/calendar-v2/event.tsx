@@ -18,6 +18,13 @@ const NARROW_PX = 72;
 // this width: below it, both would be cut to a character.
 const INLINE_TIME_PX = 100;
 
+// One row: the marker and, when wide enough, the name; else the start time and
+// the name.
+function oneRowLines(marker: string | null, title: string, start: string, roomy: boolean): EventLine[] {
+  if (marker) return [{ part: "marker", text: marker, strong: true }, ...(roomy ? [{ part: "title" as const, text: title }] : [])];
+  return [...(roomy ? [{ part: "time" as const, text: start }] : []), { part: "title", text: title, strong: true }];
+}
+
 /**
  * What a block can show at its drawn size. The marker (承認待ち, or the source of
  * an external event) is never dropped: the fill alone must not be what tells
@@ -43,11 +50,7 @@ export function eventLines({
 }>): { inline: boolean; lines: EventLine[] } {
   const narrow = widthPx !== null && widthPx < NARROW_PX;
   if (heightPx < ONE_ROW_PX) {
-    const roomy = widthPx === null || widthPx >= INLINE_TIME_PX;
-    const lines: EventLine[] = marker
-      ? [{ part: "marker", text: marker, strong: true }, ...(roomy ? [{ part: "title" as const, text: title }] : [])]
-      : [...(roomy ? [{ part: "time" as const, text: start }] : []), { part: "title", text: title, strong: true }];
-    return { inline: true, lines };
+    return { inline: true, lines: oneRowLines(marker, title, start, widthPx === null || widthPx >= INLINE_TIME_PX) };
   }
   let head: EventLine[] = [{ part: "title", text: title, strong: true, wrap: narrow }];
   if (marker) {

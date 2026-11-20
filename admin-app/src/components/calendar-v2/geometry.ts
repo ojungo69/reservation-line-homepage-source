@@ -22,8 +22,8 @@ export function clipToDay(startAt: string, endAt: string, dayKey: string): Span 
   const dayStart = Date.parse(`${dayKey}T00:00:00+09:00`);
   const start = Math.max(Date.parse(startAt), dayStart);
   const end = Math.min(Date.parse(endAt), dayStart + DAY_MS);
-  // Also false for NaN, so an unreadable time is never drawn.
-  if (!(end > start)) return null;
+  // An unreadable time is never drawn.
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
   return { start: (start - dayStart) / 60_000, end: (end - dayStart) / 60_000 };
 }
 

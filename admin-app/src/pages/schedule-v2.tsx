@@ -9,6 +9,7 @@ import { CalendarNotices } from "@/components/calendar-v2/notices";
 import { CalendarTopBar, DayHeader } from "@/components/calendar-v2/top-bar";
 import { useCalendarDate, useCalendarDays } from "@/components/calendar-v2/use-calendar-days";
 import { useCalendarLayout } from "@/components/calendar-v2/use-calendar-layout";
+import { useReturnFocus } from "@/components/calendar-v2/use-return-focus";
 import { PendingApprovalsCard } from "@/components/schedule/pending-approvals-card";
 import { ReservationCreatePanel } from "@/components/schedule/reservation-create-panel";
 import { ReservationDetailPanel } from "@/components/schedule/reservation-detail-panel";
@@ -89,25 +90,7 @@ export default function ScheduleV2Page() {
     return () => shell.setPaletteBlocked(false);
   }, [shell, sheetOpen]);
 
-  // The sheets open without a Radix trigger, so Radix has nowhere to return focus
-  // when they close. Remember what opened one and go back there, else to the grid.
-  const opener = useRef<HTMLElement | null>(null);
-  // Only a sheet that was open and has closed uses it: StrictMode runs effects
-  // twice on mount, before a sheet opened by an effect (次回予約) shows.
-  const sheetWasOpen = useRef(false);
-  useEffect(() => {
-    if (sheetOpen) {
-      sheetWasOpen.current = true;
-      return;
-    }
-    if (!sheetWasOpen.current || !opener.current) return;
-    sheetWasOpen.current = false;
-    const target = opener.current;
-    opener.current = null;
-    if (target !== document.body && target.isConnected) target.focus();
-    // <body> stands for "nothing to go back to": the grid takes focus then.
-    if (target === document.body || document.activeElement !== target) scrollerRef.current?.focus();
-  }, [sheetOpen, scrollerRef]);
+  const opener = useReturnFocus(sheetOpen, scrollerRef);
 
   // Open at the store's opening time (DESIGN.md §5) when the shown days, the store
   // or the view change; scrollKey names every input read here, so a refresh does
@@ -130,7 +113,7 @@ export default function ScheduleV2Page() {
   // state; it opens the booking form once, as on the current calendar.
   const rebookConsumed = useRef(false);
   useEffect(() => {
-    const rebook = (location.state as { rebook?: CreateDefaults["customer"] } | null)?.rebook;
+    const rebook = (location.state as { rebook?: NonNullable<CreateDefaults["customer"]> } | null)?.rebook;
     if (!rebook) {
       rebookConsumed.current = false;
       return;

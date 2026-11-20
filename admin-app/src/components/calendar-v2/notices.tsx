@@ -53,9 +53,9 @@ export function CalendarNotices({
     <div className="pointer-events-auto max-h-[40dvh] overflow-y-auto overscroll-contain bg-cal-surface empty:hidden">
       <ScheduleSyncAttention />
       {weekNeedsStore && (
-        <p role="status" className="mx-4 my-2 text-sm">
+        <output className="mx-4 my-2 block text-sm">
           週表示は店舗を1つ選ぶと使えます。上部の店舗の切り替えで選んでください。
-        </p>
+        </output>
       )}
       {settings.failed && (
         <div role="alert" className={ALERT}>
@@ -99,14 +99,14 @@ export function CalendarNotices({
         </div>
       )}
       {noResourceStores.length > 0 && (
-        <p role="status" className="mx-4 my-2 text-sm">
+        <output className="mx-4 my-2 block text-sm">
           {noResourceStores.join("・")}には予約を受ける枠（リソース）がありません。設定で追加すると、空いた時間から予約を作れます。
-        </p>
+        </output>
       )}
       {noHoursStores.length > 0 && (
-        <p role="status" className="mx-4 my-2 text-sm">
+        <output className="mx-4 my-2 block text-sm">
           {noHoursStores.join("・")}は営業時間が未設定のため、予約を受け付けていません。店舗設定で営業する曜日と時間を保存してください。
-        </p>
+        </output>
       )}
       {closuresUnknownStores.length > 0 && (
         <p role="alert" className={ALERT}>

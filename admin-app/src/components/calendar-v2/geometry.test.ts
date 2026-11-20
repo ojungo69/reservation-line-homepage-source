@@ -30,6 +30,7 @@ describe("clipToDay", () => {
     expect(clipToDay("2026-11-21T01:00:00Z", "2026-11-21T02:00:00Z", "2026-11-20")).toBeNull();
     expect(clipToDay("2026-11-20T01:00:00Z", "2026-11-20T01:00:00Z", "2026-11-20")).toBeNull();
     expect(clipToDay("not a time", "2026-11-20T01:00:00Z", "2026-11-20")).toBeNull();
+    expect(clipToDay("2026-11-20T01:00:00Z", "not a time", "2026-11-20")).toBeNull();
   });
 });
 

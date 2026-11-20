@@ -57,6 +57,8 @@ export function CalendarTopBar({
 }>) {
   const shell = useShellV2();
   const setOwnTopBar = shell?.setOwnTopBar;
+  let pendingLabel = "承認待ち";
+  if (pendingCount !== null) pendingLabel += ` ${pendingCount}件${pendingCapped ? "以上" : ""}`;
   // Layout effect, so the shell drops its header before the first paint.
   useLayoutEffect(() => {
     if (!setOwnTopBar) return;
@@ -115,7 +117,7 @@ export function CalendarTopBar({
           onClick={(event) => onOpenPending(event.currentTarget)}
           className={cn("min-h-11 rounded-full bg-cal-pending px-4 text-sm font-medium text-cal-on-pending max-sm:px-3", PRESSABLE)}
         >
-          承認待ち{pendingCount === null ? "" : ` ${pendingCount}件${pendingCapped ? "以上" : ""}`}
+          {pendingLabel}
         </button>
         <fieldset className="flex rounded-full bg-cal-detail p-0.5">
           <legend className="sr-only">表示</legend>

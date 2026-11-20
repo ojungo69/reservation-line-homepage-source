@@ -196,12 +196,13 @@ export function DayHeaderCells({
       );
     }
     const today = column.dateKey === todayKey;
+    const statusSuffix = status ? `（${status}）` : "";
     return (
       <button
         key={column.key}
         type="button"
         onClick={() => onOpenDay(column.date)}
-        aria-label={`${dayLabel(column.date)}の日表示を開く${status && `（${status}）`}`}
+        aria-label={`${dayLabel(column.date)}の日表示を開く${statusSuffix}`}
         aria-current={today ? "date" : undefined}
         className="flex min-h-11 min-w-0 flex-1 flex-col items-center py-1 hover:bg-cal-text/8 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cal-primary"
       >
