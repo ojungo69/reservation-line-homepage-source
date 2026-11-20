@@ -487,8 +487,12 @@ describe("ScheduleV2Page の上部バー", () => {
   });
 
   it("承認待ちの件数は選んでいる店舗の分を出し、一覧から選ぶとその日へ移って詳細を開く", async () => {
-    // Next week's Thursday, so moving there changes the shown columns.
-    pendingRows = [reservation("res-b", "2026-11-26", "10:30", "11:30", { status: "pending_approval" })];
+    // Next week's Thursday, so moving there changes the shown columns; the other
+    // store's one is not counted for 本店.
+    pendingRows = [
+      reservation("res-b", "2026-11-26", "10:30", "11:30", { status: "pending_approval" }),
+      reservation("res-p2", "2026-11-21", "12:00", "13:00", { status: "pending_approval", storeId: "s2" }),
+    ];
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole("button", { name: "承認待ち 1件" }));
@@ -775,6 +779,27 @@ describe("ScheduleV2Page の一覧 (CodeRabbit の指摘)", () => {
     renderPage();
     const empty = await screen.findByText("この日の予約はありません");
     expect(empty.closest("output")).not.toBeNull();
+  });
+
+  it("見られる店舗が無いときは、読み込みが済んだ後に「表示できる店舗がありません」と示す", async () => {
+    storeState.selected = null;
+    storeState.stores = [];
+    const { client } = renderPage();
+    // Only after the settings arrive: until then it says it is loading.
+    await waitFor(() => expect(client.getQueryState(["settings"])?.status).toBe("success"));
+    expect(screen.getByText("表示できる店舗がありません。")).toBeTruthy();
+    expect(screen.queryByText("予定を読み込み中…")).toBeNull();
+  });
+
+  it("上限のお知らせは、前から置いてある読み上げの領域の中身として入る", async () => {
+    const { client } = renderPage();
+    await eventButton(/^山田 花子、/);
+    const region = document.querySelector("[data-calendar-notices] > output") as HTMLElement;
+    expect(region.textContent).toBe("");
+    truncatedBlockDays.add("2026-11-19");
+    await act(() => client.invalidateQueries({ queryKey: ["external-blocks"] }));
+    await waitFor(() => expect(region.textContent).toContain("11月19日（木）の予定が表示できる上限の件数に達しました。"));
+    expect(region.isConnected).toBe(true);
   });
 
   it("上限のお知らせは、読み上げに割り込む alert にしない", async () => {

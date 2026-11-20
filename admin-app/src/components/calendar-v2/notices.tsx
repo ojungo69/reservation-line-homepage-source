@@ -4,6 +4,7 @@ import { formatDateTime } from "@/lib/timeline";
 import type { DayData } from "./use-calendar-days";
 
 const ALERT = "mx-4 my-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-cal-alert/40 px-3 py-2 text-sm text-cal-alert";
+const NOTE = "mx-4 my-2 block text-sm";
 
 function lastFetch(updatedAt: number) {
   return updatedAt > 0 ? <span className="ml-1">前回の取得: {formatDateTime(new Date(updatedAt).toISOString())}</span> : null;
@@ -50,13 +51,8 @@ export function CalendarNotices({
   return (
     // Capped and scrollable: on a short screen several alerts must not cover the
     // grid or push their own retry buttons out of reach.
-    <div className="pointer-events-auto max-h-[40dvh] overflow-y-auto overscroll-contain bg-cal-surface empty:hidden">
+    <div data-calendar-notices="" className="pointer-events-auto max-h-[40dvh] overflow-y-auto overscroll-contain bg-cal-surface">
       <ScheduleSyncAttention />
-      {weekNeedsStore && (
-        <output className="mx-4 my-2 block text-sm">
-          週表示は店舗を1つ選ぶと使えます。上部の店舗の切り替えで選んでください。
-        </output>
-      )}
       {settings.failed && (
         <div role="alert" className={ALERT}>
           <span>
@@ -98,29 +94,33 @@ export function CalendarNotices({
           </Button>
         </div>
       )}
-      {noResourceStores.length > 0 && (
-        <output className="mx-4 my-2 block text-sm">
-          {noResourceStores.join("・")}には予約を受ける枠（リソース）がありません。設定で追加すると、空いた時間から予約を作れます。
-        </output>
-      )}
-      {noHoursStores.length > 0 && (
-        <output className="mx-4 my-2 block text-sm">
-          {noHoursStores.join("・")}は営業時間が未設定のため、予約を受け付けていません。店舗設定で営業する曜日と時間を保存してください。
-        </output>
-      )}
-      {/* Polite, not alerts: a refresh that reaches a limit must not cut into what
-          a screen reader is reading, and the slots are off already. */}
-      {closuresUnknownStores.length > 0 && (
-        <output className={ALERT}>
-          {closuresUnknownStores.join("・")}の休業が読み込める上限の件数に達しました。読み込めていない休業がある可能性があるため、空いた時間は表示していません。
-        </output>
-      )}
-      {capped.length > 0 && (
-        <output className={ALERT}>
-          {capped.map((day) => dayName(day.dateKey)).join("・")}
-          の予定が表示できる上限の件数に達しました。表示されていない予定がある可能性があるため、空いた時間は表示していません。
-        </output>
-      )}
+      {/* One polite region, always there: a live region announces changes to its
+          content, not its own arrival (ARIA22), and these must not cut into what a
+          screen reader is reading. The failures above are alerts. */}
+      <output className="block">
+        {weekNeedsStore && <span className={NOTE}>週表示は店舗を1つ選ぶと使えます。上部の店舗の切り替えで選んでください。</span>}
+        {noResourceStores.length > 0 && (
+          <span className={NOTE}>
+            {noResourceStores.join("・")}には予約を受ける枠（リソース）がありません。設定で追加すると、空いた時間から予約を作れます。
+          </span>
+        )}
+        {noHoursStores.length > 0 && (
+          <span className={NOTE}>
+            {noHoursStores.join("・")}は営業時間が未設定のため、予約を受け付けていません。店舗設定で営業する曜日と時間を保存してください。
+          </span>
+        )}
+        {closuresUnknownStores.length > 0 && (
+          <span className={ALERT}>
+            {closuresUnknownStores.join("・")}の休業が読み込める上限の件数に達しました。読み込めていない休業がある可能性があるため、空いた時間は表示していません。
+          </span>
+        )}
+        {capped.length > 0 && (
+          <span className={ALERT}>
+            {capped.map((day) => dayName(day.dateKey)).join("・")}
+            の予定が表示できる上限の件数に達しました。表示されていない予定がある可能性があるため、空いた時間は表示していません。
+          </span>
+        )}
+      </output>
     </div>
   );
 }

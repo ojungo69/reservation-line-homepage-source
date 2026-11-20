@@ -28,6 +28,30 @@ import type { ExternalBlock } from "@/types/api";
 // The pending list's row limit (listPendingReservations in src/admin/reservations.ts).
 const PENDING_ROW_CAP = 200;
 
+/** The bar's heading and the step of 前/次 for the view. */
+function barText(week: boolean, narrow: boolean, date: Date, dayDates: readonly Date[]) {
+  if (week) return { heading: weekHeading(dayDates), stepUnit: "週" as const, stepDays: 7 };
+  return { heading: narrow ? shortDayLabel(date) : dayLabel(date), stepUnit: "日" as const, stepDays: 1 };
+}
+
+/** The pending count for the store shown; null until the list is read. */
+function pendingSummary(query: ReturnType<typeof usePendingReservations>, storeId: string | null) {
+  const list = query.data?.ok ? query.data.reservations : [];
+  const ready = !query.isPending && !query.isError;
+  return {
+    list,
+    count: ready ? list.filter((item) => !storeId || item.storeId === storeId).length : null,
+    // The list holds the 200 with the nearest deadlines across the stores you can
+    // see (the shared card says so), so a full one may miss this store's.
+    capped: list.length >= PENDING_ROW_CAP,
+  };
+}
+
+// Columns need the store list, which comes with the store settings.
+function NoColumns({ loading }: Readonly<{ loading: boolean }>) {
+  return <p className="px-4 py-3 text-sm">{loading ? "予定を読み込み中…" : "表示できる店舗がありません。"}</p>;
+}
+
 type CreateDefaults = Readonly<{
   storeId: string | null;
   resourceId: string | null;
@@ -159,16 +183,11 @@ export default function ScheduleV2Page() {
     setWeekAsked(next === "week");
   };
 
-  const pendingList = pendingQuery.data?.ok ? pendingQuery.data.reservations : [];
-  const pendingReady = !pendingQuery.isPending && !pendingQuery.isError;
-  const pendingCount = pendingReady ? pendingList.filter((item) => !storeId || item.storeId === storeId).length : null;
-  // The list holds the 200 with the nearest deadlines across the stores you can
-  // see (the shared card says so), so a full one may miss this store's.
-  const pendingCapped = pendingList.length >= PENDING_ROW_CAP;
+  const { list: pendingList, count: pendingCount, capped: pendingCapped } = pendingSummary(pendingQuery, storeId);
 
   const todayKey = formatJstDate(now);
   const nowJst = toJstDate(now);
-  const dayTitle = narrow ? shortDayLabel(date) : dayLabel(date);
+  const bar = barText(week, narrow, date, dayDates);
   const dayHeader = (
     <DayHeader scrollbarPx={layout.scrollbarPx}>
       <DayHeaderCells
@@ -182,27 +201,26 @@ export default function ScheduleV2Page() {
     </DayHeader>
   );
 
+  const blockHandler = isPrivileged ? onBlock : undefined;
   let body = <DayList day={dayByKey.get(formatJstDate(date))} storeId={storeId} onDetails={onReservation} />;
-  if (view !== "list") {
-    body =
-      columns.length === 0 ? (
-        // Columns need the store list, which comes with the store settings.
-        <p className="px-4 py-3 text-sm">{settingsQuery.isPending ? "予定を読み込み中…" : "表示できる店舗がありません。"}</p>
-      ) : (
-        <CalendarGrid>
-          <CalendarColumns
-            states={states}
-            week={week}
-            todayKey={todayKey}
-            nowMinute={nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes()}
-            columnPx={layout.columnPx}
-            selectedId={selectedReservationId}
-            onSlot={onSlot}
-            onReservation={onReservation}
-            onBlock={isPrivileged ? onBlock : undefined}
-          />
-        </CalendarGrid>
-      );
+  if (view !== "list" && columns.length === 0) {
+    body = <NoColumns loading={settingsQuery.isPending} />;
+  } else if (view !== "list") {
+    body = (
+      <CalendarGrid>
+        <CalendarColumns
+          states={states}
+          week={week}
+          todayKey={todayKey}
+          nowMinute={nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes()}
+          columnPx={layout.columnPx}
+          selectedId={selectedReservationId}
+          onSlot={onSlot}
+          onReservation={onReservation}
+          onBlock={blockHandler}
+        />
+      </CalendarGrid>
+    );
   }
 
   return (
@@ -210,14 +228,14 @@ export default function ScheduleV2Page() {
       {/* First in the DOM, so Tab after 本文へスキップ reaches the bar before the grid. */}
       <div ref={overlayRef} className="pointer-events-none absolute inset-x-0 top-0 z-40">
         <CalendarTopBar
-          heading={week ? weekHeading(dayDates) : dayTitle}
+          heading={bar.heading}
           headingRef={headingRef}
           view={view}
           weekShown={!narrow}
           onView={onView}
           onToday={() => setDate(new Date())}
-          onStep={(direction) => setDate(addDays(date, direction * (week ? 7 : 1)))}
-          stepUnit={week ? "週" : "日"}
+          onStep={(direction) => setDate(addDays(date, direction * bar.stepDays))}
+          stepUnit={bar.stepUnit}
           pendingCount={pendingCount}
           pendingCapped={pendingCapped}
           onOpenPending={(from) => {
