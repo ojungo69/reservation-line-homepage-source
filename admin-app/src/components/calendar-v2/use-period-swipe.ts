@@ -132,6 +132,11 @@ export function usePeriodSwipe(
     const onCancel = (event: PointerEvent) => {
       if (event.pointerId === gesture?.id) stop();
     };
+    // INT-10-04・05: a rotation or resize, and leaving the window or the app, end
+    // the swipe; a finger lifted afterwards finds no gesture.
+    const onHidden = () => {
+      if (document.hidden) stop();
+    };
 
     // On the document: a lost capture is reported there when its target is gone.
     document.addEventListener("pointerdown", onDown, true);
@@ -139,12 +144,18 @@ export function usePeriodSwipe(
     document.addEventListener("pointerup", onUp);
     document.addEventListener("pointercancel", onCancel);
     document.addEventListener("lostpointercapture", onCancel, true);
+    window.addEventListener("resize", stop);
+    window.addEventListener("blur", stop);
+    document.addEventListener("visibilitychange", onHidden);
     return () => {
       document.removeEventListener("pointerdown", onDown, true);
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       document.removeEventListener("pointercancel", onCancel);
       document.removeEventListener("lostpointercapture", onCancel, true);
+      window.removeEventListener("resize", stop);
+      window.removeEventListener("blur", stop);
+      document.removeEventListener("visibilitychange", onHidden);
       unblock?.();
       place(0);
     };

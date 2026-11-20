@@ -1105,6 +1105,33 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(heading()).toBe("11月21日（土）");
   });
 
+  it("画面の大きさが変わる・ウィンドウを離れる・画面が隠れると中止し、遅れて指を離しても動かさない（INT-10-04・05）", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const panes = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")].map((pane) => pane.style.transform);
+    const interruptions: Array<[string, () => void]> = [
+      ["resize", () => fireEvent(window, new Event("resize"))],
+      ["blur", () => fireEvent(window, new Event("blur"))],
+      [
+        "hidden",
+        () => {
+          vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+          fireEvent(document, new Event("visibilitychange"));
+        },
+      ],
+    ];
+    for (const [name, interrupt] of interruptions) {
+      point("pointerDown", scroller(), 300, 400);
+      point("pointerMove", scroller(), 200, 400);
+      interrupt();
+      expect(panes(), name).toEqual(["", ""]);
+      point("pointerUp", scroller(), 200, 400);
+      expect(heading(), name).toBe("11月20日（金）");
+      vi.restoreAllMocks();
+    }
+  });
+
   it("狭い画面の一覧でもフリックで日を送る", async () => {
     narrow = true;
     renderPage();
