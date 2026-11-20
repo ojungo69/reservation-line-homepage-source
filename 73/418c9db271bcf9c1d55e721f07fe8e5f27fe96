@@ -1,0 +1,23 @@
+admin-app/src/hooks/use-line-friends.ts
+  s_d52c2d995f51c6::t_f31d1fe3caedfa 36-37
+admin-app/src/pages/line-friends-loading.test.tsx
+  s_d52c2d995f51c6::t_85dd27f44cbac6 2-3,23,129-159
+admin-app/src/pages/line-friends.tsx
+  s_d52c2d995f51c6::t_7915c4124e5f12 37-38,42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "73418c9db271bcf9c1d55e721f07fe8e5f27fe96",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}

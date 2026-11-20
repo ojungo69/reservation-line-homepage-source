@@ -1,0 +1,35 @@
+admin-app/src/lib/google-sync-view-model.test.ts
+  s_d52c2d995f51c6::t_d6396f577401bd 108-111
+admin-app/src/lib/google-sync-view-model.ts
+  s_d52c2d995f51c6::t_c2716ceb650f15 4-5
+admin-app/src/pages/line-friends-loading.test.tsx
+  s_d52c2d995f51c6::t_d797f04d500e82 54,59-80
+admin-app/src/pages/line-friends.test.tsx
+  s_d52c2d995f51c6::t_f08fdfa54b4c8b 21,84-85
+admin-app/src/pages/line-friends.tsx
+  s_d52c2d995f51c6::t_08bd39ac2909b5 1,37-44,115,121-141
+admin-app/src/pages/reservations.test.tsx
+  s_d52c2d995f51c6::t_ea8060ea9d2585 19,90,96,98,170,346,348-351,357-376,380-396
+admin-app/src/pages/reservations.tsx
+  s_d52c2d995f51c6::t_f6430d3b97bc30 297-301,304,544
+docs/INSTALL.md
+  s_d52c2d995f51c6::t_a27ce226835625 61
+src/admin/line-friends.ts
+  s_d52c2d995f51c6::t_0ba80772ff902d 511
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f6b188aadcfa00723f1ff98197c7920b2df143c7",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}

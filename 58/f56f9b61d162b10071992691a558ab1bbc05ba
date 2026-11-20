@@ -1,0 +1,21 @@
+admin-app/src/lib/reservation-search-state.ts
+  s_d52c2d995f51c6::t_c3582b953d63a8 20
+admin-app/src/pages/reservations.tsx
+  s_d52c2d995f51c6::t_4b4ec82fb9e2b5 172,210,230,299,306,529
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "58f56f9b61d162b10071992691a558ab1bbc05ba",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
