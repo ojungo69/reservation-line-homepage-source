@@ -1,0 +1,31 @@
+admin-app/src/components/calendar-v2/body.tsx
+  s_d52c2d995f51c6::t_620d6b9d622b15 3,52-62,76-77,93-94,97,103,106
+admin-app/src/components/calendar-v2/column.tsx
+  s_d52c2d995f51c6::t_234cc8d646be07 7-8,23,92-95,108,192-195
+admin-app/src/components/calendar-v2/labels.ts
+  s_d52c2d995f51c6::t_687609369dee8d 1,14-24
+admin-app/src/components/calendar-v2/notices.tsx
+  s_d52c2d995f51c6::t_a561b9b8e1aff8 23,33,42-48,81-86,106-110
+admin-app/src/components/calendar-v2/top-bar.tsx
+  s_d52c2d995f51c6::t_382c0580485ef7 37,53-54,118
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_761a927435a2e0 119-122,137,141-143,152-154,162,238-242,408,780-871
+admin-app/src/pages/schedule-v2.tsx
+  s_d52c2d995f51c6::t_16f5baa12218ad 3,7,24,27-29,100-101,115-117,132-133,174-176,231,242,322
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7205c4b37c1954d2ba4fa0929096fd2506b030a0",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
