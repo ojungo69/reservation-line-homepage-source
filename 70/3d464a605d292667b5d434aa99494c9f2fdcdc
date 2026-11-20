@@ -1,0 +1,33 @@
+test/admin-reservations-period.test.ts
+  s_d52c2d995f51c6::t_bf52cdef19e262 807-835
+admin-app/src/components/customers/customer-detail-panel.test.tsx
+  s_d52c2d995f51c6::t_0b5ef9887b1123 1241-1262
+admin-app/src/components/customers/customer-detail-panel.tsx
+  s_d52c2d995f51c6::t_3345ea20de8b2c 1550
+admin-app/src/lib/google-sync-view-model.test.ts
+  s_d52c2d995f51c6::t_4193d04fff2fd3 3,98-108
+admin-app/src/lib/google-sync-view-model.ts
+  s_d52c2d995f51c6::t_6b7aeec2803d56 3-6,31
+admin-app/src/pages/google-sync.test.tsx
+  s_d52c2d995f51c6::t_c707acc86d4ec7 5,9,13,38-58
+admin-app/src/pages/google-sync.tsx
+  s_d52c2d995f51c6::t_2821f0204aa327 32,456
+src/routes/admin-api.ts
+  s_d52c2d995f51c6::t_9d7dd5df7937ed 992
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "703d464a605d292667b5d434aa99494c9f2fdcdc",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
