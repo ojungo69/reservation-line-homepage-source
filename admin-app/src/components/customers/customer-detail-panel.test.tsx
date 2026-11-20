@@ -1252,7 +1252,8 @@ it("基本情報にアレルギーの行は出さず、注意事項と生年月�
   customer = { ...customer, allergyNotes: "ナッツ類", birthDate: "1990-05-04", gender: "female", referrerName: "紹介 太郎" };
   render(<CustomerDetailPanel customerId="customer-1" onClose={() => {}} />);
   expect(screen.queryByText("アレルギー")).toBeNull();
-  expect(screen.getByText("注意事項")).toBeTruthy();
+  const notes = screen.getByRole("heading", { name: "注意事項" }).parentElement as HTMLElement;
+  expect(within(notes).getByText("ナッツ類")).toBeTruthy();
   expect(screen.getAllByText("ナッツ類")).toHaveLength(1);
   expect(screen.getByText("生年月日")).toBeTruthy();
   expect(screen.getByText("1990-05-04")).toBeTruthy();

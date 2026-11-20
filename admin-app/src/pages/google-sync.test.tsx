@@ -41,7 +41,11 @@ describe("notification acknowledgement in GoogleSyncPage", () => {
   });
 
   it("shows the store name in the owner conflict summary, and the short id only when the name is unknown", () => {
-    mocks.stores = [{ id: "store-1", name: "新宿店" } as Store];
+    const shinjuku: Store = {
+      id: "store-1", name: "新宿店", timezone: "Asia/Tokyo", googleCalendarId: null, googleControlledEditMode: false,
+      maxActiveReservationsPerCustomer: 3, bookingWindowDays: 60, customerNotice: null,
+    };
+    mocks.stores = [shinjuku];
     mocks.syncStatus = {
       ok: true, role: "owner",
       summary: { openGoogleConflicts: 3, googleSyncJobsNeedingAttention: 0, lineNotificationJobsNeedingAttention: 0, channelsNeedingAttention: 0 },
