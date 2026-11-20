@@ -181,13 +181,14 @@ export function usePeriodSwipe(
     window.addEventListener("resize", stop);
     window.addEventListener("blur", stop);
     document.addEventListener("visibilitychange", onHidden);
-    // INT-10-04: the body changing size under a swipe (a layout change without a
-    // window resize) ends it too, even while the finger is held still.
+    // INT-10-04: the body changing width under a swipe (a layout change without a
+    // window resize) ends it too, even while the finger is held still. The first
+    // report and a change of height alone leave the swipe as it is.
     const sizes =
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(() => {
-            if (gesture) stop();
+            if (gesture && scroller.clientWidth !== gesture.width) stop();
           });
     sizes?.observe(scroller);
     // Not passive: a sideways gesture is kept from the browser's history swipe.

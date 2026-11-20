@@ -1151,26 +1151,33 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "日" }));
     const panes = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")].map((pane) => pane.style.transform);
-    // Seen while the finger is held still: the swipe ends at once.
-    point("pointerDown", scroller(), 300, 400);
-    point("pointerMove", scroller(), 200, 400);
-    act(() => {
-      for (const callback of resized) callback([], {} as ResizeObserver);
-    });
-    expect(panes()).toEqual(["", ""]);
-    point("pointerUp", scroller(), 200, 400);
-    expect(heading()).toBe("11月20日（金）");
-    // A width that differs where the finger lifts, before any observer has run.
+    const report = () =>
+      act(() => {
+        for (const callback of resized) callback([], {} as ResizeObserver);
+      });
     let width = 375;
     Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => width });
+    // A report with the same width (the first report, a change of height only) keeps the swipe.
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    report();
+    expect(panes()).toEqual(["translateX(-100px)", "translateX(-100px)"]);
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月21日（土）");
+    // A changed width seen while the finger is held still ends the swipe at once.
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    width = 360;
+    report();
+    expect(panes()).toEqual(["", ""]);
+    width = 375;
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月21日（土）");
+    // A width that differs where the finger lifts, before any observer has run.
     point("pointerDown", scroller(), 300, 400);
     point("pointerMove", scroller(), 200, 400);
     width = 360;
     point("pointerUp", scroller(), 200, 400);
-    expect(heading()).toBe("11月20日（金）");
-    // The same width moves as usual.
-    width = 375;
-    swipe(scroller(), -100);
     expect(heading()).toBe("11月21日（土）");
   });
 
