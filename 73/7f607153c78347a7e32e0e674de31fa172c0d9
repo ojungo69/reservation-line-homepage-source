@@ -1,0 +1,25 @@
+admin-app/src/components/calendar-v2/notices.tsx
+  s_d52c2d995f51c6::t_18774ec0e701e4 7,54,97-123
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_a4b40b049f3c4b 490-495,784-804
+admin-app/src/pages/schedule-v2.tsx
+  s_d52c2d995f51c6::t_a936ab5e59e463 31-54,186,190,204,206-223,231,237-238
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_7a77ce38bc3ce5 52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "737f607153c78347a7e32e0e674de31fa172c0d9",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
