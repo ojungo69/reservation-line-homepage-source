@@ -20,9 +20,11 @@ import {
 import { useReservationDetail, useReservationAction, useUpdateTreatmentNotes, useReservationCancellationFee } from "@/hooks/use-reservations";
 import { ReservationRescheduleDialog, type RescheduleTarget } from "./reservation-reschedule-dialog";
 import { ReservationDurationDialog, type DurationTarget } from "./reservation-duration-dialog";
-import { statusLabel, visitStatusLabel, statusColor, formatTime, formatDateDisplay, formatFullJstDate, isRebookableStatus } from "@/lib/timeline";
+import { statusLabel, statusColor, formatTime, formatDateDisplay, formatFullJstDate, isRebookableStatus } from "@/lib/timeline";
 import { lineFriendStatusLabel } from "@/lib/line-friend-label";
 import { useAuth } from "@/hooks/use-auth";
+import { useSettings } from "@/hooks/use-settings";
+import { resolveStoreResources } from "@/lib/store-resources";
 import { displayServiceName } from "@/lib/service-pricing";
 import { reservationOriginLabel, reservationSourceLabel } from "@/lib/reservation-origin";
 import type { ReservationAction } from "@/types/api";
@@ -100,7 +102,7 @@ const ACTION_CONFIG: Array<{
     label: "来店なしに訂正",
     confirmLabel: "来店なしに訂正する",
     description:
-      "この予約を「来店なし」に訂正しますか？来店履歴の1件が無効になり、来店回数と最終来店日から外れます。キャンセル料未納も記録されます。",
+      "この予約を「来店なし」に訂正しますか？この予約の来店の記録が無効になり、来店回数と最終来店日から外れます。キャンセル料未納も記録されます。",
     variant: "destructive",
     fromStatuses: ["completed"],
   },
@@ -108,7 +110,7 @@ const ACTION_CONFIG: Array<{
     action: "restore-completed",
     label: "完了に戻す",
     confirmLabel: "完了に戻す",
-    description: "この予約を「完了」に戻しますか？来店履歴の1件が有効に戻り、キャンセル料未納は解除されます。",
+    description: "この予約を「完了」に戻しますか？この予約の来店の記録が有効に戻り、キャンセル料未納は解除されます。",
     variant: "outline",
     fromStatuses: ["no_show"],
     privilegedOnly: true,
@@ -120,6 +122,15 @@ function getNotesSaveLabel(isSavingNotes: boolean, isFetching: boolean, hasVisit
   if (isSavingNotes) return "保存中...";
   if (isFetching || !hasVisit) return "読込中...";
   return "保存";
+}
+
+// 店舗の枠が 1 つで予約がその枠なら、枠の名前は何も区別しないので行ごと出さない。
+// 設定の読み込み中も出さない（取得に失敗したときは判断できないので出す）。
+function useShowResourceRow(reservation: { storeId: string; resourceId: string } | null) {
+  const { data, isPending } = useSettings();
+  if (isPending) return false;
+  const stores = resolveStoreResources(data?.ok ? data.settings.resources : undefined, reservation?.storeId);
+  return !(stores.kind === "single" && stores.resourceId === reservation?.resourceId);
 }
 
 // キャンセル料未納の記録はスタッフも行える (来店なしを付けるのも現場のスタッフ、
@@ -201,6 +212,7 @@ export function ReservationDetailPanel({
   }, [reservationId]);
 
   const reservation = data?.ok ? data.reservation : null;
+  const showResourceRow = useShowResourceRow(reservation);
   const approvalReason = reservation?.status === "pending_approval" ? "" : "承認待ちではないため、承認できません。";
   // 詳細APIは期限と予約自身の友だち状態を返していない。lineFriendStatus は
   // 顧客の最新identityの表示値なので承認可否に使わず、承認APIの最終判定に任せる。
@@ -378,7 +390,7 @@ export function ReservationDetailPanel({
 
               <Section title="予約情報">
                 <Row label="メニュー" value={displayServiceName(reservation.serviceName)} />
-                <Row label="リソース" value={reservation.resourceName} />
+                {showResourceRow && <Row label="リソース" value={reservation.resourceName} />}
                 <Row label="日時" value={`${formatDateDisplay(new Date(reservation.startAt))} ${formatTime(reservation.startAt)}–${formatTime(reservation.endAt)}`} />
                 <Row label="店舗" value={reservation.storeName} />
                 {reservationOriginLabel(reservation.reservationOrigin) && (
@@ -539,20 +551,6 @@ export function ReservationDetailPanel({
                 </>
               ) : null}
 
-              {reservation.visits.length > 0 && (
-                <>
-                  <Separator />
-                  <Section title="来店履歴">
-                    {reservation.visits.slice(0, 5).map((v) => (
-                      <div key={v.id} className="flex justify-between text-sm">
-                        <span>{formatDateDisplay(new Date(v.visitedAt))}</span>
-                        <span className="text-muted-foreground">{visitStatusLabel(v.status)}</span>
-                      </div>
-                    ))}
-                  </Section>
-                </>
-              )}
-
               <Separator />
 
               <div className="flex flex-wrap gap-2">
@@ -581,13 +579,12 @@ export function ReservationDetailPanel({
                         id: reservation.id,
                         storeId: reservation.storeId,
                         resourceId: reservation.resourceId,
-                        resourceName: reservation.resourceName,
                         startAt: reservation.startAt,
                         endAt: reservation.endAt,
                       })
                     }
                   >
-                    時間変更
+                    開始時刻を変更
                   </Button>
                 )}
                 {(reservation.status === "pending_approval" || reservation.status === "confirmed") && (
@@ -600,11 +597,10 @@ export function ReservationDetailPanel({
                         id: reservation.id,
                         startAt: reservation.startAt,
                         endAt: reservation.endAt,
-                        resourceName: reservation.resourceName,
                       })
                     }
                   >
-                    施術時間変更
+                    長さを変更
                   </Button>
                 )}
                 {onRebook && isRebookableStatus(reservation.status) && (

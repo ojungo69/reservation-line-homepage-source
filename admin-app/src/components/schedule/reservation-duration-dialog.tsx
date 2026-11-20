@@ -23,7 +23,6 @@ export type DurationTarget = {
   id: string;
   startAt: string;
   endAt: string;
-  resourceName: string;
 };
 
 // 占有時間（end - start, 分）から施術時間（バッファ除く）を逆算する。下限で丸める。
@@ -138,10 +137,9 @@ function DurationForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>施術時間の変更</DialogTitle>
+        <DialogTitle>長さを変更</DialogTitle>
         <DialogDescription>
-          開始時刻（{formatTime(reservation.startAt)}）と担当（{reservation.resourceName}
-          ）はそのままに、施術時間の長さだけを変更します。
+          開始時刻（{formatTime(reservation.startAt)}）はそのままに、施術時間の長さだけを変更します。
         </DialogDescription>
       </DialogHeader>
 
@@ -184,7 +182,7 @@ function DurationForm({
           キャンセル
         </Button>
         <Button onClick={handleSubmit} disabled={isPending}>
-          {isPending ? "変更中..." : "施術時間を変更"}
+          {isPending ? "変更中..." : "この長さに変更"}
         </Button>
       </DialogFooter>
     </>

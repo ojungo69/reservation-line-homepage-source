@@ -17,7 +17,6 @@ const reservation = {
   id: "res-1",
   startAt: "2026-09-01T09:00:00+09:00",
   endAt: "2026-09-01T10:00:00+09:00",
-  resourceName: "担当A",
 };
 
 beforeEach(() => {
@@ -26,6 +25,16 @@ beforeEach(() => {
 });
 
 describe("ReservationDurationDialog", () => {
+  it("題名は「長さを変更」、説明文は担当を出さず開始時刻を示す", () => {
+    render(<ReservationDurationDialog reservation={reservation} onClose={() => {}} />);
+
+    expect(screen.getByRole("heading", { name: "長さを変更" })).toBeTruthy();
+    expect(
+      screen.getByText("開始時刻（09:00）はそのままに、施術時間の長さだけを変更します。"),
+    ).toBeTruthy();
+    expect(screen.queryByText(/担当/)).toBeNull();
+  });
+
   it("現在の施術時間を初期値に表示し、有効入力で終了予定プレビューを更新する", () => {
     render(<ReservationDurationDialog reservation={reservation} onClose={() => {}} />);
 
@@ -43,7 +52,7 @@ describe("ReservationDurationDialog", () => {
     render(<ReservationDurationDialog reservation={reservation} onClose={() => {}} />);
 
     // 初期値 55分のまま送信 → 現在と同じなので弾く。
-    await user.click(screen.getByRole("button", { name: "施術時間を変更" }));
+    await user.click(screen.getByRole("button", { name: "この長さに変更" }));
 
     expect(screen.getByRole("alert").textContent).toContain(
       "施術時間が現在と同じです",
@@ -57,7 +66,7 @@ describe("ReservationDurationDialog", () => {
 
     const input = screen.getByLabelText("新しい施術時間（分）") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "62" } }); // 5分刻みでない
-    await user.click(screen.getByRole("button", { name: "施術時間を変更" }));
+    await user.click(screen.getByRole("button", { name: "この長さに変更" }));
 
     expect(screen.getByRole("alert").textContent).toContain("5分刻み");
     expect(reschedule).not.toHaveBeenCalled();
@@ -69,7 +78,7 @@ describe("ReservationDurationDialog", () => {
 
     const input = screen.getByLabelText("新しい施術時間（分）") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "90" } });
-    await user.click(screen.getByRole("button", { name: "施術時間を変更" }));
+    await user.click(screen.getByRole("button", { name: "この長さに変更" }));
 
     expect(reschedule).toHaveBeenCalledTimes(1);
     expect(reschedule.mock.calls[0][0]).toMatchObject({

@@ -269,7 +269,7 @@ export function useRescheduleReservation() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
       toast.success(
-        variables.treatmentMinutes !== undefined ? "施術時間を変更しました" : "予約時間を変更しました",
+        variables.treatmentMinutes !== undefined ? "長さを変更しました" : "開始時刻を変更しました",
       );
     },
     onError: (err) => showErrorToast(err, "変更に失敗しました"),
