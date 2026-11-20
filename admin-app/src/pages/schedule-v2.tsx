@@ -9,6 +9,7 @@ import { CalendarNotices } from "@/components/calendar-v2/notices";
 import { CalendarTopBar, DayHeader } from "@/components/calendar-v2/top-bar";
 import { useCalendarDate, useCalendarDays } from "@/components/calendar-v2/use-calendar-days";
 import { useCalendarLayout } from "@/components/calendar-v2/use-calendar-layout";
+import { useCalendarView } from "@/components/calendar-v2/use-calendar-view";
 import { usePeriodSwipe } from "@/components/calendar-v2/use-period-swipe";
 import { useReturnFocus } from "@/components/calendar-v2/use-return-focus";
 import { PendingApprovalsCard } from "@/components/schedule/pending-approvals-card";
@@ -23,16 +24,16 @@ import { NARROW_QUERY, useMediaQuery } from "@/hooks/use-media-query";
 import { usePendingReservations } from "@/hooks/use-reservations";
 import { useSettings } from "@/hooks/use-settings";
 import { useStores } from "@/hooks/use-stores";
-import { addDays, formatJstDate, toJstDate } from "@/lib/timeline";
+import { addDays, formatFullJstDate, formatJstDate, toJstDate } from "@/lib/timeline";
 import type { ExternalBlock } from "@/types/api";
 
 // The pending list's row limit (listPendingReservations in src/admin/reservations.ts).
 const PENDING_ROW_CAP = 200;
 
-/** The bar's heading and the step of 前/次 for the view. */
+/** The bar's heading, the period read out when it changes (with its year), and the step of 前/次 for the view. */
 function barText(week: boolean, narrow: boolean, date: Date, dayDates: readonly Date[]) {
-  if (week) return { heading: weekHeading(dayDates), stepUnit: "週" as const, stepDays: 7 };
-  return { heading: narrow ? shortDayLabel(date) : dayLabel(date), stepUnit: "日" as const, stepDays: 1 };
+  if (week) return { heading: weekHeading(dayDates), spoken: `${formatFullJstDate(dayDates[0])}から${formatFullJstDate(dayDates[6])}`, stepUnit: "週" as const, stepDays: 7 };
+  return { heading: narrow ? shortDayLabel(date) : dayLabel(date), spoken: formatFullJstDate(date), stepUnit: "日" as const, stepDays: 1 };
 }
 
 /** The pending count for the store shown; null until the list is read. */
@@ -73,9 +74,7 @@ export default function ScheduleV2Page() {
   const { stores, selectedStoreId } = useStores();
   const storeId = visibleStoreId(selectedStoreId, stores);
   const narrow = useMediaQuery(NARROW_QUERY);
-  // T006 remembers the choice per device; until then a phone starts on the list
-  // and a wider screen on the week, as DESIGN.md §5 sets for the first visit.
-  const [requested, setRequested] = useState<CalendarView>(() => (narrow ? "list" : "week"));
+  const { requested, choose: chooseView, openDay: showDay } = useCalendarView(narrow, storeId);
   // The 週 button was pressed while all stores are shown: say why the day stays.
   const [weekAsked, setWeekAsked] = useState(false);
   const view = effectiveView(requested, { narrow, storeId });
@@ -143,6 +142,11 @@ export default function ScheduleV2Page() {
     const open = opens.length > 0 ? Math.min(...opens) : FALLBACK_OPENING_MINUTE;
     scroller.scrollTop = Math.max(0, (open - 30) * PX_PER_MINUTE);
   }, [scrollKey]);
+  // A move that stayed in the shown period (a day picked in the week) changed no
+  // key; its flag must not carry over to a later change of view or store.
+  useLayoutEffect(() => {
+    keepHours.current = false;
+  });
 
   // 次回予約 from a customer's chart lands here with the customer in the history
   // state; it opens the booking form once, as on the current calendar.
@@ -186,11 +190,11 @@ export default function ScheduleV2Page() {
   });
   const openDay = (day: Date) => {
     setDate(day);
-    setRequested("day");
+    showDay();
     focusHeading.current = true;
   };
   const onView = (next: CalendarView) => {
-    setRequested(next);
+    chooseView(next);
     setWeekAsked(next === "week");
   };
 
@@ -199,11 +203,12 @@ export default function ScheduleV2Page() {
   const todayKey = formatJstDate(now);
   const nowJst = toJstDate(now);
   const bar = barText(week, narrow, date, dayDates);
-  // The bar's 前/次 and a swipe on the body share this one step (T006).
-  const step = (direction: -1 | 1) => {
+  // The bar's 前/次, its date picker and the body's swipe and wheel move here (T006).
+  const goTo = (next: Date) => {
     keepHours.current = true;
-    setDate(addDays(date, direction * bar.stepDays));
+    setDate(next);
   };
+  const step = (direction: -1 | 1) => goTo(addDays(date, direction * bar.stepDays));
   usePeriodSwipe(scrollerRef, rootRef, step);
   const dayHeader = (
     <DayHeader scrollbarPx={layout.scrollbarPx}>
@@ -246,7 +251,10 @@ export default function ScheduleV2Page() {
       <div ref={overlayRef} className="pointer-events-none absolute inset-x-0 top-0 z-40">
         <CalendarTopBar
           heading={bar.heading}
+          spoken={bar.spoken}
           headingRef={headingRef}
+          date={date}
+          onPickDate={goTo}
           view={view}
           weekShown={!narrow}
           onView={onView}

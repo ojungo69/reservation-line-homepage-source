@@ -1,5 +1,5 @@
 import { mocks } from "@/test-utils/hook-mocks";
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider, notifyManager } from "@tanstack/react-query";
@@ -183,10 +183,18 @@ function LocationProbe() {
   return <output aria-label="現在の場所">{`${location.pathname}${location.search}`}</output>;
 }
 
+// Renders the page again as a store switch does: the useStores mock is read while rendering.
+let refreshPage = () => {};
+function PageUnderTest() {
+  const [, setTick] = useState(0);
+  refreshPage = () => setTick((tick) => tick + 1);
+  return <ScheduleV2Page />;
+}
+
 function renderPage({ shell, state, strict = false }: { shell?: ShellV2; state?: unknown; strict?: boolean } = {}) {
   const page = (
     <>
-      <ScheduleV2Page />
+      <PageUnderTest />
       <LocationProbe />
     </>
   );
@@ -253,6 +261,7 @@ beforeEach(() => {
   closures = [];
   narrow = false;
   reduceMotion = false;
+  localStorage.clear();
   mocks.api.get.mockReset();
   mocks.api.get.mockImplementation(respond);
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -992,6 +1001,7 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(heading()).toBe("1月1日（金）");
     swipe(scroller(), 80);
     expect(heading()).toBe("12月31日（木）");
+    expect(screen.getByText("2026年12月31日 (木)").getAttribute("aria-live")).toBe("polite");
     swipe(scroller(), -80);
     swipe(scroller(), -80);
     expect(heading()).toBe("1月2日（土）");
@@ -1149,26 +1159,33 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "日" }));
     const panes = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")].map((pane) => pane.style.transform);
-    // Seen while the finger is held still: the swipe ends at once.
-    point("pointerDown", scroller(), 300, 400);
-    point("pointerMove", scroller(), 200, 400);
-    act(() => {
-      for (const callback of resized) callback([], {} as ResizeObserver);
-    });
-    expect(panes()).toEqual(["", ""]);
-    point("pointerUp", scroller(), 200, 400);
-    expect(heading()).toBe("11月20日（金）");
-    // A width that differs where the finger lifts, before any observer has run.
+    const report = () =>
+      act(() => {
+        for (const callback of resized) callback([], {} as ResizeObserver);
+      });
     let width = 375;
     Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => width });
+    // A report with the same width (the first report, a change of height only) keeps the swipe.
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    report();
+    expect(panes()).toEqual(["translateX(-100px)", "translateX(-100px)"]);
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月21日（土）");
+    // A changed width seen while the finger is held still ends the swipe at once.
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    width = 360;
+    report();
+    expect(panes()).toEqual(["", ""]);
+    width = 375;
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月21日（土）");
+    // A width that differs where the finger lifts, before any observer has run.
     point("pointerDown", scroller(), 300, 400);
     point("pointerMove", scroller(), 200, 400);
     width = 360;
     point("pointerUp", scroller(), 200, 400);
-    expect(heading()).toBe("11月20日（金）");
-    // The same width moves as usual.
-    width = 375;
-    swipe(scroller(), -100);
     expect(heading()).toBe("11月21日（土）");
   });
 
@@ -1229,5 +1246,245 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(scroller().scrollTop).toBe(700);
     swipe(scroller(), -80);
     expect(scroller().scrollTop).toBe(700);
+  });
+});
+
+const wheel = (dx: number, dy = 0, init: { deltaMode?: number; ctrlKey?: boolean; cancelable?: boolean } = {}) =>
+  fireEvent.wheel(scroller(), { deltaX: dx, deltaY: dy, deltaMode: init.deltaMode ?? 0, ctrlKey: init.ctrlKey ?? false, cancelable: init.cancelable ?? true });
+const quiet = () => new Promise((resolve) => setTimeout(resolve, 300));
+
+describe("ScheduleV2Page の横スクロール（T006）", () => {
+  it("横の wheel は 80px たまると 1 日動き、入力が途切れるまで次へは進まない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wheel(50);
+    expect(heading()).toBe("11月20日（金）");
+    wheel(40);
+    expect(heading()).toBe("11月21日（土）");
+    wheel(200);
+    wheel(200);
+    expect(heading()).toBe("11月21日（土）");
+    await quiet();
+    wheel(-100);
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("逆向きの入力は打ち消し合い、行の単位の入力は px に直して数える", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wheel(60);
+    wheel(-30);
+    wheel(40);
+    expect(heading()).toBe("11月20日（金）");
+    wheel(10);
+    expect(heading()).toBe("11月21日（土）");
+    await quiet();
+    wheel(6, 0, { deltaMode: 1 });
+    expect(heading()).toBe("11月22日（日）");
+  });
+
+  it("縦で始まった操作は途中で横に変わっても動かさず、横の操作は逆向きの量も足す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wheel(0, 100);
+    wheel(45, 5);
+    wheel(45, 5);
+    expect(heading()).toBe("11月20日（金）");
+    await quiet();
+    wheel(70, 0);
+    wheel(-60, 70);
+    wheel(20, 0);
+    expect(heading()).toBe("11月20日（金）");
+    wheel(50, 0);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("縦が主の入力・拡大の入力・取り消せない入力では動かさず、縦と拡大はブラウザに任せる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    expect(wheel(100, 120)).toBe(true);
+    // Each starts a gesture of its own, so no axis fixed before it hides its guard.
+    await quiet();
+    expect(wheel(120, 0, { ctrlKey: true })).toBe(true);
+    expect(heading()).toBe("11月20日（金）");
+    await quiet();
+    wheel(120, 0, { cancelable: false });
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("ウィンドウを離れる・画面が隠れると、wheel の操作の残りを捨て、間を空けた次の操作から受け付ける（INT-10-05）", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const leaves: Array<[string, () => void]> = [
+      ["blur", () => fireEvent(window, new Event("blur"))],
+      [
+        "hidden",
+        () => {
+          vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+          fireEvent(document, new Event("visibilitychange"));
+        },
+      ],
+    ];
+    for (const [name, leave] of leaves) {
+      wheel(50);
+      leave();
+      vi.restoreAllMocks();
+      wheel(40);
+      wheel(200);
+      expect(heading(), name).toBe("11月20日（金）");
+      await quiet();
+    }
+    wheel(100);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("日付を動かす横の入力は、ブラウザの戻る・進むに渡さない", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: /^11月16日（月）の日表示を開く/ });
+    expect(wheel(100)).toBe(false);
+    expect(screen.getByRole("button", { name: /^11月23日（月）の日表示を開く/ })).toBeTruthy();
+  });
+});
+
+describe("ScheduleV2Page の日付選択（T006）", () => {
+  it("見出しを押すと月曜始まりの月のカレンダーが開き、選んだ日へ移って閉じる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const trigger = screen.getByRole("button", { name: "11月20日（金）" });
+    await user.click(trigger);
+    const calendar = await screen.findByRole("group", { name: "日付選択カレンダー" });
+    expect(within(calendar).getAllByText(/^[月火水木金土日]$/).map((cell) => cell.textContent)).toEqual(["月", "火", "水", "木", "金", "土", "日"]);
+    // 1 November 2026 is a Sunday, so a Monday-start grid begins on 26 October.
+    expect(within(calendar).getAllByRole("button", { name: /^2026年\d+月\d+日/ })[0].getAttribute("aria-label")).toBe("2026年10月26日 (月)");
+    await user.click(within(calendar).getByRole("button", { name: "2026年11月25日 (水)" }));
+    expect(heading()).toBe("11月25日（水）");
+    expect(screen.queryByRole("group", { name: "日付選択カレンダー" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "11月25日（水）" }));
+  });
+});
+
+describe("ScheduleV2Page の日付選択（T006）の細部", () => {
+  it("キーボードで開くと名前のあるダイアログになり、Escape で見出しに戻る。面はぼかしの無い不透明な面", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const trigger = screen.getByRole("button", { name: "11月20日（金）" });
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "日付選択" });
+    expect(dialog.classList.contains("surface")).toBe(true);
+    expect(dialog.classList.contains("glass-mid")).toBe(false);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "日付選択" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("同じ週の日を選んだあとで日表示に切り替えると、営業開始の位置で開く", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await eventButton(/^山田 花子、/);
+    scroller().scrollTop = 700;
+    await user.click(screen.getByRole("button", { name: "2026年11月" }));
+    const calendar = await screen.findByRole("group", { name: "日付選択カレンダー" });
+    await user.click(within(calendar).getByRole("button", { name: "2026年11月18日 (水)" }));
+    await user.click(screen.getByRole("button", { name: "日" }));
+    expect(heading()).toBe("11月18日（水）");
+    // 10:00 opening less 30 minutes, at 48px an hour.
+    expect(scroller().scrollTop).toBe(456);
+  });
+
+  it("表示中の期間が変わると、見出しが同じ年月のままでも期間を読み上げる", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: /^11月16日（月）の日表示を開く/ });
+    swipe(scroller(), -80);
+    expect(heading()).toBe("2026年11月");
+    // With the year: the same month and day in another year is another period.
+    const spoken = screen.getByText("2026年11月23日 (月)から2026年11月29日 (日)");
+    expect(spoken.getAttribute("aria-live")).toBe("polite");
+  });
+});
+
+describe("ScheduleV2Page の表示の保存（T006）", () => {
+  it("選んだ表示を端末に覚え、開き直すと同じ表示で開く", async () => {
+    const user = userEvent.setup();
+    const first = renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    first.unmount();
+    renderPage();
+    expect((await screen.findByRole("button", { name: "日" })).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("保存が使えない端末でも、既定の表示で開いて切り替えられる", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    try {
+      const user = userEvent.setup();
+      renderPage();
+      expect((await screen.findByRole("button", { name: "週" })).getAttribute("aria-pressed")).toBe("true");
+      await user.click(screen.getByRole("button", { name: "日" }));
+      expect(screen.getByRole("button", { name: "日" }).getAttribute("aria-pressed")).toBe("true");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("全店舗や狭い画面で一時的に日表示にしても、保存した週は上書きしない", async () => {
+    localStorage.setItem("admin-calendar-view", "week");
+    storeState.selected = null;
+    storeState.stores = STORES;
+    const wide = renderPage();
+    expect((await screen.findByRole("button", { name: "日" })).getAttribute("aria-pressed")).toBe("true");
+    wide.unmount();
+    storeState.selected = "s1";
+    narrow = true;
+    const phone = renderPage();
+    expect((await screen.findByRole("button", { name: "日" })).getAttribute("aria-pressed")).toBe("true");
+    phone.unmount();
+    expect(localStorage.getItem("admin-calendar-view")).toBe("week");
+    narrow = false;
+    renderPage();
+    expect((await screen.findByRole("button", { name: "週" })).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("週の見出しから開いた日は、店舗を選び直すと保存した週に戻る（INT-02-03）", async () => {
+    storeState.stores = STORES;
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "週" }));
+    await user.click(screen.getByRole("button", { name: /^11月18日（水）の日表示を開く/ }));
+    expect(screen.getByRole("button", { name: "日" }).getAttribute("aria-pressed")).toBe("true");
+    const pick = (store: string | null) => {
+      storeState.selected = store;
+      act(() => refreshPage());
+    };
+    pick(null);
+    expect(screen.getByRole("button", { name: "日" }).getAttribute("aria-pressed")).toBe("true");
+    pick("s2");
+    expect(screen.getByRole("button", { name: "週" }).getAttribute("aria-pressed")).toBe("true");
+    pick("s1");
+    expect(screen.getByRole("button", { name: "週" }).getAttribute("aria-pressed")).toBe("true");
+    expect(localStorage.getItem("admin-calendar-view")).toBe("week");
+  });
+
+  it("週の見出しから日を開いても、保存した表示は変えない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "週" }));
+    await user.click(screen.getByRole("button", { name: /^11月18日（水）の日表示を開く/ }));
+    expect(heading()).toBe("11月18日（水）");
+    expect(localStorage.getItem("admin-calendar-view")).toBe("week");
+    // Choosing the week again ends the day opened from it.
+    await user.click(screen.getByRole("button", { name: "週" }));
+    expect(screen.getByRole("button", { name: "週" }).getAttribute("aria-pressed")).toBe("true");
   });
 });

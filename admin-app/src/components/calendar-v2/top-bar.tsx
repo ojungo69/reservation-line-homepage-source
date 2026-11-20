@@ -1,8 +1,10 @@
-import { useLayoutEffect, type ReactNode, type Ref } from "react";
-import { Check, ChevronLeft, ChevronRight, Menu, Search } from "lucide-react";
+import { useLayoutEffect, useState, type ReactNode, type Ref } from "react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Menu, Search } from "lucide-react";
+import { MiniCalendar } from "@/components/schedule/mini-calendar";
 import { PRESSABLE } from "@/components/shell-v2/pressable";
 import { useShellV2 } from "@/components/shell-v2/shell-context";
 import { StoreSwitchV2 } from "@/components/shell-v2/store-switch-v2";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { CalendarView } from "./columns";
 import { GUTTER_CLASS } from "./grid";
@@ -21,12 +23,16 @@ const VIEWS: Array<{ view: CalendarView; label: string }> = [
  * shell's menu and page move. Text on the glass is body color only; the pending
  * entry and the chosen view are fills with their own text colors, and the
  * chosen view also has a check, so it is not told apart by hue alone. Today,
- * back and forward move by the view's unit, as a swipe on the body does
- * (usePeriodSwipe); the wheel and the mini calendar come later in T006.
+ * back and forward move by the view's unit, as a swipe or a sideways wheel on
+ * the body does (usePeriodSwipe); the heading opens a Monday-start month to
+ * pick a date from (T006, DESIGN.md §5).
  */
 export function CalendarTopBar({
   heading,
+  spoken,
   headingRef,
+  date,
+  onPickDate,
   view,
   weekShown,
   onView,
@@ -39,9 +45,14 @@ export function CalendarTopBar({
   dayHeader,
 }: Readonly<{
   heading: string;
+  // The shown period in full, read out when it changes: a week keeps its month
+  // heading while its days change (INT-12-05).
+  spoken: string;
   // Focus lands here when the control that had it goes away (a day header in the
   // week, a retry button once its alert clears).
   headingRef: Ref<HTMLHeadingElement>;
+  date: Date;
+  onPickDate: (date: Date) => void;
   view: CalendarView;
   // Phones get no week button: seven columns do not fit (DESIGN.md §5).
   weekShown: boolean;
@@ -57,6 +68,7 @@ export function CalendarTopBar({
 }>) {
   const shell = useShellV2();
   const setOwnTopBar = shell?.setOwnTopBar;
+  const [pickerOpen, setPickerOpen] = useState(false);
   let pendingLabel = "承認待ち";
   if (pendingCount !== null) pendingLabel += ` ${pendingCount}件${pendingCapped ? "以上" : ""}`;
   // Layout effect, so the shell drops its header before the first paint.
@@ -94,9 +106,33 @@ export function CalendarTopBar({
         <button type="button" onClick={() => onStep(1)} aria-label={`次の${stepUnit}`} className={ICON_BUTTON}>
           <ChevronRight className="size-5" aria-hidden="true" />
         </button>
-        <h1 ref={headingRef} tabIndex={-1} aria-live="polite" className="min-w-0 truncate px-1 text-xl outline-hidden max-sm:text-lg">
-          {heading}
-        </h1>
+        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+          <h1 ref={headingRef} tabIndex={-1} className="min-w-0 outline-hidden">
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn("flex min-h-11 max-w-full items-center gap-1 rounded-full px-2 text-xl hover:bg-cal-text/8 max-sm:text-lg", PRESSABLE)}
+              >
+                <span className="truncate">{heading}</span>
+                <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
+              </button>
+            </PopoverTrigger>
+          </h1>
+          {/* Opaque: DESIGN.md §3 keeps glass to the bar, the + button, details and page move. */}
+          <PopoverContent align="start" material="surface" aria-label="日付選択">
+            <MiniCalendar
+              selected={date}
+              weekStartsOn={1}
+              onSelect={(day) => {
+                onPickDate(day);
+                setPickerOpen(false);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+        <p className="sr-only" aria-live="polite">
+          {spoken}
+        </p>
         <div className="flex-1" />
         {shell && (
           // Not on phones: the drawer lists every page there, and one more button

@@ -68,4 +68,12 @@ describe("MiniCalendar", () => {
     await user.click(screen.getByRole("button", { name: "次の月" }));
     expect(screen.getByText("2026年8月")).toBeTruthy();
   });
+
+  it("月曜始まりを指定すると、曜日の見出しと格子が月曜から並ぶ", () => {
+    render(<MiniCalendar selected={selected} onSelect={() => {}} weekStartsOn={1} />);
+    const heads = screen.getAllByText(/^[日月火水木金土]$/).map((cell) => cell.textContent);
+    expect(heads).toEqual(["月", "火", "水", "木", "金", "土", "日"]);
+    // 2026-07-01 is a Wednesday, so the Monday-start grid opens on 29 June.
+    expect(screen.getAllByRole("button", { name: /^2026年\d+月\d+日/ })[0].getAttribute("aria-label")).toBe("2026年6月29日 (月)");
+  });
 });

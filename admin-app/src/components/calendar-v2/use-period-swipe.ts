@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, type RefObject } from "react";
 import { flushSync } from "react-dom";
-import { swipeAxis, swipeStep } from "./swipe";
+import { swipeAxis, swipeStep, wheelPx, wheelStep } from "./swipe";
 
 // INT-04-09: a touch that starts this close to a screen edge belongs to the
 // system's back gesture.
@@ -11,6 +11,8 @@ const FIELDS = "input, textarea, select, [contenteditable]";
 const ENTER_PX = 80;
 // The click a swiped touch may still produce comes right after it lifts.
 const CLICK_GRACE_MS = 400;
+// INT-13-06: wheel input this far apart starts a new gesture.
+const WHEEL_GAP_MS = 250;
 
 type Gesture = { id: number; x: number; y: number; width: number; axis: "x" | "y" | null; dx: number };
 
@@ -24,8 +26,9 @@ function motion() {
 }
 
 /**
- * One-finger swipes on the calendar body move by one period (spec 008 T006,
- * interactions.md INT-04, INT-13). The body scrolls vertically with
+ * One-finger swipes and sideways wheel gestures (a Mac trackpad) on the
+ * calendar body move by one period (spec 008 T006, interactions.md INT-04,
+ * INT-05, INT-13). The body scrolls vertically with
  * touch-action: pan-y pinch-zoom, so the browser keeps vertical scrolling and
  * zoom and hands over sideways touches; mouse and pen are left for dragging
  * bookings (INT-03, T011). While a swipe moves, every [data-swipe-pane] under
@@ -44,6 +47,10 @@ export function usePeriodSwipe(
     if (!scroller) return;
     let gesture: Gesture | null = null;
     let unblock: (() => void) | null = null;
+    let wheelAxis: "x" | "y" | null = null;
+    let wheelSum = 0;
+    let wheelDone = false;
+    let wheelTimer = 0;
 
     const panes = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-pane]") ?? [])];
     const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -134,9 +141,41 @@ export function usePeriodSwipe(
       if (event.pointerId === gesture?.id) stop();
     };
     // INT-10-04・05: a rotation or resize, and leaving the window or the app, end
-    // the swipe; a finger lifted afterwards finds no gesture.
+    // the swipe; a finger lifted afterwards finds no gesture. Leaving also drops a
+    // wheel gesture's uncommitted amount: the rest of it, momentum included, is
+    // ignored until a 250ms gap starts the next one.
+    const onLeave = () => {
+      stop();
+      if (wheelAxis !== null) wheelDone = true;
+    };
     const onHidden = () => {
-      if (document.hidden) stop();
+      if (document.hidden) onLeave();
+    };
+    // INT-05: a gesture is wheel input without a 250ms gap, momentum included.
+    // Its first input fixes its axis (INT-03-08); a sideways one moves one period
+    // at most, once the signed sum of all its sideways input reaches 80px.
+    const onWheel = (event: WheelEvent) => {
+      // INT-05-04: ctrl + wheel is the trackpad's pinch zoom.
+      if (event.ctrlKey) return;
+      window.clearTimeout(wheelTimer);
+      wheelTimer = window.setTimeout(() => {
+        wheelAxis = null;
+        wheelSum = 0;
+        wheelDone = false;
+      }, WHEEL_GAP_MS);
+      if (event.deltaX === 0 && event.deltaY === 0) return;
+      wheelAxis ??= Math.abs(event.deltaX) > Math.abs(event.deltaY) ? "x" : "y";
+      // INT-05-01: a vertical gesture scrolls the hours. INT-05-07: input the
+      // page cannot cancel may still become the browser's back or forward.
+      if (wheelAxis !== "x" || !event.cancelable) return;
+      event.preventDefault();
+      if (wheelDone) return;
+      wheelSum += wheelPx(event.deltaX, event.deltaMode, scroller.clientWidth);
+      const direction = wheelStep(wheelSum);
+      if (direction === 0) return;
+      wheelDone = true;
+      step(direction);
+      enter(direction);
     };
 
     // On the document: a lost capture is reported there when its target is gone.
@@ -146,17 +185,20 @@ export function usePeriodSwipe(
     document.addEventListener("pointercancel", onCancel);
     document.addEventListener("lostpointercapture", onCancel, true);
     window.addEventListener("resize", stop);
-    window.addEventListener("blur", stop);
+    window.addEventListener("blur", onLeave);
     document.addEventListener("visibilitychange", onHidden);
-    // INT-10-04: the body changing size under a swipe (a layout change without a
-    // window resize) ends it too, even while the finger is held still.
+    // INT-10-04: the body changing width under a swipe (a layout change without a
+    // window resize) ends it too, even while the finger is held still. The first
+    // report and a change of height alone leave the swipe as it is.
     const sizes =
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(() => {
-            if (gesture) stop();
+            if (gesture && scroller.clientWidth !== gesture.width) stop();
           });
     sizes?.observe(scroller);
+    // Not passive: a sideways gesture is kept from the browser's history swipe.
+    scroller.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       document.removeEventListener("pointerdown", onDown, true);
       document.removeEventListener("pointermove", onMove);
@@ -164,9 +206,11 @@ export function usePeriodSwipe(
       document.removeEventListener("pointercancel", onCancel);
       document.removeEventListener("lostpointercapture", onCancel, true);
       window.removeEventListener("resize", stop);
-      window.removeEventListener("blur", stop);
+      window.removeEventListener("blur", onLeave);
       document.removeEventListener("visibilitychange", onHidden);
       sizes?.disconnect();
+      scroller.removeEventListener("wheel", onWheel);
+      window.clearTimeout(wheelTimer);
       unblock?.();
       place(0);
     };

@@ -5,6 +5,9 @@ const DOMINANCE = 1.5;
 const COMMIT_SHARE = 0.2;
 const COMMIT_MIN_PX = 64;
 const COMMIT_MAX_PX = 120;
+const WHEEL_STEP_PX = 80;
+// DOM_DELTA_LINE: a line taken as one 16px line of text.
+const LINE_PX = 16;
 
 /**
  * The axis a touch takes once it has moved 12px: sideways when the horizontal
@@ -25,4 +28,20 @@ export function swipeStep(dx: number, width: number): -1 | 0 | 1 {
   const commitPx = Math.min(COMMIT_MAX_PX, Math.max(COMMIT_MIN_PX, width * COMMIT_SHARE));
   if (Math.abs(dx) < commitPx) return 0;
   return dx < 0 ? 1 : -1;
+}
+
+/** A wheel event's horizontal amount in px (deltaMode: pixels, lines or pages). */
+export function wheelPx(deltaX: number, deltaMode: number, pagePx: number): number {
+  if (deltaMode === 1) return deltaX * LINE_PX;
+  if (deltaMode === 2) return deltaX * pagePx;
+  return deltaX;
+}
+
+/**
+ * The period a wheel gesture moves to once its signed horizontal sum reaches
+ * 80px (INT-13-05): content moving left (a positive sum) goes forward.
+ */
+export function wheelStep(sum: number): -1 | 0 | 1 {
+  if (Math.abs(sum) < WHEEL_STEP_PX) return 0;
+  return sum > 0 ? 1 : -1;
 }
