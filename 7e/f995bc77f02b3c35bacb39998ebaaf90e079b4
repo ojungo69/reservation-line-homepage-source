@@ -1,0 +1,36 @@
+admin-app/src/components/schedule/reservation-detail-panel.test.tsx
+  s_d52c2d995f51c6::t_0bbb9414526c3d 283-296
+  s_d52c2d995f51c6::t_b7c2560231cd1e 35-53,72,644-716
+admin-app/src/components/schedule/reservation-reschedule-dialog.test.tsx
+  s_d52c2d995f51c6::t_d81098dc6d066a 1-45
+admin-app/src/components/schedule/reservation-detail-panel.tsx
+  s_d52c2d995f51c6::t_3ec121ff131f4f 23,26-27,105,113,127-135,215,393,587,603
+admin-app/src/components/schedule/reservation-duration-dialog.test.tsx
+  s_d52c2d995f51c6::t_b681160273541d 28-37,55,69,81
+admin-app/src/components/schedule/reservation-duration-dialog.tsx
+  s_d52c2d995f51c6::t_9dad2e7d4b0aae 140,142,185
+admin-app/src/components/schedule/reservation-reschedule-dialog.tsx
+  s_d52c2d995f51c6::t_b9430aa697fca3 212,214,248,269
+admin-app/src/hooks/use-reservations.test.tsx
+  s_d52c2d995f51c6::t_73b7fd9ebfa4f3 107,123,127,145
+admin-app/src/hooks/use-reservations.ts
+  s_d52c2d995f51c6::t_993a6de02c1217 272
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_cf491e51af59d6 32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7ef995bc77f02b3c35bacb39998ebaaf90e079b4",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
