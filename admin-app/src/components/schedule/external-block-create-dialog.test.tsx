@@ -122,7 +122,7 @@ describe("ExternalBlockCreateDialog: 枠の数による出し分け", () => {
     const region = screen.getByRole("status");
     expect(region.textContent).toBe("");
 
-    expect((await screen.findByText(NO_RESOURCE_NOTICE)).closest("[role=status]")).toBe(region);
+    expect((await screen.findByText(NO_RESOURCE_NOTICE)).closest("output")).toBe(region);
   });
 
   it("枠が 2 つなら欄を出し、選ぶまで作成できない", async () => {

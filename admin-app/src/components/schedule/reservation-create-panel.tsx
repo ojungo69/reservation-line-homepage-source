@@ -739,6 +739,7 @@ export function ReservationCreatePanel({
   };
 
   // 店舗を変えたら、前の店舗の枠・メニュー・お客様を空にする（時刻は今どおり残す）。
+  // 空き枠で選んだ時刻は、新しい店舗で空いているとは限らないので、今どおり次のメニューの変更で消える。
   const handleStoreChange = (value: string) => {
     setStoreId(value);
     setServiceIds([]);
@@ -886,10 +887,10 @@ export function ReservationCreatePanel({
                 </Select>
               </Field>
             )}
-            {/* 設定の取得後に文言が入っても読み上げられるよう、通知欄は常に置く。 */}
-            <p className="text-sm text-muted-foreground empty:sr-only" role="status">
+            {/* 設定の取得後に文言が入っても読み上げられるよう、通知欄は常に置く（role="status" ではなく <output> の暗黙のロール）。 */}
+            <output className="block text-sm text-muted-foreground empty:sr-only">
               {target.resources.kind === "none" && NO_RESOURCE_CREATE_NOTICE}
-            </p>
+            </output>
 
             <div className="grid grid-cols-2 gap-2">
               <Field id="rcp-date" label="日付">

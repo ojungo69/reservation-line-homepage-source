@@ -166,10 +166,10 @@ export function ExternalBlockCreateDialog({
               </Select>
             </div>
           )}
-          {/* 設定の取得後に文言が入っても読み上げられるよう、通知欄は常に置く。 */}
-          <p role="status" className="text-sm text-muted-foreground empty:sr-only">
+          {/* 設定の取得後に文言が入っても読み上げられるよう、通知欄は常に置く（role="status" ではなく <output> の暗黙のロール）。 */}
+          <output className="block text-sm text-muted-foreground empty:sr-only">
             {resources.kind === "none" && NO_RESOURCE_SETTINGS_NOTICE}
-          </p>
+          </output>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
