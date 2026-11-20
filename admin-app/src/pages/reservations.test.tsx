@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ReservationsPage from "./reservations";
 import { useReservationSearch } from "@/hooks/use-reservation-search";
@@ -98,7 +99,17 @@ vi.mock("@/hooks/use-reservation-search", () => ({
       isError: false,
     };
   }),
-  buildCsvExportUrl: vi.fn(() => "/api/admin/reservations/export"),
+}));
+
+// Radix の Select は閉じていると選択肢が DOM に無いため、選択肢を読める素の option に置き換える。
+vi.mock("@/components/ui/select", () => ({
+  Select: ({ value, onValueChange, children }: { value: string; onValueChange: (v: string) => void; children: ReactNode }) => (
+    <select value={value} onChange={(event) => onValueChange(event.target.value)}>{children}</select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children: ReactNode }) => <option value={value}>{children}</option>,
 }));
 
 vi.mock("@/hooks/use-reservations", () => ({
@@ -284,5 +295,77 @@ describe("ReservationsPage user flows", () => {
       reason: "同時間帯に別のご予約が重なったため",
     });
     expect(screen.queryByRole("heading", { name: "予約を却下しますか?" })).toBeNull();
+  });
+});
+
+describe("ReservationsPage 店舗を選んでいるときの表示", () => {
+  it("店舗を選んでいると、表の店舗の列が無い", () => {
+    authState.selectedStoreId = "store-1";
+    render(<ReservationsPage />);
+
+    expect(screen.queryByRole("columnheader", { name: "店舗" })).toBeNull();
+    expect(screen.getAllByRole("columnheader")).toHaveLength(5);
+    const rows = screen.getAllByRole("row");
+    expect(rows[1]?.textContent).toContain("山田 花子");
+    expect(rows[1]?.textContent).not.toContain("渋谷店");
+  });
+
+  it("全店舗なら、表の店舗の列と店舗名が出る", () => {
+    authState.selectedStoreId = null;
+    render(<ReservationsPage />);
+
+    expect(screen.getByRole("columnheader", { name: "店舗" })).toBeTruthy();
+    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
+    expect(screen.getAllByRole("row")[1]?.textContent).toContain("渋谷店");
+  });
+
+  it("店舗を選んでいると、カード表示の並べ替えに店舗が無く、カードに店舗名が出ない", () => {
+    reservationState.isNarrow = true;
+    authState.selectedStoreId = "store-1";
+    render(<ReservationsPage />);
+
+    expect(screen.queryByRole("option", { name: "店舗" })).toBeNull();
+    expect(screen.getByRole("option", { name: "日時" })).toBeTruthy();
+    const cards = screen.getAllByRole("article");
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.textContent).not.toContain("渋谷店");
+  });
+
+  it("全店舗なら、カード表示の並べ替えに店舗があり、カードに店舗名が出る", () => {
+    reservationState.isNarrow = true;
+    authState.selectedStoreId = null;
+    render(<ReservationsPage />);
+
+    expect(screen.getByRole("option", { name: "店舗" })).toBeTruthy();
+    expect(screen.getAllByRole("article")[0]?.textContent).toContain("渋谷店");
+  });
+
+  it("店舗を選んだ状態で、店舗で並べ替えた保存値を復元すると、日時の並べ替えになる", () => {
+    authState.selectedStoreId = "store-1";
+    reservationState.locationState = { reservationSearch: { scope: "undefined:owner:", value: { from: "2026-10-18", to: "2026-11-16", keyword: "", serviceId: "__all__", statusFilter: "__all__", sortKey: "storeName", sortDir: "desc", viewMode: "history" } } };
+    render(<ReservationsPage />);
+
+    expect(screen.getByRole("columnheader", { name: "日時" }).getAttribute("aria-sort")).toBe("descending");
+    const rows = screen.getAllByRole("row");
+    expect(rows[1]?.textContent).toContain("佐藤 太郎");
+    expect(rows[2]?.textContent).toContain("山田 花子");
+  });
+});
+
+describe("ReservationsPage 状態の選択肢", () => {
+  it("状態の選択肢に「来店中」が無い", () => {
+    render(<ReservationsPage />);
+
+    expect(screen.getByRole("option", { name: "全ステータス" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "確定" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "来店中" })).toBeNull();
+  });
+
+  it("来店中の保存値で開くと、既定の絞り込みになる", () => {
+    reservationState.locationState = { reservationSearch: { scope: "undefined:owner:", value: { from: "2026-10-18", to: "2026-11-16", keyword: "山田", serviceId: "__all__", statusFilter: "checked_in", sortKey: "startAt", sortDir: "desc", viewMode: "history" } } };
+    render(<ReservationsPage />);
+
+    expect(screen.getByLabelText("顧客名・カナ・電話番号")).toHaveProperty("value", "");
+    expect(useReservationSearch).toHaveBeenLastCalledWith(expect.objectContaining({ statuses: undefined, keyword: undefined }));
   });
 });

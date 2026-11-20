@@ -3,29 +3,21 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { RefreshCw, UserPlus, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLineFriends, useLineFriendSync } from "@/hooks/use-line-friends";
 import { useStores } from "@/hooks/use-stores";
 import { LinkNewDialog, LinkExistingDialog } from "@/components/line-friends/link-dialogs";
-import type { LineFriendListItem, LineFriendsFilter } from "@/types/api";
-
-const FILTERS: Array<{ key: LineFriendsFilter; label: string }> = [
-  { key: "unlinked", label: "未紐付け" },
-  { key: "linked", label: "紐付け済み" },
-  { key: "all", label: "すべて" }
-];
+import { pickLinkStoreId } from "@/lib/link-store-id";
+import type { LineFriendListItem } from "@/types/api";
 
 function getLinkDisabledReason(
   profileStatus: LineFriendListItem["profileStatus"],
   storeId: string,
   isStoresPending: boolean,
-  hasMultipleStores: boolean,
 ): string | undefined {
   if (!storeId) {
-    if (isStoresPending) return "店舗情報を読み込み中のため紐付けできません。";
-    if (hasMultipleStores) return "紐付け先の店舗を選択すると紐付けできます。";
-    return "店舗情報がないため紐付けできません。";
+    return isStoresPending
+      ? "店舗情報を読み込み中のため紐付けできません。"
+      : "店舗情報がないため紐付けできません。";
   }
   if (profileStatus === "pending") {
     return "プロフィールが未取得のため紐付けできません。「友だちを同期」をお試しください。";
@@ -35,21 +27,17 @@ function getLinkDisabledReason(
 }
 
 export default function LineFriendsPage() {
-  const [filter, setFilter] = useState<LineFriendsFilter>("unlinked");
   const [q, setQ] = useState("");
   const [debouncedQ] = useDebouncedValue(q);
   const [page, setPage] = useState(1);
   const [newFor, setNewFor] = useState<LineFriendListItem | null>(null);
   const [existingFor, setExistingFor] = useState<LineFriendListItem | null>(null);
 
-  const { items, total, pageSize, isPending, isFetching, isError, refetch } = useLineFriends({ filter, q: debouncedQ, page });
+  const { items, total, pageSize, isPending, isFetching, isError, refetch } = useLineFriends({ filter: "unlinked", q: debouncedQ, page });
   const loadingResults = isPending || isFetching || q.trim() !== debouncedQ;
   const sync = useLineFriendSync();
-  const { stores, isPending: isStoresPending } = useStores();
-
-  // 店舗選択（複数店舗時は必須・単一は自動）。
-  const [storeId, setStoreId] = useState("");
-  const effectiveStoreId = storeId || (stores.length === 1 ? stores[0].id : "");
+  const { stores, isPending: isStoresPending, selectedStoreId } = useStores();
+  const effectiveStoreId = pickLinkStoreId(stores, selectedStoreId);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
@@ -67,39 +55,7 @@ export default function LineFriendsPage() {
         </Button>
       </div>
 
-      {stores.length > 1 && (
-        <div className="flex items-center gap-2 text-sm">
-          <Label htmlFor="link-store-select">紐付け先の店舗</Label>
-          <Select value={effectiveStoreId} onValueChange={setStoreId}>
-            <SelectTrigger id="link-store-select" className="w-auto min-w-48">
-              <SelectValue placeholder="店舗を選択してください" />
-            </SelectTrigger>
-            <SelectContent>
-              {stores.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center gap-2">
-        {FILTERS.map((f) => (
-          <Button
-            key={f.key}
-            size="sm"
-            variant={filter === f.key ? "default" : "outline"}
-            aria-pressed={filter === f.key}
-            onClick={() => {
-              setFilter(f.key);
-              setPage(1);
-            }}
-          >
-            {f.label}
-          </Button>
-        ))}
         <Input
           className="w-48"
           aria-label="LINE友だちを名前で検索"
@@ -114,9 +70,7 @@ export default function LineFriendsPage() {
 
       {effectiveStoreId === "" && !isStoresPending && (
         <p className="text-sm text-destructive">
-          {stores.length > 1
-            ? "紐付け先の店舗を選択してください。"
-            : "店舗情報を読み込めませんでした。設定を確認してください。"}
+          店舗情報を読み込めませんでした。設定を確認してください。
         </p>
       )}
 
@@ -132,13 +86,11 @@ export default function LineFriendsPage() {
         )}
         {!loadingResults && !isError && items.length === 0 && (
           <p className="p-4 text-sm text-muted-foreground">
-            {filter === "unlinked"
-              ? "未紐付けの友だちはいません。「友だちを同期」で最新化できます。"
-              : "該当がありません。"}
+            未紐付けの友だちはいません。「友だちを同期」で最新化できます。
           </p>
         )}
         {!loadingResults && !isError && items.map((f) => {
-          const disabledReason = getLinkDisabledReason(f.profileStatus, effectiveStoreId, isStoresPending, stores.length > 1);
+          const disabledReason = getLinkDisabledReason(f.profileStatus, effectiveStoreId, isStoresPending);
           const reasonId = disabledReason ? `link-disabled-${f.lineUserId}` : undefined;
           return (
             <div key={f.lineUserId} className="flex items-center justify-between gap-3 p-3">

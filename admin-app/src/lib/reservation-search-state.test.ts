@@ -31,4 +31,17 @@ describe("reservation search view state", () => {
     expect(readReservationSearchState({ reservationSearch: { scope: "owner", value: { ...value, from: "2028-02-29", to: "" } } }, "owner")).toMatchObject({ from: "2028-02-29", to: "" });
   });
 
+  describe("saved status filter", () => {
+    const base = { from: "2026-02-01", to: "2026-02-28", keyword: "", serviceId: "__all__", statusFilter: "__all__", sortKey: "startAt", sortDir: "asc", viewMode: "custom" };
+    const read = (statusFilter: string) => readReservationSearchState({ reservationSearch: { scope: "owner", value: { ...base, statusFilter } } }, "owner");
+
+    it.each(["__all__", "pending_approval", "confirmed", "completed", "cancelled_by_admin", "cancelled_by_customer", "rejected", "no_show", "expired"])("restores the offered status %s", (status) => {
+      expect(read(status)).toMatchObject({ statusFilter: status });
+    });
+
+    it.each(["checked_in", "unexpected", ""])("does not restore the status %j that is no longer offered", (status) => {
+      expect(read(status)).toBeNull();
+    });
+  });
+
 });

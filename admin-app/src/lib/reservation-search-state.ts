@@ -3,6 +3,23 @@ import { addDays, formatJstDate } from "@/lib/timeline";
 export type ReservationViewMode = "today" | "upcoming" | "history" | "pending" | "custom";
 export type ReservationSortKey = "startAt" | "customerDisplayName" | "serviceName" | "storeName" | "status";
 
+export const ALL_SENTINEL = "__all__";
+// checked_in is not offered: stores do not use the in-visit status.
+export const RESERVATION_STATUSES = [
+  "pending_approval",
+  "confirmed",
+  "completed",
+  "cancelled_by_admin",
+  "cancelled_by_customer",
+  "rejected",
+  "no_show",
+  "expired",
+] as const;
+
+function isOfferedStatusFilter(value: unknown): value is string {
+  return value === ALL_SENTINEL || RESERVATION_STATUSES.some((status) => status === value);
+}
+
 export type ReservationSearchState = {
   from: string;
   to: string;
@@ -41,7 +58,7 @@ export function readReservationSearchState(raw: unknown, scope: string): Reserva
   if (
     !isSearchDate(v.from) || !isSearchDate(v.to) ||
     typeof v.serviceId !== "string" || v.serviceId.length > 128 ||
-    typeof v.statusFilter !== "string" || v.statusFilter.length > 64 ||
+    !isOfferedStatusFilter(v.statusFilter) ||
     typeof v.keyword !== "string" || v.keyword.length > 200 ||
     (v.sortKey !== "startAt" && v.sortKey !== "customerDisplayName" && v.sortKey !== "serviceName" && v.sortKey !== "storeName" && v.sortKey !== "status") ||
     (v.sortDir !== "asc" && v.sortDir !== "desc") ||

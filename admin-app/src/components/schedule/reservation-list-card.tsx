@@ -6,14 +6,15 @@ import { addDays, formatDateDisplay, formatJstDate, formatTime, statusColor, sta
 import type { Reservation } from "@/types/api";
 
 type ReservationListCardProps = {
-  reservation: Pick<Reservation, "id" | "status" | "startAt" | "endAt" | "customerDisplayName" | "serviceName" | "storeName" | "cancellationFeeUnpaidAt"> & { resourceName?: string };
+  reservation: Pick<Reservation, "id" | "status" | "startAt" | "endAt" | "customerDisplayName" | "serviceName" | "storeName" | "cancellationFeeUnpaidAt">;
   onDetails: (id: string) => void;
   onCustomerClick?: () => void;
   actions?: ReactNode;
   showDate?: boolean;
+  showStoreName?: boolean;
 };
 
-export function ReservationListCard({ reservation, onDetails, onCustomerClick, actions, showDate = false }: Readonly<ReservationListCardProps>) {
+export function ReservationListCard({ reservation, onDetails, onCustomerClick, actions, showDate = false, showStoreName = true }: Readonly<ReservationListCardProps>) {
   const start = new Date(reservation.startAt);
   const end = new Date(reservation.endAt);
   const endDay = formatJstDate(end);
@@ -43,9 +44,7 @@ export function ReservationListCard({ reservation, onDetails, onCustomerClick, a
             <p className="break-all text-sm">{reservation.customerDisplayName}</p>
           )}
           <p className="break-all text-xs text-muted-foreground">{displayServiceName(reservation.serviceName)}</p>
-          <p className="break-all text-xs text-muted-foreground">
-            {reservation.storeName}{reservation.resourceName && ` · ${reservation.resourceName}`}
-          </p>
+          {showStoreName && <p className="break-all text-xs text-muted-foreground">{reservation.storeName}</p>}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <Badge className={statusColor(reservation.status)} variant="outline">{statusLabel(reservation.status)}</Badge>

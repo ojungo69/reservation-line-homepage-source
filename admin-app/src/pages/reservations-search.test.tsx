@@ -107,7 +107,6 @@ describe("ReservationsPage search feedback", () => {
     }
     expect(screen.queryByText("架空 花子")).toBeNull();
     expect(screen.queryByText("1件")).toBeNull();
-    expect(screen.getByRole("button", { name: "CSV" }).hasAttribute("disabled")).toBe(true);
     expect(screen.queryByRole("status")).toBeNull();
     expect(get).toHaveBeenCalledTimes(1);
     client.clear();
@@ -132,7 +131,6 @@ describe("ReservationsPage search feedback", () => {
     expect(screen.getByLabelText("終了日").getAttribute("aria-describedby")).toBe(alert.id);
     expect(screen.queryByText("架空 花子")).toBeNull();
     expect(screen.queryByText("1件")).toBeNull();
-    expect(screen.getByRole("button", { name: "CSV" }).hasAttribute("disabled")).toBe(true);
     expect(get).toHaveBeenCalledTimes(1);
     client.clear();
   });
@@ -163,7 +161,7 @@ describe("ReservationsPage search feedback", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByLabelText("開始日").getAttribute("aria-invalid")).toBe("false");
     expect(screen.getByLabelText("終了日").hasAttribute("aria-describedby")).toBe(false);
-    expect(screen.getByRole("button", { name: "CSV" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByRole("button", { name: "CSV" })).toBeNull();
     client.clear();
   });
 

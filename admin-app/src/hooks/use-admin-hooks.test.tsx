@@ -11,10 +11,7 @@ import {
   useExternalBlockCreate,
   useExternalBlocks,
 } from "./use-external-blocks";
-import {
-  buildCsvExportUrl,
-  useReservationSearch,
-} from "./use-reservation-search";
+import { useReservationSearch } from "./use-reservation-search";
 import {
   useStoreLoginRevoke,
   useStoreLogins,
@@ -208,9 +205,6 @@ describe("reservation and audit search queries", () => {
       "from=2026-07-01&to=2026-07-31&storeId=store%2F1&serviceId=service+1&status=confirmed&status=pending_approval&keyword=%E5%B1%B1%E7%94%B0+%E8%8A%B1%E5%AD%90";
     expect(mocks.api.get).toHaveBeenCalledWith(
       `/api/admin/reservations/search?${qs}`,
-    );
-    expect(buildCsvExportUrl(filter)).toBe(
-      `/api/admin/reservations/export.csv?${qs}`,
     );
     expect(
       client.getQueryCache().find({

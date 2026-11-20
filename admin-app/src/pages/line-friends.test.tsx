@@ -6,16 +6,23 @@ import type { LineFriendListItem, Store } from "@/types/api";
 let items: LineFriendListItem[] = [];
 let stores: Store[] = [];
 let isStoresPending = false;
+let selectedStoreId: string | null = null;
+let searchResults: Array<{ id: string; displayName: string; displayNameKana: string | null; phoneNormalized: string | null }> = [];
+const linkMutate = vi.fn();
+const lineFriendsArgs = vi.fn();
 
 vi.mock("@/hooks/use-line-friends", () => ({
-  useLineFriends: () => ({ items, total: items.length, pageSize: 50, isPending: false, isError: false }),
+  useLineFriends: (args: unknown) => {
+    lineFriendsArgs(args);
+    return { items, total: items.length, pageSize: 50, isPending: false, isError: false };
+  },
   useLineFriendSync: () => ({ mutate: vi.fn(), isPending: false }),
-  useLineFriendLink: () => ({ mutate: vi.fn(), isPending: false }),
-  useCustomerSearch: () => ({ results: [], isPending: false }),
+  useLineFriendLink: () => ({ mutate: linkMutate, isPending: false }),
+  useCustomerSearch: () => ({ results: searchResults, isPending: false }),
 }));
 
 vi.mock("@/hooks/use-stores", () => ({
-  useStores: () => ({ stores, isPending: isStoresPending }),
+  useStores: () => ({ stores, isPending: isStoresPending, selectedStoreId }),
 }));
 
 import LineFriendsPage from "./line-friends";
@@ -44,19 +51,42 @@ beforeEach(() => {
   items = [friend];
   stores = [store];
   isStoresPending = false;
+  selectedStoreId = null;
+  searchResults = [];
+  linkMutate.mockClear();
+  lineFriendsArgs.mockClear();
 });
 
 describe("LINE友だち紐付けの操作案内", () => {
-  it("複数店舗で未選択のときは店舗選択の案内と操作の理由を表示する", () => {
+  it("複数店舗でも、紐付け先の店舗の欄や案内は無く、紐付けの操作が押せる", () => {
     stores = [store, { ...store, id: "store-2", name: "支店" }];
     render(<LineFriendsPage />);
 
-    const reason = "紐付け先の店舗を選択すると紐付けできます。";
-    expect(screen.getByText(reason)).toBeTruthy();
-    expect(screen.getByText("紐付け先の店舗を選択してください。")).toBeTruthy();
+    expect(screen.queryByText("紐付け先の店舗")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByText(/紐付け先の店舗を選択/)).toBeNull();
     for (const name of ["既存客に紐付け", "新規登録して紐付け"]) {
-      expect((screen.getByRole("button", { name, description: reason }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
     }
+  });
+
+  it.each([
+    { selected: "store-2", expected: "store-2" },
+    { selected: null, expected: "store-1" },
+  ])("画面で選んでいる店舗 $selected のとき、storeId $expected で紐付ける", async ({ selected, expected }) => {
+    stores = [store, { ...store, id: "store-2", name: "支店" }];
+    selectedStoreId = selected;
+    searchResults = [{ id: "customer-1", displayName: "鈴木 一郎", displayNameKana: null, phoneNormalized: null }];
+    const user = userEvent.setup();
+    render(<LineFriendsPage />);
+
+    await user.click(screen.getByRole("button", { name: "既存客に紐付け" }));
+    await user.click(screen.getByRole("button", { name: /鈴木 一郎/ }));
+
+    expect(linkMutate).toHaveBeenCalledWith(
+      { lineUserId: "U1", body: { mode: "existing", storeId: expected, customerId: "customer-1" } },
+      expect.anything(),
+    );
   });
 
   it("店舗を読み込み中の理由は取得後に消え、紐付け操作を再開できる", () => {
@@ -81,22 +111,13 @@ describe("LINE友だち紐付けの操作案内", () => {
     expect((search as HTMLInputElement).value).toBe("山田");
   });
 
-  it("未紐付け・紐付け済み・すべての選択状態を操作に合わせて読み取れる", async () => {
-    const user = userEvent.setup();
+  it("未紐付け・紐付け済み・すべての切り替えは無く、一覧は未紐付けだけを取る", () => {
     render(<LineFriendsPage />);
 
-    expect(screen.getByRole("button", { name: "未紐付け", pressed: true })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "紐付け済み", pressed: false })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "すべて", pressed: false })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "紐付け済み" }));
-    expect(screen.getByRole("button", { name: "紐付け済み", pressed: true })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "未紐付け", pressed: false })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "すべて" }));
-    expect(screen.getByRole("button", { name: "すべて", pressed: true })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "紐付け済み", pressed: false })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "未紐付け", pressed: false })).toBeTruthy();
+    for (const name of ["未紐付け", "紐付け済み", "すべて"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(lineFriendsArgs).toHaveBeenLastCalledWith(expect.objectContaining({ filter: "unlinked", page: 1 }));
   });
 
   it.each([
