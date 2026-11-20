@@ -101,6 +101,11 @@ export function usePeriodSwipe(
     };
     const onMove = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
+      // INT-10-04: the body changed width under the swipe; the rest of the touch is ignored.
+      if (scroller.clientWidth !== gesture.width) {
+        stop();
+        return;
+      }
       const dx = event.clientX - gesture.x;
       // INT-04-02, 03: once decided, a vertical touch stays the browser's scroll.
       gesture.axis ??= swipeAxis(dx, event.clientY - gesture.y);

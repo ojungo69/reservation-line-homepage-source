@@ -1143,6 +1143,16 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     width = 360;
     point("pointerUp", scroller(), 200, 400);
     expect(heading()).toBe("11月20日（金）");
+    // A width that changes and comes back before the lift still ends the swipe.
+    width = 375;
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 250, 400);
+    width = 360;
+    point("pointerMove", scroller(), 220, 400);
+    width = 375;
+    point("pointerMove", scroller(), 200, 400);
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月20日（金）");
     // The same width at the lift still moves.
     swipe(scroller(), -100);
     expect(heading()).toBe("11月21日（土）");
