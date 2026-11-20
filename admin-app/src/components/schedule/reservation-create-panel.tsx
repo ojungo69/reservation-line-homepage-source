@@ -724,7 +724,8 @@ export function ReservationCreatePanel({
     },
   );
 
-  const slotsByResource = groupSlotsByResource(slotsData, sendableResourceIds(target.resources));
+  const sendableIds = sendableResourceIds(target.resources);
+  const slotsByResource = groupSlotsByResource(slotsData, sendableIds);
 
   const handleSlotClick = (slot: { resourceId: string; startAt: string }) => {
     setResourceId(slot.resourceId);
@@ -909,7 +910,8 @@ export function ReservationCreatePanel({
                   failed: slotsError || slotsData?.ok === false,
                   slotsByResource,
                   resourceId: target.resources.resourceId,
-                  showResourceNames: target.resources.kind === "multiple",
+                  // 選び直しの間に枠が 1 つだけ残ったときも、見出しは出さない（FR-007）。
+                  showResourceNames: sendableIds.length > 1,
                   time,
                   onSlotClick: handleSlotClick,
                 })}

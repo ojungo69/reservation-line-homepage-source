@@ -752,6 +752,8 @@ describe("ReservationCreatePanel のリソース・店舗・予約経路の自�
     settingsState.current = { ...settingsState.fixtures.twoResources, resources: [resourceA, { ...resourceB, active: false }] };
     rerender(<ReservationCreatePanel {...props} />);
     expect(screen.getByRole("combobox", { name: "リソース" })).toBeTruthy();
+    // 選び直しの間も稼働中の枠は 1 つなので、空き枠に枠の名前の見出しを出さない（FR-007）。
+    expect(screen.queryAllByText("担当A").filter((element) => element.tagName === "P")).toEqual([]);
     await user.click(screen.getByRole("button", { name: "予約作成" }));
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(screen.getByRole("alert").textContent).toBe("必須項目を入力してください");
