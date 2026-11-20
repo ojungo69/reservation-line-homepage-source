@@ -143,8 +143,8 @@ describe("drawnSpan", () => {
 describe("openSlotMinutes", () => {
   const span = (start: number, end: number) => ({ start, end });
 
-  it("offers only slots inside opening hours and outside closures", () => {
-    const slots = openSlotMinutes({ closed: [span(0, 600), span(720, 780), span(1140, 1440)], taken: [], resourceIds: ["r1"] });
+  it("offers every slot outside the closed hours and closures", () => {
+    const slots = openSlotMinutes([span(0, 600), span(720, 780), span(1140, 1440)]);
     expect(slots[0]).toBe(600);
     expect(slots).not.toContain(585);
     expect(slots).not.toContain(720);
@@ -152,18 +152,7 @@ describe("openSlotMinutes", () => {
     expect(slots.at(-1)).toBe(1125);
   });
 
-  it("drops a slot only when every active resource is taken then", () => {
-    const taken = [{ span: span(600, 665), resourceId: "r1" }];
-    const one = openSlotMinutes({ closed: [], taken, resourceIds: ["r1"] });
-    // 10:00 to 11:05 with the cleaning time: 11:00 is still taken, 11:15 is free.
-    expect(one).not.toContain(600);
-    expect(one).not.toContain(660);
-    expect(one).toContain(675);
-    const two = openSlotMinutes({ closed: [], taken, resourceIds: ["r1", "r2"] });
-    expect(two).toContain(600);
-  });
-
-  it("offers nothing to a store without an active resource", () => {
-    expect(openSlotMinutes({ closed: [], taken: [], resourceIds: [] })).toEqual([]);
+  it("offers the whole day when nothing is drawn closed", () => {
+    expect(openSlotMinutes([])).toHaveLength(96);
   });
 });

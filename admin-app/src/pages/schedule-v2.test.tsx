@@ -415,8 +415,7 @@ describe("ScheduleV2Page の取得失敗と件数の上限 (UX-21)", () => {
     );
     renderPage();
     expect(await screen.findByText(/11月19日（木）の予定が表示できる件数を超えています。/)).toBeTruthy();
-    // The next day keeps its slots: only its first hours could hold the capped
-    // day's bookings, and the store is closed then anyway.
+    // Only the capped day stops offering slots.
     await waitFor(() => expect(slotsIn("2026-11-20:s1")).toBeGreaterThan(0));
     expect(slotsIn("2026-11-19:s1")).toBe(0);
   });
@@ -645,53 +644,21 @@ describe("ScheduleV2Page の日付の追従", () => {
   });
 });
 
-describe("ScheduleV2Page の空き枠と占有 (Codex の指摘)", () => {
+describe("ScheduleV2Page の空き枠と予約の描き方 (Codex の指摘)", () => {
   const slotNames = (key: string) =>
     [...(column(key)?.querySelectorAll<HTMLElement>("[data-slot-minutes]") ?? [])].map((slot) => Number(slot.dataset.slotMinutes));
 
-  it("営業時間外と、予約や清掃で埋まった時間には空き枠を出さない", async () => {
+  it("描いた営業時間外には空き枠を出さず、予約のある時間の判断は作成画面に任せる", async () => {
     renderPage();
     await waitFor(() => expect(slotNames("2026-11-20:s1").length).toBeGreaterThan(0));
     const open = slotNames("2026-11-20:s1");
-    // 10:00 to 11:30 is taken (two bookings with their cleaning), 16:00 to 17:00
-    // by the block and 18:00 to 19:00 by the Google event; 19:00 is closing.
+    // Opening hours are 10:00 to 19:00. A booked time is still offered: another
+    // resource or a shorter menu may fit, and the form lists the server's times.
+    expect(open[0]).toBe(600);
     expect(open).not.toContain(585);
-    expect(open).not.toContain(600);
-    expect(open).not.toContain(675);
-    expect(open).toContain(690);
-    expect(open).not.toContain(960);
-    expect(open).toContain(1020);
-    expect(open).not.toContain(1080);
-    expect(open).not.toContain(1140);
-    expect(open.at(-1)).toBe(1065);
-  });
-
-  it("前日から日をまたぐ予約も翌日の列に描き、その時間を空きにしない", async () => {
-    reservationsByDay["2026-11-19"] = [
-      reservation("res-night", "2026-11-19", "23:30", "23:59", {
-        customerDisplayName: "深夜 太郎",
-        endAt: jst("2026-11-20", "00:45"),
-      }),
-    ];
-    renderPage();
-    expect(await eventButton(/^深夜 太郎、11月20日（金）、23:30から00:40（枠の解放 00:45）/)).toBeTruthy();
-    // The week's first day takes its carry-over from the day before the week.
-    await waitFor(() => expect(mocks.api.get.mock.calls.some(([url]) => String(url).includes("date=2026-11-15"))).toBe(true));
-  });
-
-  it("前日の一覧が欠けているときは、翌日の朝の数時間だけ空き枠を止める", async () => {
-    failingDays.add("2026-11-19");
-    // 駅前店 has no opening hours set, so its whole day is offered otherwise.
-    storeState.selected = "s2";
-    renderPage();
-    await waitFor(() => expect(slotNames("2026-11-20:s2").length).toBeGreaterThan(0));
-    const open = slotNames("2026-11-20:s2");
-    // A booking from the day before reaches 04:00 at most (240 minutes).
-    expect(open).not.toContain(0);
-    expect(open).not.toContain(225);
-    expect(open).toContain(240);
-    expect(slotNames("2026-11-19:s2")).toEqual([]);
-    expect(slotNames("2026-11-18:s2")).toContain(0);
+    expect(open).toContain(960);
+    expect(open).toContain(1080);
+    expect(open.at(-1)).toBe(1125);
   });
 
   it("休業の時間には空き枠を出さず、休業と示す", async () => {
@@ -702,17 +669,19 @@ describe("ScheduleV2Page の空き枠と占有 (Codex の指摘)", () => {
     expect(within(column("2026-11-19:s1") as HTMLElement).getByText("休業（研修日）")).toBeTruthy();
   });
 
-  it("休業の一覧が上限で切れている店舗は、確かめられない日の空き枠を止めて理由を示す", async () => {
+  it("休業の一覧が上限に届いた店舗は、どの日も空き枠を止めて理由を示す", async () => {
+    // All before the shown week: a cut-off older closure could still be long
+    // enough to reach it, so the newest starts do not tell which days are safe.
     closures = Array.from({ length: 200 }, (_, index) => ({
       id: `cl-${index}`,
       storeId: "s1",
-      startsAt: new Date(Date.parse(jst("2026-12-01", "00:00")) + index * 86_400_000).toISOString(),
-      endsAt: new Date(Date.parse(jst("2026-12-01", "01:00")) + index * 86_400_000).toISOString(),
+      startsAt: new Date(Date.parse(jst("2026-01-01", "00:00")) + index * 86_400_000).toISOString(),
+      endsAt: new Date(Date.parse(jst("2026-01-01", "01:00")) + index * 86_400_000).toISOString(),
       reason: null,
       source: "google_external_block",
     }));
     renderPage();
-    expect(await screen.findByText(/本店の休業の件数が多く、表示中の日の休業を確かめられないため/)).toBeTruthy();
+    expect(await screen.findByText(/本店の休業の件数が多く、すべてを読み込めないため/)).toBeTruthy();
     expect(document.querySelectorAll("[data-slot-minutes]")).toHaveLength(0);
   });
 
@@ -738,12 +707,29 @@ describe("ScheduleV2Page の空き枠と占有 (Codex の指摘)", () => {
     expect(booking.textContent).not.toContain("11:00");
   });
 
+  it("短い予約にも清掃の帯を描き、占有5分の旧予約は施術0分として示す", async () => {
+    reservationsByDay["2026-11-21"] = [
+      reservation("res-short", "2026-11-21", "13:00", "13:20", { customerDisplayName: "短い 花子" }),
+      reservation("res-old", "2026-11-21", "15:00", "15:05", { customerDisplayName: "旧 一郎" }),
+    ];
+    renderPage();
+    const short = await eventButton(/^短い 花子、11月21日（土）、13:00から13:15（枠の解放 13:20）/);
+    // 15 minutes of treatment, then 5 of cleaning, in a block drawn 18px tall.
+    expect(short.querySelector<HTMLElement>("[data-cleaning]")?.style.top).toBe("12px");
+    expect(short.querySelector<HTMLElement>("[data-cleaning]")?.style.height).toBe("4px");
+    const old = await eventButton(/^旧 一郎、11月21日（土）、15:00から15:00（枠の解放 15:05）/);
+    expect(old.querySelector<HTMLElement>("[data-cleaning]")?.style.top).toBe("0px");
+  });
+
   it("上部バーを予定表より先に置き、本文へスキップの後の Tab でバーに入る", async () => {
     renderPage();
     await eventButton(/^山田 花子、/);
     const bar = document.querySelector(".glass-thick") as HTMLElement;
     const scroller = document.querySelector("[data-calendar-scroll]") as HTMLElement;
     expect(bar.compareDocumentPosition(scroller) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Its own stacking context, so a focused slot (z-40) never draws over the bar
+    // (checked in a browser: a slot scrolled under the bar no longer takes its clicks).
+    expect(scroller.classList.contains("isolate")).toBe(true);
   });
 
   it("お知らせが増えても、高さを抑えてその中でスクロールさせる", async () => {

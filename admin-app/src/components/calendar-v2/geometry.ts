@@ -117,26 +117,12 @@ export function closedRanges(businessHours: readonly BusinessHour[], storeId: st
 }
 
 /**
- * The slots a booking can start in: inside opening hours, outside closures, and
- * free on at least one of the store's active resources. The server refuses the
- * rest (outside_business_hours, store_closed, a taken time), so offering them
- * would only end in an error after the form is filled. A free 15 minutes says
- * nothing about a longer menu; the booking form checks that.
+ * The slots the grid offers as a way into the booking form (UX-10: a slot is the
+ * wished-for time). Not inside the closed hours and closures it draws, so a
+ * shaded time never invites a booking. Whether a resource is free for the
+ * chosen menu is the form's to say: it lists the server's available times and
+ * the server checks again on save.
  */
-export function openSlotMinutes({
-  closed,
-  taken,
-  resourceIds,
-}: Readonly<{
-  // Closed hours and closures together.
-  closed: readonly Span[];
-  // What occupies a resource: bookings (with their cleaning time) and blocks.
-  taken: ReadonlyArray<Readonly<{ span: Span; resourceId: string }>>;
-  resourceIds: readonly string[];
-}>): number[] {
-  return SLOTS.filter((minute) => {
-    const slot = { start: minute, end: minute + SLOT_MINUTES };
-    if (closed.some((range) => spansOverlap(range, slot))) return false;
-    return resourceIds.some((id) => !taken.some((entry) => entry.resourceId === id && spansOverlap(entry.span, slot)));
-  });
+export function openSlotMinutes(closed: readonly Span[]): number[] {
+  return SLOTS.filter((minute) => !closed.some((range) => spansOverlap(range, { start: minute, end: minute + SLOT_MINUTES })));
 }

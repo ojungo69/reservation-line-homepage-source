@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { ReservationListCard } from "@/components/schedule/reservation-list-card";
-import { addDays, formatJstDate, getInitialScrollMinutes, isScheduleVisibleReservationStatus, jstWeekday } from "@/lib/timeline";
+import { getInitialScrollMinutes, isScheduleVisibleReservationStatus, jstWeekday } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import type { ExternalBlock, SettingsResponse } from "@/types/api";
 import { CalendarColumnView, type CalendarItem, type ClosureBand } from "./column";
@@ -12,27 +12,20 @@ import type { DayData } from "./use-calendar-days";
 export type CalendarSettings = Extract<SettingsResponse, { ok: true }>["settings"];
 
 // The settings list keeps each store's 200 closures that start last, with no
-// sign that it cut older ones (src/admin/operations.ts).
+// sign that it cut older ones (src/admin/operations.ts). A cut one can be long
+// enough to reach any shown day, so a store at the cap draws no slots at all.
 const CLOSURE_ROW_CAP = 200;
-// The longest booking: MAX_TOTAL_SERVICE_DURATION_MINUTES plus the cleaning time
-// (src/reservations/slot-times.ts). A booking from the day before reaches no
-// further into the next day than this.
-const LONGEST_BOOKING_MINUTES = 240;
-
-/** The day before a column's day: bookings that started then can run past midnight into it. */
-export function previousDayKey(date: Date): string {
-  return formatJstDate(addDays(date, -1));
-}
 
 function reservationsComplete(day: DayData | undefined): boolean {
   return day !== undefined && !day.loading && day.failed.length === 0 && !day.capped;
 }
 
-function columnItems(column: CalendarColumn, day: DayData | undefined, before: DayData | undefined): CalendarItem[] {
+function columnItems(column: CalendarColumn, day: DayData | undefined): CalendarItem[] {
   const items: CalendarItem[] = [];
-  // The day list holds bookings that start that day, so one that starts the day
-  // before and runs past midnight comes from the previous day's list.
-  for (const reservation of [...(before?.reservations ?? []), ...(day?.reservations ?? [])]) {
+  // The day list holds bookings that start that day, which is all of them: every
+  // write path keeps a booking's start and end on one day (ensureBusinessTime in
+  // src/reservations/business-hours.ts, and the Google import's own check).
+  for (const reservation of day?.reservations ?? []) {
     if (reservation.storeId !== column.storeId || !isScheduleVisibleReservationStatus(reservation.status)) continue;
     const span = clipToDay(reservation.startAt, reservation.endAt, column.dateKey);
     if (span) items.push({ kind: "reservation", span, reservation });
@@ -55,13 +48,6 @@ function closureBands(column: CalendarColumn, settings: CalendarSettings | null)
   });
 }
 
-// A capped list is complete only from the oldest start it still holds: a day
-// before that may have closures that were cut off.
-function closuresKnown(column: CalendarColumn, settings: CalendarSettings): boolean {
-  const starts = settings.closures.filter((closure) => closure.storeId === column.storeId).map((closure) => Date.parse(closure.startsAt));
-  if (starts.length < CLOSURE_ROW_CAP) return true;
-  return Date.parse(`${column.dateKey}T00:00:00+09:00`) >= Math.min(...starts);
-}
 
 /** The store's earliest opening that weekday, else 09:00 (the current calendar's rule). */
 export function openingMinute(settings: CalendarSettings | null, column: CalendarColumn): number {
@@ -73,9 +59,9 @@ export type ColumnState = Readonly<{
   items: CalendarItem[];
   closed: Span[];
   closures: ClosureBand[];
-  // Null while the column cannot offer slots: incomplete data must not read as
-  // free time (UX-21).
-  slots: number[] | null;
+  // None while the day's data is incomplete (UX-21: it must not read as free
+  // time) or the store has no active resource to book.
+  slots: number[];
   noResource: boolean;
   closuresUnknown: boolean;
 }>;
@@ -88,31 +74,20 @@ export function columnState(
   settingsUsable: boolean,
 ): ColumnState {
   const day = dayByKey.get(column.dateKey);
-  const before = dayByKey.get(previousDayKey(column.date));
-  const items = columnItems(column, day, before);
+  const items = columnItems(column, day);
   const closures = closureBands(column, settings);
   const closed = settings ? closedRanges(settings.businessHours, column.storeId, jstWeekday(column.date)) : [];
-  const resourceIds = (settings?.resources ?? [])
-    .filter((resource) => resource.storeId === column.storeId && resource.active)
-    .map((resource) => resource.id);
-  const closuresUnknown = settings !== null && !closuresKnown(column, settings);
-  const complete = settingsUsable && reservationsComplete(day) && !closuresUnknown;
-  // Without the day before, its bookings into this morning are unknown: hold
-  // back only the hours they could reach.
-  const unknownMorning = reservationsComplete(before) ? [] : [{ start: 0, end: LONGEST_BOOKING_MINUTES }];
-  const taken = items.map((item) => ({
-    span: item.span,
-    resourceId: item.kind === "reservation" ? item.reservation.resourceId : item.block.resourceId,
-  }));
+  const noResource = settings !== null && !settings.resources.some((resource) => resource.storeId === column.storeId && resource.active);
+  const closuresUnknown =
+    settings !== null && settings.closures.filter((closure) => closure.storeId === column.storeId).length >= CLOSURE_ROW_CAP;
+  const offers = settingsUsable && reservationsComplete(day) && !closuresUnknown && !noResource;
   return {
     column,
     items,
     closed,
     closures,
-    slots: complete
-      ? openSlotMinutes({ closed: [...closed, ...closures.map((band) => band.span), ...unknownMorning], taken, resourceIds })
-      : null,
-    noResource: settings !== null && resourceIds.length === 0,
+    slots: offers ? openSlotMinutes([...closed, ...closures.map((band) => band.span)]) : [],
+    noResource,
     closuresUnknown,
   };
 }

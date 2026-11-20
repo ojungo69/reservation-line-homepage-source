@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { CalendarColumns, DayHeaderCells, DayList, columnState, openingMinute, previousDayKey } from "@/components/calendar-v2/body";
+import { CalendarColumns, DayHeaderCells, DayList, columnState, openingMinute } from "@/components/calendar-v2/body";
 import { buildColumns, effectiveView, slotResource, visibleStoreId, type CalendarColumn, type CalendarView } from "@/components/calendar-v2/columns";
 import { PX_PER_MINUTE, mondayWeek } from "@/components/calendar-v2/geometry";
 import { CalendarGrid } from "@/components/calendar-v2/grid";
@@ -59,8 +59,7 @@ export default function ScheduleV2Page() {
 
   const dayDates = week ? mondayWeek(date) : [date];
   const dayKeys = dayDates.map(formatJstDate);
-  // The day before the first one too: its bookings can run past midnight.
-  const days = useCalendarDays([previousDayKey(dayDates[0]), ...dayKeys]);
+  const days = useCalendarDays(dayKeys);
   const dayByKey = new Map(days.map((day) => [day.dateKey, day]));
   const settingsQuery = useSettings({ live: true });
   const settings = settingsQuery.data?.ok ? settingsQuery.data.settings : null;
@@ -256,7 +255,9 @@ export default function ScheduleV2Page() {
         data-calendar-scroll=""
         // Focus falls back here when what opened a sheet is gone.
         tabIndex={-1}
-        className="h-full overflow-y-auto overscroll-contain outline-hidden"
+        // isolate: the grid's own layers (a focused slot is z-40) stay under the
+        // bar, which comes first in the DOM.
+        className="isolate h-full overflow-y-auto overscroll-contain outline-hidden"
         style={{ paddingTop: layout.barPx, scrollPaddingTop: layout.barPx }}
       >
         {body}

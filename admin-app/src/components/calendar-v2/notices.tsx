@@ -93,7 +93,7 @@ export function CalendarNotices({
       )}
       {closuresUnknownStores.length > 0 && (
         <p role="alert" className={ALERT}>
-          {closuresUnknownStores.join("・")}の休業の件数が多く、表示中の日の休業を確かめられないため、空いた時間を表示していません。
+          {closuresUnknownStores.join("・")}の休業の件数が多く、すべてを読み込めないため、空いた時間を表示していません。
         </p>
       )}
       {capped.length > 0 && (
