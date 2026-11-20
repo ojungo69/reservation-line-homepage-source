@@ -40,7 +40,8 @@ describe("eventLines", () => {
     expect(texts({ ...pending, heightPx: 24, widthPx: 60 })).toEqual(["承認待ち"]);
     expect(texts({ ...pending, heightPx: 24, widthPx: 140 })).toEqual(["承認待ち", "山田 花子"]);
     expect(texts({ ...pending, heightPx: 40, widthPx: 140 })).toEqual(["承認待ち・山田 花子", "10:00–11:00"]);
-    expect(texts({ ...pending, heightPx: 60, widthPx: 140 })).toEqual(["承認待ち", "山田 花子", "10:00–11:00", "カット"]);
+    expect(texts({ ...pending, heightPx: 60, widthPx: 140 })).toEqual(["承認待ち", "山田 花子", "10:00–11:00"]);
+    expect(texts({ ...pending, heightPx: 70, widthPx: 140 })).toEqual(["承認待ち", "山田 花子", "10:00–11:00", "カット"]);
     expect(texts({ ...pending, heightPx: 60, widthPx: 60 })).toEqual(["承認待ち", "山田 花子"]);
   });
 
@@ -48,6 +49,14 @@ describe("eventLines", () => {
     const external = { ...base, title: "歯科", marker: "Google", detail: "" };
     expect(texts({ ...external, heightPx: 24, widthPx: 140 })).toEqual(["Google", "歯科"]);
     expect(texts({ ...external, heightPx: 40, widthPx: 140 })).toEqual(["Google・歯科", "10:00–11:00"]);
+  });
+
+  it("shows the menu line only where it fits below the other lines", () => {
+    // Three 16px lines and the 6px padding and border: 54px.
+    expect(texts({ ...booking, heightPx: 53, widthPx: 140 })).toEqual(["山田 花子", "10:00–11:00"]);
+    expect(texts({ ...booking, heightPx: 54, widthPx: 140 })).toEqual(["山田 花子", "10:00–11:00", "カット"]);
+    // With a marker on its own line, four lines need 70px.
+    expect(texts({ ...pending, heightPx: 69, widthPx: 140 })).toHaveLength(3);
   });
 
   it("gives every line a distinct part, so the parts can be keys", () => {

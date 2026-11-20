@@ -487,13 +487,15 @@ describe("ScheduleV2Page の上部バー", () => {
   });
 
   it("承認待ちの件数は選んでいる店舗の分を出し、一覧から選ぶとその日へ移って詳細を開く", async () => {
+    // Next week's Thursday, so moving there changes the shown columns.
+    pendingRows = [reservation("res-b", "2026-11-26", "10:30", "11:30", { status: "pending_approval" })];
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole("button", { name: "承認待ち 1件" }));
     await user.click(screen.getByRole("button", { name: "承認待ちの予約（s1）" }));
     expect(screen.getByTestId("detail-id").textContent).toBe("res-b");
-    // res-b starts on Wednesday 11/18, inside the shown week.
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("2026年11月");
+    await waitFor(() => expect(column("2026-11-26:s1")).toBeTruthy());
+    expect(column("2026-11-20:s1")).toBeFalsy();
     expect(captured.detail?.reservationId).toBe("res-b");
   });
 
@@ -746,6 +748,8 @@ describe("ScheduleV2Page の空き枠と予約の描き方 (Codex の指摘)", (
     const slot = await screen.findByRole("button", { name: "11月20日（金） 10:00 本店に予約を追加" });
     expect(slot.className).not.toMatch(/(^|\s)focus-visible:z-/);
     expect(slot.className).toContain("focus-visible:after:pointer-events-none");
+    // Two tones, and an outline that forced colors keep.
+    expect(slot.className).toContain("focus-visible:after:outline-cal-surface");
     const bar = document.querySelector(".glass-thick") as HTMLElement;
     const scroller = document.querySelector("[data-calendar-scroll]") as HTMLElement;
     expect(bar.compareDocumentPosition(scroller) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -760,6 +764,25 @@ describe("ScheduleV2Page の空き枠と予約の描き方 (Codex の指摘)", (
     const alert = await screen.findByText(/11月18日（水）の予約の読み込みに失敗しました/);
     const strip = alert.closest(".overflow-y-auto") as HTMLElement;
     expect(strip.classList.contains("max-h-[40dvh]")).toBe(true);
+  });
+});
+
+describe("ScheduleV2Page の一覧 (CodeRabbit の指摘)", () => {
+  it("外部予定だけ取れなかった日でも、予約が0件と分かれば「予約はありません」と、読み上げの領域で示す", async () => {
+    narrow = true;
+    reservationsByDay["2026-11-20"] = [];
+    failingBlockDays.add("2026-11-20");
+    renderPage();
+    const empty = await screen.findByText("この日の予約はありません");
+    expect(empty.closest("output")).not.toBeNull();
+  });
+
+  it("上限のお知らせは、読み上げに割り込む alert にしない", async () => {
+    truncatedBlockDays.add("2026-11-19");
+    renderPage();
+    const notice = await screen.findByText(/11月19日（木）の予定が表示できる上限の件数に達しました。/);
+    expect(notice.closest('[role="alert"]')).toBeNull();
+    expect(notice.closest("output")).not.toBeNull();
   });
 });
 

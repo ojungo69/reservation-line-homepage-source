@@ -228,13 +228,16 @@ export function DayList({
   const rows = [...(day?.reservations ?? [])]
     .filter((reservation) => isScheduleVisibleReservationStatus(reservation.status) && (!storeId || reservation.storeId === storeId))
     .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
-  // A capped list may be missing this store's bookings: never call it empty (UX-21).
+  const loading = !day || day.reservationsStatus === "pending";
+  // A capped or failed list may be missing bookings: never call it empty (UX-21).
+  const empty = day?.reservationsStatus === "ready" && rows.length === 0;
   return (
-    <section aria-label="選択日の予約" className="space-y-2 px-4 py-3">
-      {(!day || day.loading) && <p className="text-sm">予定を読み込み中…</p>}
-      {reservationsComplete(day) && rows.length === 0 && (
-        <p className="rounded-md border border-cal-grid p-6 text-center text-sm">この日の予約はありません</p>
-      )}
+    <section aria-label="選択日の予約" className="px-4 py-3">
+      {/* Always there, so a screen reader hears the day's state after 前/次. */}
+      <output className={cn("block text-sm", (loading || empty) && "mb-2")}>
+        {loading && "予定を読み込み中…"}
+        {empty && <span className="block rounded-md border border-cal-grid p-6 text-center">この日の予約はありません</span>}
+      </output>
       {rows.length > 0 && (
         <ul className="space-y-2">
           {rows.map((reservation) => (

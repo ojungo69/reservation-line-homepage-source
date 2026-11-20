@@ -8,10 +8,13 @@ export type EventTone = "confirmed" | "pending" | "external";
 export type EventLine = Readonly<{ part: "marker" | "title" | "time" | "detail"; text: string; strong?: boolean; wrap?: boolean }>;
 
 // Below these heights a block has room for one row, then for a marker and a name
-// on one line, then for a menu line (the approved prototype's steps).
+// on one line (the approved prototype's steps).
 const ONE_ROW_PX = 34;
 const TIGHT_PX = 52;
-const DETAIL_LINE_PX = 58;
+// A line (leading-4), and a block's padding plus the 承認待ち border (py-0.5,
+// border): the menu line shows only where it fits below the others.
+const LINE_PX = 16;
+const EDGE_PX = 6;
 // Under this usable width a block keeps only the name, or only its marker.
 const NARROW_PX = 72;
 // A one-row block shows its start time (or a marked block its name) only from
@@ -59,7 +62,8 @@ export function eventLines({
       : [{ part: "marker", text: marker, wrap: narrow }, ...head];
   }
   const time: EventLine[] = marker && narrow ? [] : [{ part: "time", text: narrow ? start : range }];
-  const more: EventLine[] = heightPx >= DETAIL_LINE_PX && !narrow && detail ? [{ part: "detail", text: detail }] : [];
+  const fitsMore = heightPx >= (head.length + time.length + 1) * LINE_PX + EDGE_PX;
+  const more: EventLine[] = fitsMore && !narrow && detail ? [{ part: "detail", text: detail }] : [];
   return { inline: false, lines: [...head, ...time, ...more] };
 }
 

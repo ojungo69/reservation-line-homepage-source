@@ -108,16 +108,18 @@ export function CalendarNotices({
           {noHoursStores.join("・")}は営業時間が未設定のため、予約を受け付けていません。店舗設定で営業する曜日と時間を保存してください。
         </output>
       )}
+      {/* Polite, not alerts: a refresh that reaches a limit must not cut into what
+          a screen reader is reading, and the slots are off already. */}
       {closuresUnknownStores.length > 0 && (
-        <p role="alert" className={ALERT}>
+        <output className={ALERT}>
           {closuresUnknownStores.join("・")}の休業が読み込める上限の件数に達しました。読み込めていない休業がある可能性があるため、空いた時間は表示していません。
-        </p>
+        </output>
       )}
       {capped.length > 0 && (
-        <p role="alert" className={ALERT}>
+        <output className={ALERT}>
           {capped.map((day) => dayName(day.dateKey)).join("・")}
           の予定が表示できる上限の件数に達しました。表示されていない予定がある可能性があるため、空いた時間は表示していません。
-        </p>
+        </output>
       )}
     </div>
   );

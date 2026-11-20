@@ -22,10 +22,18 @@ export type DayData = Readonly<{
   // refresh of data already shown (更新), e.g. 予約の更新.
   failed: readonly string[];
   capped: boolean;
+  // The bookings' own fetch, for the list, which shows no blocks.
+  reservationsStatus: "pending" | "failed" | "capped" | "ready";
   // The older of the two fetch times; 0 before both have one.
   updatedAt: number;
   refetch: () => void;
 }>;
+
+function reservationsStatusOf(pending: boolean, failed: boolean, rows: number): DayData["reservationsStatus"] {
+  if (pending) return "pending";
+  if (failed) return "failed";
+  return rows >= RESERVATION_ROW_CAP ? "capped" : "ready";
+}
 
 /**
  * Bookings and external blocks for each shown day, one day per request as today
@@ -51,6 +59,7 @@ export function useCalendarDays(dayKeys: readonly string[]): DayData[] {
         others.isError && `ブロックの${others.data ? "更新" : "読み込み"}`,
       ].filter((name): name is string => Boolean(name)),
       capped: rows.length >= RESERVATION_ROW_CAP || Boolean(others.data?.ok && others.data.truncated),
+      reservationsStatus: reservationsStatusOf(bookings.isPending, bookings.isError, rows.length),
       updatedAt: bookings.dataUpdatedAt > 0 && others.dataUpdatedAt > 0 ? Math.min(bookings.dataUpdatedAt, others.dataUpdatedAt) : 0,
       refetch: () => {
         void bookings.refetch();
