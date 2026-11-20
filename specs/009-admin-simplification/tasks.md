@@ -69,8 +69,8 @@ FR-026 の作成側は、今の予定表と新しい予定表が同じ作成パ�
 
 ### Tests for User Story 1（先に書き、赤を確かめる）
 
-- [ ] T004 [P] [US1] `admin-app/src/lib/reservation-origin.test.ts` に、`DEFAULT_CREATE_ORIGIN` が `"walk_in"` で、`RESERVATION_ORIGIN_OPTIONS` の値の 1 つであることを足す。選択肢の並び（minimo・walk_in・other）と表示名の既存の試験は変えない
-- [ ] T005 [US1] `admin-app/src/components/schedule/reservation-create-panel.test.tsx` の `useSettings` のモックを、試験ごとに設定を差し替えられる形にする。用意する設定は 5 つ: 1 店舗・枠 1、2 店舗・各枠 1、1 店舗・枠 2、1 店舗・稼働中の枠 0、未取得。その上で次を書く:
+- [X] T004 [P] [US1] `admin-app/src/lib/reservation-origin.test.ts` に、`DEFAULT_CREATE_ORIGIN` が `"walk_in"` で、`RESERVATION_ORIGIN_OPTIONS` の値の 1 つであることを足す。選択肢の並び（minimo・walk_in・other）と表示名の既存の試験は変えない
+- [X] T005 [US1] `admin-app/src/components/schedule/reservation-create-panel.test.tsx` の `useSettings` のモックを、試験ごとに設定を差し替えられる形にする。用意する設定は 5 つ: 1 店舗・枠 1、2 店舗・各枠 1、1 店舗・枠 2、1 店舗・稼働中の枠 0、未取得。その上で次を書く:
   - FR-001: 枠 1 では「リソース」の欄が無く、送る `resourceId` がその枠
   - FR-002: 枠 0 では「この店舗は予約枠が未設定のため、予約を作成できません。」が出る。「予約作成」が押せず、作成が呼ばれない
   - FR-003: 枠 2 では欄が出る。選ばずに送ると「必須項目を入力してください」、選ぶとその枠で送る
@@ -85,12 +85,12 @@ FR-026 の作成側は、今の予定表と新しい予定表が同じ作成パ�
     - 必須の欄を確かめる `it.each` のうち、枠 1 の設定で消える「店舗」「リソース」の場合は、欄が出る設定の場合に移す
     - 店舗が未選択のときの案内の試験は、2 店舗の設定にする
     - 送る内容の期待値に `origin: "walk_in"` を足す
-- [ ] T006 [P] [US1] `admin-app/src/pages/schedule.test.tsx` の、全店舗の表示で別の店舗の空き枠から作成を開く試験を直す。今は「リソース」の欄の中身を見ているので、リソースの欄が無く、その店舗の枠で送ることを見る形にする
+- [X] T006 [P] [US1] `admin-app/src/pages/schedule.test.tsx` の、全店舗の表示で別の店舗の空き枠から作成を開く試験を直す。今は「リソース」の欄の中身を見ているので、リソースの欄が無く、その店舗の枠で送ることを見る形にする
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] `admin-app/src/lib/reservation-origin.ts` に `export const DEFAULT_CREATE_ORIGIN: CreateReservationOrigin = "walk_in"` を足す（T004 を緑に）
-- [ ] T008 [US1] `admin-app/src/components/schedule/reservation-create-panel.tsx` を、`resolveCreateTarget` で導いた有効な店舗と枠を使う形にする（T005・T006 を緑に）
+- [X] T007 [US1] `admin-app/src/lib/reservation-origin.ts` に `export const DEFAULT_CREATE_ORIGIN: CreateReservationOrigin = "walk_in"` を足す（T004 を緑に）
+- [X] T008 [US1] `admin-app/src/components/schedule/reservation-create-panel.tsx` を、`resolveCreateTarget` で導いた有効な店舗と枠を使う形にする（T005・T006 を緑に）
   - 導いた値は state に書き戻さない。検査・送信・空き枠の取得・メニューの絞り込み・確認の画面には、有効な値を使う
   - 「店舗」の欄は `soleStore` のときに出さない。店舗を切り替えたときに枠・メニュー・お客様を空にする処理は残す
   - 「リソース」の欄は `multiple` のときだけ出す。`none` のときは、欄の代わりに案内（`role="status"`）を出す。`saveBlocked` のときは「予約作成」を押せなくする
@@ -116,8 +116,8 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
 
 ### Tests for User Story 2（PR A。先に書く）
 
-- [ ] T009 [US2] `admin-app/src/components/schedule/reservation-detail-panel.test.tsx` に、店舗スタッフでも顧客メモとアレルギー・注意事項の値が出ることを固定する試験を足す。今のコードで緑のまま通ることを確かめる（FR-025。詳細パネルを変える前に入れる）
-- [ ] T010 [US2] 同じファイルで `@/hooks/use-settings` をモックし（試験ごとに設定を差し替えられる形）、次を書いて赤を確かめる
+- [X] T009 [US2] `admin-app/src/components/schedule/reservation-detail-panel.test.tsx` に、店舗スタッフでも顧客メモとアレルギー・注意事項の値が出ることを固定する試験を足す。今のコードで緑のまま通ることを確かめる（FR-025。詳細パネルを変える前に入れる）
+- [X] T010 [US2] 同じファイルで `@/hooks/use-settings` をモックし（試験ごとに設定を差し替えられる形）、次を書いて赤を確かめる
   - FR-008: リソースの行の出し分け
     - 出ない: 店舗の稼働中の枠が 1 つで、予約がその枠のとき。設定の読み込み中のとき
     - 出る: 稼働中の枠が 2 つのとき。予約の枠が停止中のとき。設定の取得に失敗したとき
@@ -126,34 +126,34 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
     - 「来店履歴」の見出しが無い。「施術メモ」と、その編集のボタンは残る
     - 「来店なしに訂正」の確認の文に「来店履歴」が無く、「この予約の来店の記録が無効になり」がある
     - 「完了に戻す」の確認の文にも「来店履歴」が無い
-- [ ] T011 [P] [US2] `admin-app/src/components/schedule/reservation-reschedule-dialog.test.tsx`（無ければ作る）に、次を書く: 題名が「開始時刻を変更」、送信のボタンが「この開始時刻に変更」、画面の文に試験の枠の名前が無い
-- [ ] T012 [P] [US2] `admin-app/src/components/schedule/reservation-duration-dialog.test.tsx` に、次を書く
+- [X] T011 [P] [US2] `admin-app/src/components/schedule/reservation-reschedule-dialog.test.tsx`（無ければ作る）に、次を書く: 題名が「開始時刻を変更」、送信のボタンが「この開始時刻に変更」、画面の文に試験の枠の名前が無い
+- [X] T012 [P] [US2] `admin-app/src/components/schedule/reservation-duration-dialog.test.tsx` に、次を書く
   - 題名が「長さを変更」、送信のボタンが「この長さに変更」。今の「施術時間を変更」のボタンを押している 3 か所も直す
   - 画面の文に「担当」が無く、「開始時刻（09:00）はそのままに」がある
   - 固定のデータの `resourceName` は消す
-- [ ] T013 [P] [US2] `admin-app/src/hooks/use-reservations.test.tsx` の完了の通知の期待値を、「開始時刻を変更しました」「長さを変更しました」にする
+- [X] T013 [P] [US2] `admin-app/src/hooks/use-reservations.test.tsx` の完了の通知の期待値を、「開始時刻を変更しました」「長さを変更しました」にする
 
 ### Implementation for User Story 2（PR A）
 
-- [ ] T014 [US2] `admin-app/src/components/schedule/reservation-detail-panel.tsx` を直す（T010 を緑に）
+- [X] T014 [US2] `admin-app/src/components/schedule/reservation-detail-panel.tsx` を直す（T010 を緑に）
   - `useSettings` を読む。次の 2 つのときは「リソース」の行を出さない: `resolveStoreResources` が `single` で予約の `resourceId` がその枠のとき、設定の読み込み中のとき
   - ボタンの名前を「開始時刻を変更」「長さを変更」にする
   - 変更の画面へ渡す値から `resourceName` を外す
   - 「来店履歴」の欄と、使われなくなる読み込みを消す
   - 来店なしへの訂正と、完了に戻すの確認の文から「来店履歴」を外す
   - 顧客メモとアレルギー・注意事項の部分は触らない
-- [ ] T015 [P] [US2] `admin-app/src/components/schedule/reservation-reschedule-dialog.tsx` を直す（T011 を緑に）
+- [X] T015 [P] [US2] `admin-app/src/components/schedule/reservation-reschedule-dialog.tsx` を直す（T011 を緑に）
   - 受け取る型から `resourceName` を消す。空き枠の絞り込みに使う `resourceId` は残す
   - 題名を「開始時刻を変更」にする
   - 説明の文を「施術時間はそのままに、開始時刻を移動します。確定済みの予約はお客様に変更が通知されます。」にする
   - 空き枠の見出しを「空き枠」、送信のボタンを「この開始時刻に変更」にする
-- [ ] T016 [P] [US2] `admin-app/src/components/schedule/reservation-duration-dialog.tsx` を直す（T012 を緑に）
+- [X] T016 [P] [US2] `admin-app/src/components/schedule/reservation-duration-dialog.tsx` を直す（T012 を緑に）
   - 受け取る型から `resourceName` を消す
   - 題名を「長さを変更」にする
   - 説明の文を「開始時刻（{時刻}）はそのままに、施術時間の長さだけを変更します。」にする
   - 送信のボタンを「この長さに変更」にする
   - 入力の欄のラベルと「現在の施術時間」の文は変えない
-- [ ] T017 [P] [US2] `admin-app/src/hooks/use-reservations.ts` の完了の通知の文を「長さを変更しました」「開始時刻を変更しました」にする（T013 を緑に）。API のパスとエラーの文は変えない
+- [X] T017 [P] [US2] `admin-app/src/hooks/use-reservations.ts` の完了の通知の文を「長さを変更しました」「開始時刻を変更しました」にする（T013 を緑に）。API のパスとエラーの文は変えない
 
 ### FR-011 の試験と実装（PR B）
 
@@ -174,36 +174,36 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
 
 ### Tests for User Story 3（先に書き、赤を確かめる）
 
-- [ ] T022 [P] [US3] `admin-app/src/hooks/use-settings-hooks.test.tsx` に、`useResourceList` が返す `isLoaded` を書く。取得が成功したら `true`、取得の失敗と読み込み中は `false`
-- [ ] T023 [P] [US3] `admin-app/src/components/schedule/external-block-create-dialog.test.tsx`（新規）に、次を書く
+- [X] T022 [P] [US3] `admin-app/src/hooks/use-settings-hooks.test.tsx` に、`useResourceList` が返す `isLoaded` を書く。取得が成功したら `true`、取得の失敗と読み込み中は `false`
+- [X] T023 [P] [US3] `admin-app/src/components/schedule/external-block-create-dialog.test.tsx`（新規）に、次を書く
   - 枠 1: 「リソース」の欄が無い。開始・終了を入れて作成すると、その枠で送る。説明の文が「選んだ時間帯を予約不可にします。時刻は5分単位で指定してください。」で、「リソース」の語が無い
   - 枠 0: 「この店舗は予約枠が未設定です。店舗設定の「リソース」タブで追加してください。」が出て、作成できない
   - 枠 2: 欄が出て、選ぶまで作成できない
   - 設定の取得に失敗: 0 件の案内を出さず、作成できない
-- [ ] T024 [P] [US3] `admin-app/src/components/settings/recurring-blocks-tab.test.ts` の `derivePreviewInvalid` の試験に、7 つ目の引数（リソースの判断の `kind`）を足す。既存の場合は `multiple` を渡す。`none` のときは、ほかが全部有効でも、曜日が未選択でも、枠が未設定の理由が返ることを書く
-- [ ] T025 [P] [US3] `admin-app/src/components/settings/recurring-blocks-tab.form.test.tsx`（新規）に、次を書く
+- [X] T024 [P] [US3] `admin-app/src/components/settings/recurring-blocks-tab.test.ts` の `derivePreviewInvalid` の試験に、7 つ目の引数（リソースの判断の `kind`）を足す。既存の場合は `multiple` を渡す。`none` のときは、ほかが全部有効でも、曜日が未選択でも、枠が未設定の理由が返ることを書く
+- [X] T025 [P] [US3] `admin-app/src/components/settings/recurring-blocks-tab.form.test.tsx`（新規）に、次を書く
   - 枠 1: 欄が無く、プレビューから作成まで進むと、その枠で送る
   - 枠 0: 案内が出る
   - 枠 2: 欄が出る
   - 読み込みが終わったあとに、冪等性のキーが新しく作られる（今の動作を固定する）
-- [ ] T026 [P] [US3] `admin-app/src/components/settings/closures-tab.test.tsx`（無ければ作る）に、次を書く
+- [X] T026 [P] [US3] `admin-app/src/components/settings/closures-tab.test.tsx`（無ければ作る）に、次を書く
   - 追加の画面で開始日を選ぶと、終了日に同じ日付が入る
   - 終了日を自分で変えたあとは、開始日を変えても追従しない
   - 編集の画面では追従しない
-- [ ] T027 [P] [US3] `admin-app/src/components/settings/settings-regressions.test.tsx` を直す。設定の読み込みの前に「リソース」の欄を探している試験を、枠の数で出し分ける新しい動作に合わせる
+- [X] T027 [P] [US3] `admin-app/src/components/settings/settings-regressions.test.tsx` を直す。設定の読み込みの前に「リソース」の欄を探している試験を、枠の数で出し分ける新しい動作に合わせる
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] `admin-app/src/hooks/use-resources.ts` の `useResourceList` に `isLoaded`（取得したデータがあるとき `true`）を足す（T022 を緑に）
-- [ ] T029 [US3] `admin-app/src/components/schedule/external-block-create-dialog.tsx` を直す（T023 を緑に）
+- [X] T028 [US3] `admin-app/src/hooks/use-resources.ts` の `useResourceList` に `isLoaded`（取得したデータがあるとき `true`）を足す（T022 を緑に）
+- [X] T029 [US3] `admin-app/src/components/schedule/external-block-create-dialog.tsx` を直す（T023 を緑に）
   - `resolveStoreResources(isLoaded ? resourceList : undefined, storeId, resourceId)` を使う
   - 欄は `multiple` のときだけ出す。送る枠と、作成できるかの判定には、導いた `resourceId` を使う
   - 説明の文を T023 の文にする
-- [ ] T030 [US3] `admin-app/src/components/settings/recurring-blocks-tab.tsx` で同じ判断を使う（T024・T025 を緑に）
+- [X] T030 [US3] `admin-app/src/components/settings/recurring-blocks-tab.tsx` で同じ判断を使う（T024・T025 を緑に）
   - 欄は `multiple` のときだけ出す
   - 導いた `resourceId` を使う所: プレビューの検査、プレビューを消す処理の依存、冪等性のキー、送る内容
   - `derivePreviewInvalid` は、`none` のときに枠が未設定の理由を返す
-- [ ] T031 [US3] `admin-app/src/components/settings/closures-tab.tsx` に、「終了日を触ったか」の状態を足す（T026 を緑に）
+- [X] T031 [US3] `admin-app/src/components/settings/closures-tab.tsx` に、「終了日を触ったか」の状態を足す（T026 を緑に）
   - 追加の画面で、触っていない間は、開始日を変えると終了日を合わせる
   - リセットのときに、この状態を戻す
   - 編集の画面は今どおり
@@ -273,7 +273,7 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
 
 ### Tests for User Story 5（先に書き、赤を確かめる）
 
-- [ ] T047 [US5] PR A。`admin-app/src/components/settings/settings-tabs-status.test.tsx` と `admin-app/src/hooks/use-settings-hooks.test.tsx` の試験を直す（T022 の後）
+- [X] T047 [US5] PR A。`admin-app/src/components/settings/settings-tabs-status.test.tsx` と `admin-app/src/hooks/use-settings-hooks.test.tsx` の試験を直す（T022 の後）
   - `admin-app/src/components/settings/settings-tabs-status.test.tsx` に、リソース一覧に「削除」のボタンが無く、「無効化」「有効化」が出ることを書く
   - 同じファイルで、リソースの削除の確認を開く試験を、休業日の削除の確認だけにする
   - `admin-app/src/hooks/use-settings-hooks.test.tsx` から、`useResourceDelete` の試験を消す
@@ -291,10 +291,10 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
 
 ### Implementation for User Story 5
 
-- [ ] T051 [US5] PR A。`admin-app/src/components/settings/resources-tab.tsx` と `admin-app/src/hooks/use-resources.ts` から、リソースの削除の操作を消す（T047 を緑に）。サーバーの削除の API は残す
+- [X] T051 [US5] PR A。`admin-app/src/components/settings/resources-tab.tsx` と `admin-app/src/hooks/use-resources.ts` から、リソースの削除の操作を消す（T047 を緑に）。サーバーの削除の API は残す
   - `admin-app/src/components/settings/resources-tab.tsx` の「削除」のボタンと、確認の画面と、その状態を消す
   - `admin-app/src/hooks/use-resources.ts` の `useResourceDelete` を消す
-- [ ] T052 [P] [US5] PR A。`admin-app/src/pages/settings.tsx` ほか 3 つのファイルの古いコメントと説明を、実態に合わせて直す。実態は次の 2 つ: 削除は停止にするだけで、行は消えない。将来の予約がある枠は、停止を拒否する。直すファイルは次の 4 つ
+- [X] T052 [P] [US5] PR A。`admin-app/src/pages/settings.tsx` ほか 3 つのファイルの古いコメントと説明を、実態に合わせて直す。実態は次の 2 つ: 削除は停止にするだけで、行は消えない。将来の予約がある枠は、停止を拒否する。直すファイルは次の 4 つ
   - `admin-app/src/pages/settings.tsx`
   - `src/admin/settings-common.ts`
   - `src/admin/settings-resources.ts`
@@ -316,7 +316,7 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
 - [ ] T056 `admin-app/src/` と `src/` で、変えた関数・型・export の呼び出し元を、全部確かめる。消した関数がほかで使われていないこと、型から消した値を渡している所が無いことを見る。そのあと `git diff --check` を通し、`git diff --name-only` に配備と検査の設定ファイルが無いことを確かめる
 - [ ] T057 plan.md の「検証」にある、CI と同じ一式を通す（PR A と PR B のそれぞれで）
 - [ ] T058 quickstart.md の 2（手元の画面）を、今の予定表と新しい予定表の両方で確かめる
-- [ ] T059 [P] `specs/008-admin-calendar-ux/tasks.md` の T005 の後半の項目に、1 行を足す（PR A）。詳細の小窓の操作の名前は、spec 009 の「開始時刻を変更」「長さを変更」を使う、という内容
+- [X] T059 [P] `specs/008-admin-calendar-ux/tasks.md` の T005 の後半の項目に、1 行を足す（PR A）。詳細の小窓の操作の名前は、spec 009 の「開始時刻を変更」「長さを変更」を使う、という内容
 
 ---
 
