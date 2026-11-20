@@ -1,0 +1,21 @@
+specs/009-admin-simplification/verify-tasks-report.md
+  s_d52c2d995f51c6::t_80a19adb0a395e 1-103
+specs/009-admin-simplification/tasks.md
+  s_d52c2d995f51c6::t_98599a6912e6ca 72-73,88,92-93,119-120,129-130,134,138,145,150,156,177-178,183-184,189,193,197-198,202,206,276,294,297,319
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "de387dba5f5cceae8f8b6bb07182d9626b15a8e4",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
