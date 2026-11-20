@@ -130,6 +130,8 @@ export default function AppShellV2() {
       menuButtonRef: barMenuRef,
       menuOpen: drawerOpen,
       openMenu: () => setDrawerOpen(true),
+      // onPaletteOpenChange reads only refs and setters, so the first render's copy is current.
+      openPalette: (opener) => onPaletteOpenChange(true, opener),
       setOwnTopBar,
       setPaletteBlocked: (blocked) => {
         paletteBlocked.current = blocked;

@@ -27,7 +27,8 @@ export function CalendarGrid({ children }: Readonly<{ children: ReactNode }>) {
         ))}
       </div>
       <div className="relative flex min-w-0 flex-1">
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        {/* Above the closed-hours bands (opaque in dark mode), below the bookings. */}
+        <div aria-hidden="true" data-grid-lines="" className="pointer-events-none absolute inset-0 z-1">
           {HOURS.map((hour) => (
             <Fragment key={hour}>
               {hour > 0 && <div className="absolute inset-x-0 border-t border-cal-grid" style={{ top: hour * HOUR_PX }} />}

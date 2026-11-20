@@ -8,6 +8,10 @@ import type { ExternalBlock, Reservation } from "@/types/api";
 // The day list returns at most 200 rows and says nothing when it cut some off, so
 // a full page may be missing bookings and is treated as capped (UX-21).
 const RESERVATION_ROW_CAP = 200;
+// Today changes while staff work; other days rarely do. Polling a week's other six
+// days every 2 minutes instead of every 30 seconds cuts its background requests
+// from 14 to about 5 per 30 seconds (battery, and the Worker's daily requests).
+const OTHER_DAY_POLL_MS = 120_000;
 
 export type DayData = Readonly<{
   dateKey: string;
@@ -29,8 +33,10 @@ export type DayData = Readonly<{
  * (the same queries and cache as the current day view, no server change).
  */
 export function useCalendarDays(dayKeys: readonly string[]): DayData[] {
-  const reservations = useQueries({ queries: dayKeys.map((dateKey) => reservationsQuery(dateKey)) });
-  const blocks = useQueries({ queries: dayKeys.map((dateKey) => externalBlocksQuery(dateKey)) });
+  const todayKey = formatJstDate(new Date());
+  const poll = (dateKey: string) => (dateKey === todayKey ? {} : { refetchInterval: OTHER_DAY_POLL_MS });
+  const reservations = useQueries({ queries: dayKeys.map((dateKey) => ({ ...reservationsQuery(dateKey), ...poll(dateKey) })) });
+  const blocks = useQueries({ queries: dayKeys.map((dateKey) => ({ ...externalBlocksQuery(dateKey), ...poll(dateKey) })) });
   return dayKeys.map((dateKey, index) => {
     const bookings = reservations[index];
     const others = blocks[index];

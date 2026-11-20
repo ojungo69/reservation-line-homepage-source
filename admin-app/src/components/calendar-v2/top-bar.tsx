@@ -1,5 +1,5 @@
-import { useLayoutEffect, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Menu } from "lucide-react";
+import { useLayoutEffect, type ReactNode, type Ref } from "react";
+import { Check, ChevronLeft, ChevronRight, Menu, Search } from "lucide-react";
 import { PRESSABLE } from "@/components/shell-v2/pressable";
 import { useShellV2 } from "@/components/shell-v2/shell-context";
 import { StoreSwitchV2 } from "@/components/shell-v2/store-switch-v2";
@@ -17,13 +17,16 @@ const VIEWS: Array<{ view: CalendarView; label: string }> = [
 
 /**
  * The calendar's floating top bar (DESIGN.md §3, §5): glass-thick over the
- * scrolling grid, in place of the shell's header. Text on the glass is body
- * color only; the pending entry and the chosen view are fills with their own
- * text colors. Today, back and forward move by the view's unit here; swipe,
- * wheel and the mini calendar come with T006.
+ * scrolling grid, in place of the shell's header, so it also carries the
+ * shell's menu and page move. Text on the glass is body color only; the pending
+ * entry and the chosen view are fills with their own text colors, and the
+ * chosen view also has a check, so it is not told apart by hue alone. Today,
+ * back and forward move by the view's unit here; swipe, wheel and the mini
+ * calendar come with T006.
  */
 export function CalendarTopBar({
   heading,
+  headingRef,
   view,
   weekShown,
   onView,
@@ -35,6 +38,9 @@ export function CalendarTopBar({
   dayHeader,
 }: Readonly<{
   heading: string;
+  // Focus lands here when the control that had it goes away (a day header in the
+  // week, a retry button once its alert clears).
+  headingRef: Ref<HTMLHeadingElement>;
   view: CalendarView;
   // Phones get no week button: seven columns do not fit (DESIGN.md §5).
   weekShown: boolean;
@@ -43,7 +49,7 @@ export function CalendarTopBar({
   onStep: (direction: -1 | 1) => void;
   stepUnit: "日" | "週";
   pendingCount: number | null;
-  onOpenPending: () => void;
+  onOpenPending: (opener: HTMLElement) => void;
   dayHeader: ReactNode;
 }>) {
   const shell = useShellV2();
@@ -83,35 +89,53 @@ export function CalendarTopBar({
         <button type="button" onClick={() => onStep(1)} aria-label={`次の${stepUnit}`} className={ICON_BUTTON}>
           <ChevronRight className="size-5" aria-hidden="true" />
         </button>
-        <h1 aria-live="polite" className="min-w-0 truncate px-1 text-xl max-sm:text-lg">
+        <h1 ref={headingRef} tabIndex={-1} aria-live="polite" className="min-w-0 truncate px-1 text-xl outline-hidden max-sm:text-lg">
           {heading}
         </h1>
         <div className="flex-1" />
+        {shell && (
+          // Not on phones: the drawer lists every page there, and one more button
+          // would wrap the bar to a third row.
+          <button
+            type="button"
+            onClick={(event) => shell.openPalette(event.currentTarget)}
+            aria-label="ページ移動 (Cmd/Ctrl+K)"
+            aria-keyshortcuts="Meta+K Control+K"
+            className={cn(ICON_BUTTON, "max-sm:hidden")}
+          >
+            <Search className="size-5" aria-hidden="true" />
+          </button>
+        )}
         <StoreSwitchV2 />
         <button
           type="button"
-          onClick={onOpenPending}
-          className={cn("min-h-11 rounded-full bg-cal-pending px-4 text-sm font-medium text-cal-on-pending", PRESSABLE)}
+          onClick={(event) => onOpenPending(event.currentTarget)}
+          className={cn("min-h-11 rounded-full bg-cal-pending px-4 text-sm font-medium text-cal-on-pending max-sm:px-3", PRESSABLE)}
         >
           承認待ち{pendingCount === null ? "" : ` ${pendingCount}件`}
         </button>
         <fieldset className="flex rounded-full bg-cal-detail p-0.5">
           <legend className="sr-only">表示</legend>
-          {VIEWS.filter((entry) => weekShown || entry.view !== "week").map((entry) => (
-            <button
-              key={entry.view}
-              type="button"
-              aria-pressed={view === entry.view}
-              onClick={() => onView(entry.view)}
-              className={cn(
-                "min-h-11 min-w-11 rounded-full px-3 text-sm",
-                view === entry.view ? "bg-cal-selected font-medium text-cal-on-selected" : "text-cal-text",
-                PRESSABLE,
-              )}
-            >
-              {entry.label}
-            </button>
-          ))}
+          {VIEWS.filter((entry) => weekShown || entry.view !== "week").map((entry) => {
+            const chosen = view === entry.view;
+            return (
+              <button
+                key={entry.view}
+                type="button"
+                aria-pressed={chosen}
+                onClick={() => onView(entry.view)}
+                className={cn(
+                  // Tighter on phones, so the check fits without a third row of tools.
+                  "flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full px-3 text-sm max-sm:gap-0.5 max-sm:px-2",
+                  chosen ? "bg-cal-selected font-medium text-cal-on-selected" : "text-cal-text",
+                  PRESSABLE,
+                )}
+              >
+                {chosen && <Check className="size-4" aria-hidden="true" data-chosen-mark="" />}
+                {entry.label}
+              </button>
+            );
+          })}
         </fieldset>
       </div>
       {dayHeader}

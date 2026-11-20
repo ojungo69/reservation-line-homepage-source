@@ -78,9 +78,9 @@ export function CalendarColumns({
   nowMinute: number;
   columnPx: number | null;
   selectedId: string | null;
-  onSlot: (column: CalendarColumn, minute: number) => void;
-  onReservation: (id: string) => void;
-  onBlock?: (block: ExternalBlock) => void;
+  onSlot: (column: CalendarColumn, minute: number, opener: HTMLElement) => void;
+  onReservation: (id: string, opener: HTMLElement) => void;
+  onBlock?: (block: ExternalBlock, opener: HTMLElement) => void;
 }>) {
   const firstToday = columns.find((column) => column.dateKey === todayKey)?.key;
   return columns.map((column) => {
@@ -167,13 +167,14 @@ export function DayList({
   day,
   storeId,
   onDetails,
-}: Readonly<{ day: DayData | undefined; storeId: string | null; onDetails: (id: string) => void }>) {
+}: Readonly<{ day: DayData | undefined; storeId: string | null; onDetails: (id: string, opener: HTMLElement) => void }>) {
   const rows = [...(day?.reservations ?? [])]
     .filter((reservation) => isScheduleVisibleReservationStatus(reservation.status) && (!storeId || reservation.storeId === storeId))
     .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
   const settled = day !== undefined && !day.loading && day.failed.length === 0;
   return (
     <section aria-label="選択日の予約" className="space-y-2 px-4 py-3">
+      {(!day || day.loading) && <p className="text-sm">予定を読み込み中…</p>}
       {settled && rows.length === 0 && (
         <p className="rounded-md border border-cal-grid p-6 text-center text-sm">この日の予約はありません</p>
       )}
@@ -181,7 +182,12 @@ export function DayList({
         <ul className="space-y-2">
           {rows.map((reservation) => (
             <li key={reservation.id}>
-              <ReservationListCard reservation={reservation} onDetails={onDetails} />
+              <ReservationListCard
+                reservation={reservation}
+                // The card's 詳細 button had focus when pressed (or Safari's click
+                // left it on <body>): give back what is focused, else the list.
+                onDetails={(id) => onDetails(id, document.activeElement instanceof HTMLElement ? document.activeElement : document.body)}
+              />
             </li>
           ))}
         </ul>

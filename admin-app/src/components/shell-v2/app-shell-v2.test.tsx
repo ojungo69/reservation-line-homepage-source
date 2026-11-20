@@ -115,6 +115,11 @@ function OwnBarPage({ blockPalette = false }: Readonly<{ blockPalette?: boolean 
           メニュー
         </button>
       )}
+      {shell && (
+        <button type="button" onClick={(event) => shell.openPalette(event.currentTarget)}>
+          バーのページ移動
+        </button>
+      )}
     </div>
   );
 }
@@ -545,10 +550,22 @@ describe("AppShellV2 と自分の上部バーを持つ画面 (T005)", () => {
     expect(screen.getByRole("main").classList.contains("overflow-auto")).toBe(true);
   });
 
-  it("画面が止めている間は、Cmd/Ctrl+K でもページ移動を開かない", async () => {
+  it("上部バーのボタンからもページ移動を開き、閉じるとそのボタンへフォーカスを戻す", async () => {
+    const user = userEvent.setup();
+    renderOwnBar(<OwnBarPage />);
+    const button = screen.getByRole("button", { name: "バーのページ移動" });
+    await user.click(button);
+    expect(palette()).not.toBeNull();
+    await closePalette(user);
+    expect(document.activeElement).toBe(button);
+  });
+
+  it("画面が止めている間は、Cmd/Ctrl+K でもバーのボタンでもページ移動を開かない", async () => {
     const user = userEvent.setup();
     const { rerender } = renderOwnBar(<OwnBarPage blockPalette />);
     await user.keyboard("{Control>}k{/Control}");
+    expect(palette()).toBeNull();
+    await user.click(screen.getByRole("button", { name: "バーのページ移動" }));
     expect(palette()).toBeNull();
     rerender(
       <MemoryRouter initialEntries={["/"]}>

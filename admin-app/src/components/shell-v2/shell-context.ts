@@ -10,6 +10,8 @@ export type ShellV2 = Readonly<{
   menuButtonRef: Ref<HTMLButtonElement>;
   menuOpen: boolean;
   openMenu: () => void;
+  // Page move from the page's own bar; focus goes back to opener when it closes.
+  openPalette: (opener: HTMLElement) => void;
   /**
    * Set while the page's own top bar is mounted. The shell then drops its header
    * and keeps <main> from scrolling, so the bar's glass never sits inside a

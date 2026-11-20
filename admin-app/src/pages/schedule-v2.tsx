@@ -48,12 +48,15 @@ export default function ScheduleV2Page() {
   // T006 remembers the choice per device; until then a phone starts on the list
   // and a wider screen on the week, as DESIGN.md §5 sets for the first visit.
   const [requested, setRequested] = useState<CalendarView>(() => (narrow ? "list" : "week"));
+  // The 週 button was pressed while all stores are shown: say why the day stays.
+  const [weekAsked, setWeekAsked] = useState(false);
   const view = effectiveView(requested, { narrow, storeId });
   const week = view === "week";
   const { date, setDate, now } = useCalendarDate();
   const location = useLocation();
   const navigate = useNavigate();
   const shell = useShellV2();
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   const dayDates = week ? mondayWeek(date) : [date];
   const dayKeys = dayDates.map(formatJstDate);
@@ -80,6 +83,20 @@ export default function ScheduleV2Page() {
     return () => shell.setPaletteBlocked(false);
   }, [shell, sheetOpen]);
 
+  // The sheets open without a Radix trigger, so Radix has nowhere to return focus
+  // when they close. Remember what opened one and go back there, else to the grid.
+  const opener = useRef<HTMLElement | null>(null);
+  const remember = (element: HTMLElement) => {
+    opener.current = element;
+  };
+  useEffect(() => {
+    if (sheetOpen || !opener.current) return;
+    const target = opener.current;
+    opener.current = null;
+    if (target !== document.body && target.isConnected) target.focus();
+    if (document.activeElement !== target) scrollerRef.current?.focus();
+  }, [sheetOpen, scrollerRef]);
+
   // Open at the store's opening time (DESIGN.md §5) when the shown days, the store
   // or the view change; scrollKey names every input read here, so a refresh does
   // not move the grid.
@@ -87,8 +104,12 @@ export default function ScheduleV2Page() {
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
-    const open = Math.min(...columns.map((column) => openingMinute(settings, column)), 9 * 60);
-    scroller.scrollTop = view === "list" || !settings ? 0 : Math.max(0, (open - 30) * PX_PER_MINUTE);
+    if (view === "list" || !settings || columns.length === 0) {
+      scroller.scrollTop = 0;
+      return;
+    }
+    const open = Math.min(...columns.map((column) => openingMinute(settings, column)));
+    scroller.scrollTop = Math.max(0, (open - 30) * PX_PER_MINUTE);
   }, [scrollKey]);
 
   // 次回予約 from a customer's chart lands here with the customer in the history
@@ -107,27 +128,47 @@ export default function ScheduleV2Page() {
   }, [location.state, navigate]);
 
   const onSlot = useCallback(
-    (column: CalendarColumn, minutes: number) => {
+    (column: CalendarColumn, minutes: number, from: HTMLElement) => {
       if (!settings) return;
       const resource = slotResource(column.storeId, settings.resources);
       if (resource.kind === "none") {
         toast.info(`${column.storeName}には予約を受ける枠（リソース）がありません。設定で追加してください。`);
         return;
       }
+      opener.current = from;
       const resourceId = resource.kind === "one" ? resource.resourceId : null;
       setCreateDefaults({ storeId: column.storeId, resourceId, minutes, date: column.date });
     },
     [settings],
   );
-  const onReservation = useCallback((id: string) => setSelectedReservationId(id), []);
-  const onBlock = useCallback((block: ExternalBlock) => setCancelBlock(block), []);
+  const onReservation = useCallback((id: string, from: HTMLElement) => {
+    opener.current = from;
+    setSelectedReservationId(id);
+  }, []);
+  const onBlock = useCallback((block: ExternalBlock, from: HTMLElement) => {
+    opener.current = from;
+    setCancelBlock(block);
+  }, []);
+  // The pressed day header goes away with the week, so focus moves to the heading,
+  // which names the day just opened.
+  const focusHeading = useRef(false);
+  useEffect(() => {
+    if (!focusHeading.current) return;
+    focusHeading.current = false;
+    headingRef.current?.focus();
+  });
   const openDay = useCallback(
     (day: Date) => {
       setDate(day);
       setRequested("day");
+      focusHeading.current = true;
     },
     [setDate],
   );
+  const onView = (next: CalendarView) => {
+    setRequested(next);
+    setWeekAsked(next === "week");
+  };
 
   const pendingList = pendingQuery.data?.ok ? pendingQuery.data.reservations : [];
   const pendingReady = !pendingQuery.isPending && !pendingQuery.isError;
@@ -149,60 +190,73 @@ export default function ScheduleV2Page() {
     </DayHeader>
   );
 
+  let body = <DayList day={dayByKey.get(dayKeys[0])} storeId={storeId} onDetails={onReservation} />;
+  if (view !== "list") {
+    body =
+      columns.length === 0 ? (
+        // Columns need the store list, which comes with the store settings.
+        <p className="px-4 py-3 text-sm">{settingsQuery.isPending ? "予定を読み込み中…" : "表示できる店舗がありません。"}</p>
+      ) : (
+        <CalendarGrid>
+          <CalendarColumns
+            columns={columns}
+            dayByKey={dayByKey}
+            settings={settings}
+            settingsUsable={settings !== null && !settingsQuery.isError}
+            week={week}
+            todayKey={todayKey}
+            nowMinute={nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes()}
+            columnPx={layout.columnPx}
+            selectedId={selectedReservationId}
+            onSlot={onSlot}
+            onReservation={onReservation}
+            onBlock={isPrivileged ? onBlock : undefined}
+          />
+        </CalendarGrid>
+      );
+  }
+
   return (
     <div className="relative h-full overflow-hidden bg-cal-surface text-cal-text">
       <div
         ref={scrollerRef}
         data-calendar-scroll=""
-        className="h-full overflow-y-auto overscroll-contain"
+        // Focus falls back here when what opened a sheet is gone.
+        tabIndex={-1}
+        className="h-full overflow-y-auto overscroll-contain outline-hidden"
         style={{ paddingTop: layout.barPx, scrollPaddingTop: layout.barPx }}
       >
-        {view === "list" ? (
-          <DayList day={dayByKey.get(dayKeys[0])} storeId={storeId} onDetails={onReservation} />
-        ) : (
-          <CalendarGrid>
-            <CalendarColumns
-              columns={columns}
-              dayByKey={dayByKey}
-              settings={settings}
-              settingsUsable={settings !== null && !settingsQuery.isError}
-              week={week}
-              todayKey={todayKey}
-              nowMinute={nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes()}
-              columnPx={layout.columnPx}
-              selectedId={selectedReservationId}
-              onSlot={onSlot}
-              onReservation={onReservation}
-              onBlock={isPrivileged ? onBlock : undefined}
-            />
-          </CalendarGrid>
-        )}
+        {body}
       </div>
 
       <div ref={overlayRef} className="pointer-events-none absolute inset-x-0 top-0 z-40">
         <CalendarTopBar
           heading={week ? weekHeading(dayDates) : dayTitle}
+          headingRef={headingRef}
           view={view}
           weekShown={!narrow}
-          onView={setRequested}
+          onView={onView}
           onToday={() => setDate(new Date())}
           onStep={(direction) => setDate(addDays(date, direction * (week ? 7 : 1)))}
           stepUnit={week ? "週" : "日"}
           pendingCount={pendingCount}
-          onOpenPending={() => setPendingOpen(true)}
+          onOpenPending={(from) => {
+            remember(from);
+            setPendingOpen(true);
+          }}
           dayHeader={view === "list" ? null : dayHeader}
         />
         <CalendarNotices
           days={days}
           dayName={(dateKey) => dayLabel(dayDates[dayKeys.indexOf(dateKey)] ?? date)}
           settings={{
-            loading: settingsQuery.isPending,
             failed: settingsQuery.isError,
             hadData: settings !== null,
             updatedAt: settingsQuery.dataUpdatedAt,
             refetch: () => void settingsQuery.refetch(),
           }}
-          weekNeedsStore={requested === "week" && !narrow && storeId === null && stores.length > 1}
+          weekNeedsStore={weekAsked && requested === "week" && !narrow && storeId === null && stores.length > 1}
+          onRetried={() => headingRef.current?.focus()}
         />
       </div>
 

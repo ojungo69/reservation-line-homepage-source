@@ -1,4 +1,4 @@
-import { memo, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { displayServiceName } from "@/lib/service-pricing";
 import { formatTime, statusLabel } from "@/lib/timeline";
 import type { ExternalBlock, Reservation } from "@/types/api";
@@ -45,13 +45,14 @@ function moveSlotFocus(event: KeyboardEvent<HTMLButtonElement>) {
 function present(item: CalendarItem, dayLabel: string) {
   if (item.kind === "reservation") {
     const { reservation } = item;
-    const tone: EventTone = reservation.status === "pending_approval" ? "pending" : "confirmed";
+    const pending = reservation.status === "pending_approval";
     const start = formatTime(reservation.startAt);
     const end = formatTime(reservation.endAt);
     const detail = displayServiceName(reservation.serviceName);
     return {
       id: reservation.id,
-      tone,
+      tone: (pending ? "pending" : "confirmed") as EventTone,
+      marker: pending ? "承認待ち" : null,
       title: reservation.customerDisplayName,
       start,
       range: `${start}–${end}`,
@@ -63,15 +64,17 @@ function present(item: CalendarItem, dayLabel: string) {
   const start = formatTime(block.startAt);
   const end = formatTime(block.endAt);
   const title = block.titleSnapshot ?? "外部予定";
-  const detail = block.source === "admin_block" ? "ブロック" : "Googleカレンダー";
+  const manual = block.source === "admin_block";
   return {
     id: block.id,
-    tone: "external" as const,
+    tone: "external" as EventTone,
+    // The source is the marker, so a short block still says where it came from.
+    marker: manual ? "ブロック" : "Google",
     title,
     start,
     range: `${start}–${end}`,
-    detail,
-    label: `${title}、${dayLabel}、${start}から${end}、${detail}`,
+    detail: "",
+    label: `${title}、${dayLabel}、${start}から${end}、${manual ? "ブロック" : "Googleカレンダー"}`,
   };
 }
 
@@ -81,7 +84,7 @@ type ColumnProps = Readonly<{
   items: readonly CalendarItem[];
   closed: readonly Span[];
   closures: readonly ClosureBand[];
-  // The slot that takes Tab: the opening time, so Tab lands where work starts.
+  // The slot that takes Tab until the user moves: the opening time, where work starts.
   entryMinute: number;
   // Off while the day is loading, failed or capped: incomplete data must not
   // read as free time (UX-21).
@@ -91,13 +94,14 @@ type ColumnProps = Readonly<{
   showNowDot: boolean;
   widthPx: number | null;
   selectedId: string | null;
-  onSlot: (column: CalendarColumn, minute: number) => void;
-  onReservation: (id: string) => void;
-  onBlock?: (block: ExternalBlock) => void;
+  // Each gets the element that was pressed, so focus can go back to it.
+  onSlot: (column: CalendarColumn, minute: number, opener: HTMLElement) => void;
+  onReservation: (id: string, opener: HTMLElement) => void;
+  onBlock?: (block: ExternalBlock, opener: HTMLElement) => void;
 }>;
 
 /** One day of one store on the shared time axis (UX-02, UX-03). */
-export const CalendarColumnView = memo(function CalendarColumnView({
+export function CalendarColumnView({
   column,
   dayLabel,
   items,
@@ -114,6 +118,10 @@ export const CalendarColumnView = memo(function CalendarColumnView({
   onReservation,
   onBlock,
 }: ColumnProps) {
+  // Roving tab stop: the slot last focused keeps Tab, so Shift+Tab leaves the grid
+  // instead of jumping back to the opening time.
+  const [tabMinute, setTabMinute] = useState<number | null>(null);
+  const tabStop = tabMinute ?? entryMinute;
   const placed = layoutLanes(
     items.map((item) => ({ item, start: item.span.start, end: item.span.end })),
     MIN_EVENT_PX / PX_PER_MINUTE,
@@ -145,21 +153,24 @@ export const CalendarColumnView = memo(function CalendarColumnView({
           <button
             key={minute}
             type="button"
-            tabIndex={minute === entryMinute ? 0 : -1}
+            tabIndex={minute === tabStop ? 0 : -1}
             data-slot-minutes={minute}
             aria-label={`${dayLabel} ${clock(minute)} ${column.storeName}に予約を追加`}
-            onClick={() => onSlot(column, minute)}
+            onClick={(event) => onSlot(column, minute, event.currentTarget)}
+            onFocus={() => setTabMinute(minute)}
             onKeyDown={moveSlotFocus}
             className="absolute inset-x-0 h-3 hover:bg-cal-text/5 focus-visible:z-40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cal-primary"
             style={{ top: minute * PX_PER_MINUTE }}
           />
         ))}
       {placed.map(({ item, start, end, lane, lanes, span }) => {
-        const top = start * PX_PER_MINUTE;
-        const height = Math.min(Math.max((end - start) * PX_PER_MINUTE, MIN_EVENT_PX), DAY_PX - top);
+        // Keep the minimum height at the day's end too, by drawing a late block
+        // upward rather than cutting it to a sliver.
+        const height = Math.max((end - start) * PX_PER_MINUTE, MIN_EVENT_PX);
+        const top = Math.min(start * PX_PER_MINUTE, DAY_PX - height);
         const shown = present(item, dayLabel);
         const { inline, lines } = eventLines({
-          tone: shown.tone,
+          marker: shown.marker,
           heightPx: height,
           widthPx: widthPx === null ? null : (widthPx * span) / lanes - 4,
           title: shown.title,
@@ -167,9 +178,9 @@ export const CalendarColumnView = memo(function CalendarColumnView({
           range: shown.range,
           detail: shown.detail,
         });
-        let onSelect: (() => void) | undefined;
-        if (item.kind === "reservation") onSelect = () => onReservation(item.reservation.id);
-        else if (onBlock && item.block.source === "admin_block") onSelect = () => onBlock(item.block);
+        let onSelect: ((opener: HTMLElement) => void) | undefined;
+        if (item.kind === "reservation") onSelect = (opener) => onReservation(item.reservation.id, opener);
+        else if (onBlock && item.block.source === "admin_block") onSelect = (opener) => onBlock(item.block, opener);
         return (
           <CalendarEvent
             key={`${item.kind}-${shown.id}`}
@@ -204,4 +215,4 @@ export const CalendarColumnView = memo(function CalendarColumnView({
       )}
     </div>
   );
-});
+}

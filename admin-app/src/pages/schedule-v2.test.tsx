@@ -40,7 +40,13 @@ vi.mock("@/components/schedule/sync-attention", () => ({ ScheduleSyncAttention: 
 vi.mock("@/components/schedule/reservation-detail-panel", () => ({
   ReservationDetailPanel: (props: { reservationId: string | null; onClose: () => void }) => {
     captured.detail = props;
-    return props.reservationId ? <div role="dialog" aria-label="予約の詳細">{props.reservationId}</div> : null;
+    // Holds focus like the real sheet, so closing it drops focus to <body>.
+    return props.reservationId ? (
+      <div role="dialog" aria-label="予約の詳細">
+        <span data-testid="detail-id">{props.reservationId}</span>
+        <button type="button">詳細の中のボタン</button>
+      </div>
+    ) : null;
   },
 }));
 vi.mock("@/components/schedule/reservation-create-panel", () => ({
@@ -171,13 +177,17 @@ function renderPage({ shell, state }: { shell?: ShellV2; state?: unknown } = {})
       <LocationProbe />
     </>
   );
-  return render(
-    <QueryClientProvider client={createTestQueryClient()}>
-      <MemoryRouter initialEntries={[{ pathname: "/", state }]}>
-        {shell ? <ShellV2Context.Provider value={shell}>{page}</ShellV2Context.Provider> : page}
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  const client = createTestQueryClient();
+  return {
+    client,
+    ...render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[{ pathname: "/", state }]}>
+          {shell ? <ShellV2Context.Provider value={shell}>{page}</ShellV2Context.Provider> : page}
+        </MemoryRouter>
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 const fakeShell = (): ShellV2 & { calls: { ownTopBar: boolean[]; blocked: boolean[] } } => {
@@ -188,6 +198,7 @@ const fakeShell = (): ShellV2 & { calls: { ownTopBar: boolean[]; blocked: boolea
     menuButtonRef: { current: null },
     menuOpen: false,
     openMenu: vi.fn(),
+    openPalette: vi.fn(),
     setOwnTopBar: (own) => calls.ownTopBar.push(own),
     setPaletteBlocked: (blocked) => calls.blocked.push(blocked),
   };
@@ -317,14 +328,19 @@ describe("ScheduleV2Page の週表示", () => {
 });
 
 describe("ScheduleV2Page の店舗の扱い", () => {
-  it("全店舗では日表示で店舗ごとに列を並べ、週を選ぶと店舗を選ぶよう案内する", async () => {
+  it("全店舗では日表示で店舗ごとに列を並べ、週を押すと店舗を選ぶよう案内する", async () => {
     storeState.selected = null;
     storeState.stores = STORES;
+    const user = userEvent.setup();
     renderPage();
-    expect(await screen.findByText("週表示は店舗を1つ選ぶと使えます。上部の店舗の切り替えで選んでください。")).toBeTruthy();
+    expect(await eventButton(/^駅前 次郎、/)).toBeTruthy();
     expect(document.querySelectorAll("[data-calendar-column]")).toHaveLength(3);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("11月20日（金）");
-    expect(await eventButton(/^駅前 次郎、/)).toBeTruthy();
+    // Not on the first visit: only once the user asks for the week.
+    expect(screen.queryByText(/週表示は店舗を1つ選ぶと使えます/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "週" }));
+    expect(screen.getByText("週表示は店舗を1つ選ぶと使えます。上部の店舗の切り替えで選んでください。")).toBeTruthy();
+    expect(document.querySelectorAll("[data-calendar-column]")).toHaveLength(3);
   });
 
   it("見られる店舗が1つだけなら、その店舗を選んだ状態として扱い、案内を出さない", async () => {
@@ -415,7 +431,7 @@ describe("ScheduleV2Page の予約と外部予定", () => {
     const user = userEvent.setup();
     renderPage({ shell });
     await user.click(await eventButton(/^山田 花子、/));
-    expect(screen.getByRole("dialog", { name: "予約の詳細" }).textContent).toBe("res-a");
+    expect(screen.getByTestId("detail-id").textContent).toBe("res-a");
     expect(shell.calls.blocked.at(-1)).toBe(true);
     act(() => captured.detail?.onClose());
     await waitFor(() => expect(shell.calls.blocked.at(-1)).toBe(false));
@@ -454,7 +470,7 @@ describe("ScheduleV2Page の上部バー", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "承認待ち 1件" }));
     await user.click(screen.getByRole("button", { name: "承認待ちの予約（s1）" }));
-    expect(screen.getByRole("dialog", { name: "予約の詳細" }).textContent).toBe("res-b");
+    expect(screen.getByTestId("detail-id").textContent).toBe("res-b");
     // res-b starts on Wednesday 11/18, inside the shown week.
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("2026年11月");
     expect(captured.detail?.reservationId).toBe("res-b");
@@ -482,5 +498,144 @@ describe("ScheduleV2Page の狭い画面", () => {
     ]);
     expect(screen.queryByRole("button", { name: "週" })).toBeNull();
     expect(screen.getByRole("button", { name: "一覧" }).getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+describe("ScheduleV2Page の描き方の細部", () => {
+  it("開く位置は営業開始の30分前にし、9時より遅く開く店舗でも9時で止めない", async () => {
+    renderPage();
+    await eventButton(/^山田 花子、/);
+    // 10:00 opening, at 48px an hour.
+    expect((document.querySelector("[data-calendar-scroll]") as HTMLElement).scrollTop).toBe(456);
+  });
+
+  it("24時の直前の予定も最小の高さで描き、上へ寄せる", async () => {
+    blocksByDay["2026-11-20"].push(
+      block("blk-late", { titleSnapshot: "片付け", startAt: jst("2026-11-20", "23:55"), endAt: jst("2026-11-21", "00:00") }),
+    );
+    renderPage();
+    const late = await eventButton(/^片付け、/);
+    expect(late.style.height).toBe("18px");
+    expect(late.style.top).toBe(`${24 * 48 - 18}px`);
+  });
+
+  it("外部の予定は色だけでなく、管理元を文字で示す", async () => {
+    renderPage();
+    await eventButton(/^山田 花子、/);
+    const google = screen.getByText("外部予定、11月20日（金）、18:00から19:00、Googleカレンダー").parentElement as HTMLElement;
+    expect(google.textContent).toContain("Google");
+    // 16:00-17:00 is 48px: the marker and the title share one line.
+    expect((await eventButton(/^研修、/)).textContent).toBe("ブロック・研修16:00–17:00");
+  });
+
+  it("選んでいる表示は塗りの色に加えて印で示す", async () => {
+    renderPage();
+    const chosen = await screen.findByRole("button", { name: "週", pressed: true });
+    expect(chosen.querySelector("[data-chosen-mark]")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "日", pressed: false }).querySelector("[data-chosen-mark]")).toBeNull();
+  });
+
+  it("今日の分は30秒ごと、ほかの日は2分ごとに取り直す", async () => {
+    const { client } = renderPage();
+    await eventButton(/^山田 花子、/);
+    const interval = (day: string) =>
+      client.getQueryCache().find({ queryKey: ["reservations", day] })?.observers[0]?.options.refetchInterval;
+    expect(interval("2026-11-20")).toBe(30_000);
+    expect(interval("2026-11-18")).toBe(120_000);
+    const blockInterval = client.getQueryCache().find({ queryKey: ["external-blocks", "2026-11-18"] })?.observers[0]?.options.refetchInterval;
+    expect(blockInterval).toBe(120_000);
+  });
+});
+
+describe("ScheduleV2Page のフォーカス (UX-22)", () => {
+  it("詳細を閉じると、開いた予約へフォーカスを戻す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const event = await eventButton(/^山田 花子、/);
+    await user.click(event);
+    screen.getByRole("button", { name: "詳細の中のボタン" }).focus();
+    act(() => captured.detail?.onClose());
+    await waitFor(() => expect(document.activeElement).toBe(event));
+  });
+
+  it("開いた空き枠が消えていたら、予定表へフォーカスを移す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "11月18日（水） 15:00 本店に予約を追加" }));
+    // The mocked form leaves the page usable: moving to the next week removes the slot.
+    await user.click(screen.getByRole("button", { name: "次の週" }));
+    act(() => (captured.create?.onClose as () => void)());
+    await waitFor(() => expect(document.activeElement).toBe(document.querySelector("[data-calendar-scroll]")));
+  });
+
+  it("週の日付の見出しで日表示を開くと、その日の見出しへフォーカスを移す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "11月18日（水）の日表示を開く" }));
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 }));
+  });
+
+  it("再読み込みを押すと、消えるボタンの代わりに見出しへフォーカスを移す", async () => {
+    failingDays.add("2026-11-18");
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "再読み込み" }));
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 }));
+  });
+
+  it("矢印で動いた空き枠が、次に Tab で戻る入口になる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const entry = await screen.findByRole("button", { name: "11月20日（金） 10:00 本店に予約を追加" });
+    expect(entry.tabIndex).toBe(0);
+    entry.focus();
+    await user.keyboard("{ArrowDown}");
+    const next = screen.getByRole("button", { name: "11月20日（金） 10:15 本店に予約を追加" });
+    expect(document.activeElement).toBe(next);
+    expect(next.tabIndex).toBe(0);
+    expect(entry.tabIndex).toBe(-1);
+  });
+
+  it("上部バーのページ移動は外枠に開かせ、押したボタンを渡す", async () => {
+    const shell = fakeShell();
+    const user = userEvent.setup();
+    renderPage({ shell });
+    const button = screen.getByRole("button", { name: "ページ移動 (Cmd/Ctrl+K)" });
+    await user.click(button);
+    expect(shell.openPalette).toHaveBeenCalledWith(button);
+  });
+});
+
+describe("ScheduleV2Page の日付の追従", () => {
+  const wake = (iso: string) => {
+    vi.setSystemTime(new Date(iso));
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+  };
+
+  it("今日を開いたままJSTの午前0時を越えると、次の日へ進む", async () => {
+    vi.setSystemTime(new Date("2026-11-20T14:59:50Z"));
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("11月20日（金）");
+    wake("2026-11-20T15:00:10Z");
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("11月21日（土）"));
+  });
+
+  it("手で選んだ日は、午前0時を越えても動かさない", async () => {
+    vi.setSystemTime(new Date("2026-11-20T14:59:50Z"));
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    await user.click(screen.getByRole("button", { name: "次の日" }));
+    await user.click(screen.getByRole("button", { name: "次の日" }));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("11月22日（日）");
+    wake("2026-11-20T15:00:10Z");
+    // Give the effect a chance to run before asserting nothing moved.
+    await act(async () => Promise.resolve());
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("11月22日（日）");
   });
 });

@@ -12,24 +12,28 @@ function lastFetch(updatedAt: number) {
 /**
  * The opaque strip under the bar. A failed or capped day is said in words and
  * never shown as free time (UX-21); Google and LINE notices stay as on the
- * current calendar (UX-26).
+ * current calendar (UX-26). Loading is not said here but in the day header:
+ * a line that comes and goes on every page of days would shift the grid under
+ * the user's finger.
  */
 export function CalendarNotices({
   days,
   dayName,
   settings,
   weekNeedsStore,
+  onRetried,
 }: Readonly<{
   days: readonly DayData[];
   dayName: (dateKey: string) => string;
-  settings: Readonly<{ loading: boolean; failed: boolean; hadData: boolean; updatedAt: number; refetch: () => void }>;
+  settings: Readonly<{ failed: boolean; hadData: boolean; updatedAt: number; refetch: () => void }>;
   weekNeedsStore: boolean;
+  // The retry button goes away once its alert clears, so focus moves elsewhere first.
+  onRetried: () => void;
 }>) {
   const failed = days.filter((day) => day.failed.length > 0);
   const capped = days.filter((day) => day.capped && day.failed.length === 0);
   const sources = [...new Set(failed.flatMap((day) => day.failed))].join("・");
   const failedUpdatedAt = failed.reduce((oldest, day) => (day.updatedAt > 0 ? Math.min(oldest, day.updatedAt) : oldest), Number.POSITIVE_INFINITY);
-  const loading = settings.loading || days.some((day) => day.loading);
   return (
     <div className="pointer-events-auto bg-cal-surface empty:hidden">
       <ScheduleSyncAttention />
@@ -38,14 +42,20 @@ export function CalendarNotices({
           週表示は店舗を1つ選ぶと使えます。上部の店舗の切り替えで選んでください。
         </p>
       )}
-      {loading && <output className="mx-4 my-2 block text-sm">予定を読み込み中…</output>}
       {settings.failed && (
         <div role="alert" className={ALERT}>
           <span>
             店舗設定の{settings.hadData ? "更新" : "読み込み"}に失敗しました。空き状況を表示できません。
             {lastFetch(settings.updatedAt)}
           </span>
-          <Button variant="outline" size="sm" onClick={settings.refetch}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              settings.refetch();
+              onRetried();
+            }}
+          >
             再読み込み
           </Button>
         </div>
@@ -57,7 +67,14 @@ export function CalendarNotices({
             {failed.every((day) => day.hadData) ? "更新" : "読み込み"}に失敗しました。空き状況を表示できません。
             {lastFetch(Number.isFinite(failedUpdatedAt) ? failedUpdatedAt : 0)}
           </span>
-          <Button variant="outline" size="sm" onClick={() => failed.forEach((day) => day.refetch())}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              for (const day of failed) day.refetch();
+              onRetried();
+            }}
+          >
             再読み込み
           </Button>
         </div>
