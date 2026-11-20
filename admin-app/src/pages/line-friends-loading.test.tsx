@@ -51,9 +51,31 @@ describe("LINE友だち一覧の条件と表示", () => {
     fireEvent.click(screen.getByRole("button", { name: "次へ" }));
     await screen.findByRole("alert");
     expect(screen.queryByText("変更前の友だち")).toBeNull();
-    expect(screen.queryByText("該当がありません。")).toBeNull();
+    expect(screen.queryByText("未紐付けの友だちはいません。「友だちを同期」で最新化できます。")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
     await screen.findByText("変更前の友だち");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("件数が減って現在のページが最終ページを超えたら、最終ページへ戻り空表示を出さない", async () => {
+    const lastOnPage2 = { ...friend, lineUserId: "U-page2", displayName: "2ページ目の友だち" };
+    const firstOnPage1 = { ...friend, lineUserId: "U-page1", displayName: "1ページ目の友だち" };
+    let linked = false;
+    api.get.mockImplementation(async (url: string) => {
+      const page = new URL(url, "http://localhost").searchParams.get("page");
+      if (!linked) return { ok: true, items: [page === "2" ? lastOnPage2 : firstOnPage1], total: 51, page: Number(page), pageSize: 50 };
+      return { ok: true, items: page === "2" ? [] : [firstOnPage1], total: 50, page: Number(page), pageSize: 50 };
+    });
+    api.post.mockResolvedValue({ ok: true, totalFriends: 50, fetched: 0, pending: 0, failed: 0 });
+    renderPage();
+    await screen.findByText("1ページ目の友だち");
+    fireEvent.click(screen.getByRole("button", { name: "次へ" }));
+    await screen.findByText("2ページ目の友だち");
+
+    linked = true;
+    fireEvent.click(screen.getByRole("button", { name: "友だちを同期" }));
+    await screen.findByText("1ページ目の友だち");
+    expect(screen.queryByText("未紐付けの友だちはいません。「友だちを同期」で最新化できます。")).toBeNull();
+    expect(api.get).toHaveBeenLastCalledWith(expect.stringContaining("page=1"));
   });
 });

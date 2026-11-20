@@ -18,7 +18,7 @@ vi.mock("@/hooks/use-line-friends", () => ({
   },
   useLineFriendSync: () => ({ mutate: vi.fn(), isPending: false }),
   useLineFriendLink: () => ({ mutate: linkMutate, isPending: false }),
-  useCustomerSearch: () => ({ results: searchResults, isPending: false }),
+  useCustomerSearch: (q: string) => ({ results: q.trim() ? searchResults : [], isPending: false }),
 }));
 
 vi.mock("@/hooks/use-stores", () => ({
@@ -81,7 +81,8 @@ describe("LINE友だち紐付けの操作案内", () => {
     render(<LineFriendsPage />);
 
     await user.click(screen.getByRole("button", { name: "既存客に紐付け" }));
-    await user.click(screen.getByRole("button", { name: /鈴木 一郎/ }));
+    await user.type(screen.getByRole("textbox", { name: "既存のお客様を名前または電話番号で検索" }), "鈴木");
+    await user.click(await screen.findByRole("button", { name: /鈴木 一郎/ }));
 
     expect(linkMutate).toHaveBeenCalledWith(
       { lineUserId: "U1", body: { mode: "existing", storeId: expected, customerId: "customer-1" } },

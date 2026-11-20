@@ -294,9 +294,14 @@ export default function ReservationsPage() {
     return items;
   }, [data, sortKey, sortDir]);
 
+  // 隠れた店舗の並べ替えが全店舗へ戻したときに復活しないよう、表示中の並べ替えキーを state にも入れる。
+  const flipSortDir = () => {
+    setSortKey(sortKey);
+    setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+  };
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      flipSortDir();
     } else {
       setSortKey(key);
       setSortDir("asc");
@@ -536,7 +541,7 @@ export default function ReservationsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+              onClick={flipSortDir}
             >
               {sortDir === "asc" ? "昇順 ↑" : "降順 ↓"}
             </Button>

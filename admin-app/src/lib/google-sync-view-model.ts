@@ -1,7 +1,8 @@
 import type { Store, SyncStatusSystemAdmin } from "@/types/api";
 
 export function storeLabel(stores: Pick<Store, "id" | "name">[], storeId: string) {
-  return stores.find((store) => store.id === storeId)?.name ?? `${storeId.slice(0, 8)}…`;
+  const name = stores.find((store) => store.id === storeId)?.name;
+  return name?.trim() ? name : `${storeId.slice(0, 8)}…`;
 }
 
 export function buildGoogleSyncViewModel(

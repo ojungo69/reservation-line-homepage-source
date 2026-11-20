@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { RefreshCw, UserPlus, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,11 +34,17 @@ export default function LineFriendsPage() {
   const [existingFor, setExistingFor] = useState<LineFriendListItem | null>(null);
 
   const { items, total, pageSize, isPending, isFetching, isError, refetch } = useLineFriends({ filter: "unlinked", q: debouncedQ, page });
-  const loadingResults = isPending || isFetching || q.trim() !== debouncedQ;
+  const settled = !isPending && !isFetching && !isError;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  // 紐付けで件数が減り現在のページが範囲外になったら、最終ページへ戻して取得し直す。
+  const pastLastPage = settled && page > totalPages;
+  const loadingResults = isPending || isFetching || q.trim() !== debouncedQ || pastLastPage;
+  useEffect(() => {
+    if (pastLastPage) setPage(totalPages);
+  }, [pastLastPage, totalPages]);
   const sync = useLineFriendSync();
   const { stores, isPending: isStoresPending, selectedStoreId } = useStores();
   const effectiveStoreId = pickLinkStoreId(stores, selectedStoreId);
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <div className="space-y-4 p-4 md:p-6">
@@ -106,36 +112,33 @@ export default function LineFriendsPage() {
                   <p className="truncate text-sm font-medium">
                     {f.displayName ?? (f.profileStatus === "unavailable" ? "（取得不可）" : "（未取得）")}
                   </p>
-                  {f.linked && <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">紐付け済み</p>}
-                  {!f.linked && disabledReason && (
+                  {disabledReason && (
                     <p id={reasonId} className="text-xs text-muted-foreground">{disabledReason}</p>
                   )}
                 </div>
               </div>
 
-              {!f.linked && (
-                <div className="flex shrink-0 flex-wrap items-center gap-1">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!!disabledReason}
-                    aria-describedby={reasonId}
-                    onClick={() => setExistingFor(f)}
-                  >
-                    <UserCheck className="mr-1 h-4 w-4" />
-                    既存客に紐付け
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={!!disabledReason}
-                    aria-describedby={reasonId}
-                    onClick={() => setNewFor(f)}
-                  >
-                    <UserPlus className="mr-1 h-4 w-4" />
-                    新規登録して紐付け
-                  </Button>
-                </div>
-              )}
+              <div className="flex shrink-0 flex-wrap items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!!disabledReason}
+                  aria-describedby={reasonId}
+                  onClick={() => setExistingFor(f)}
+                >
+                  <UserCheck className="mr-1 h-4 w-4" />
+                  既存客に紐付け
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!!disabledReason}
+                  aria-describedby={reasonId}
+                  onClick={() => setNewFor(f)}
+                >
+                  <UserPlus className="mr-1 h-4 w-4" />
+                  新規登録して紐付け
+                </Button>
+              </div>
             </div>
           );
         })}

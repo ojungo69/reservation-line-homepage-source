@@ -16,6 +16,7 @@ const reservationState = vi.hoisted(() => ({
   mutate: vi.fn(),
   rejectReason: "",
   locationState: null as unknown,
+  rows: null as unknown[] | null,
 }));
 
 const reservations = [
@@ -86,14 +87,15 @@ vi.mock("@/hooks/use-stores", () => ({
 vi.mock("@/hooks/use-reservation-search", () => ({
   useReservationSearch: vi.fn((filter) => {
     const pendingOnly = filter?.statuses?.length === 1 && filter.statuses[0] === "pending_approval";
+    const rows = reservationState.rows ?? reservations;
     return {
       data: {
         ok: true,
         from: filter?.from ?? "",
         to: filter?.to ?? "",
-        reservations: pendingOnly ? [] : reservations,
+        reservations: pendingOnly ? [] : rows,
         truncated: false,
-        totalCount: pendingOnly ? 0 : reservations.length,
+        totalCount: pendingOnly ? 0 : rows.length,
       },
       isPending: false,
       isError: false,
@@ -165,6 +167,7 @@ afterEach(() => {
   reservationState.mutate.mockClear();
   reservationState.rejectReason = "";
   reservationState.locationState = null;
+  reservationState.rows = null;
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.mocked(useReservationSearch).mockClear();
@@ -340,15 +343,56 @@ describe("ReservationsPage 店舗を選んでいるときの表示", () => {
     expect(screen.getAllByRole("article")[0]?.textContent).toContain("渋谷店");
   });
 
-  it("店舗を選んだ状態で、店舗で並べ替えた保存値を復元すると、日時の並べ替えになる", () => {
+  it("店舗を選んだ状態で、店舗で並べ替えた保存値を復元すると、同じ店舗の予約が日時の降順に並ぶ", () => {
     authState.selectedStoreId = "store-1";
+    reservationState.rows = [
+      { ...reservations[0], id: "reservation-early", customerDisplayName: "早い予約", customerDisplayNameKana: "ハヤイ", startAt: "2026-08-01T01:00:00.000Z" },
+      { ...reservations[0], id: "reservation-late", customerDisplayName: "遅い予約", customerDisplayNameKana: "オソイ", startAt: "2026-08-05T01:00:00.000Z" },
+    ];
     reservationState.locationState = { reservationSearch: { scope: "undefined:owner:", value: { from: "2026-10-18", to: "2026-11-16", keyword: "", serviceId: "__all__", statusFilter: "__all__", sortKey: "storeName", sortDir: "desc", viewMode: "history" } } };
     render(<ReservationsPage />);
 
     expect(screen.getByRole("columnheader", { name: "日時" }).getAttribute("aria-sort")).toBe("descending");
     const rows = screen.getAllByRole("row");
+    expect(rows[1]?.textContent).toContain("遅い予約");
+    expect(rows[2]?.textContent).toContain("早い予約");
+  });
+
+  it("店舗の並べ替えを隠している間に日時の向きを変えても、全店舗へ戻したとき店舗の並べ替えが復活しない", () => {
+    authState.selectedStoreId = null;
+    const { rerender } = render(<ReservationsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "店舗" }));
+    expect(screen.getByRole("columnheader", { name: "店舗" }).getAttribute("aria-sort")).toBe("ascending");
+
+    authState.selectedStoreId = "store-1";
+    rerender(<ReservationsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "日時" }));
+    expect(screen.getByRole("columnheader", { name: "日時" }).getAttribute("aria-sort")).toBe("descending");
+
+    authState.selectedStoreId = null;
+    rerender(<ReservationsPage />);
+    expect(screen.getByRole("columnheader", { name: "日時" }).getAttribute("aria-sort")).toBe("descending");
+    expect(screen.getByRole("columnheader", { name: "店舗" }).getAttribute("aria-sort")).toBe("none");
+    const rows = screen.getAllByRole("row");
     expect(rows[1]?.textContent).toContain("佐藤 太郎");
     expect(rows[2]?.textContent).toContain("山田 花子");
+  });
+
+  it("カード表示でも、店舗の並べ替えを隠している間に向きを変えたあと、全店舗へ戻して店舗の並べ替えが復活しない", () => {
+    reservationState.isNarrow = true;
+    authState.selectedStoreId = null;
+    const { rerender } = render(<ReservationsPage />);
+    fireEvent.change(screen.getByDisplayValue("日時"), { target: { value: "storeName" } });
+
+    authState.selectedStoreId = "store-1";
+    rerender(<ReservationsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "昇順 ↑" }));
+    expect(screen.getByRole("button", { name: "降順 ↓" })).toBeTruthy();
+
+    authState.selectedStoreId = null;
+    rerender(<ReservationsPage />);
+    expect(screen.getByDisplayValue("日時")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "降順 ↓" })).toBeTruthy();
   });
 });
 

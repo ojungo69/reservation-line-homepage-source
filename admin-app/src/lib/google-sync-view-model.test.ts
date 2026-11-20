@@ -105,4 +105,8 @@ describe("storeLabel", () => {
     expect(storeLabel(settingsStores, "dlq-extra-store")).toBe("dlq-extr…");
     expect(storeLabel([], "selected-store")).toBe("selected…");
   });
+
+  it.each([["空文字", ""], ["半角空白", " "], ["全角空白", "\u3000"]])("名前が%sの店舗は不明として扱う", (_label, name) => {
+    expect(storeLabel([{ id: "blank-name-store", name }], "blank-name-store")).toBe("blank-na…");
+  });
 });
