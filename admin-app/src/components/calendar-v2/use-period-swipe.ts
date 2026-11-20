@@ -141,9 +141,15 @@ export function usePeriodSwipe(
       if (event.pointerId === gesture?.id) stop();
     };
     // INT-10-04・05: a rotation or resize, and leaving the window or the app, end
-    // the swipe; a finger lifted afterwards finds no gesture.
+    // the swipe; a finger lifted afterwards finds no gesture. Leaving also drops a
+    // wheel gesture's uncommitted amount: the rest of it, momentum included, is
+    // ignored until a 250ms gap starts the next one.
+    const onLeave = () => {
+      stop();
+      if (wheelAxis !== null) wheelDone = true;
+    };
     const onHidden = () => {
-      if (document.hidden) stop();
+      if (document.hidden) onLeave();
     };
     // INT-05: a gesture is wheel input without a 250ms gap, momentum included.
     // Its first input fixes its axis (INT-03-08); a sideways one moves one period
@@ -179,7 +185,7 @@ export function usePeriodSwipe(
     document.addEventListener("pointercancel", onCancel);
     document.addEventListener("lostpointercapture", onCancel, true);
     window.addEventListener("resize", stop);
-    window.addEventListener("blur", stop);
+    window.addEventListener("blur", onLeave);
     document.addEventListener("visibilitychange", onHidden);
     // INT-10-04: the body changing width under a swipe (a layout change without a
     // window resize) ends it too, even while the finger is held still. The first
@@ -200,7 +206,7 @@ export function usePeriodSwipe(
       document.removeEventListener("pointercancel", onCancel);
       document.removeEventListener("lostpointercapture", onCancel, true);
       window.removeEventListener("resize", stop);
-      window.removeEventListener("blur", stop);
+      window.removeEventListener("blur", onLeave);
       document.removeEventListener("visibilitychange", onHidden);
       sizes?.disconnect();
       scroller.removeEventListener("wheel", onWheel);

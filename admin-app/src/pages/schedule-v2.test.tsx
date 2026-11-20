@@ -1316,6 +1316,33 @@ describe("ScheduleV2Page の横スクロール（T006）", () => {
     expect(heading()).toBe("11月20日（金）");
   });
 
+  it("ウィンドウを離れる・画面が隠れると、wheel の操作の残りを捨て、間を空けた次の操作から受け付ける（INT-10-05）", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const leaves: Array<[string, () => void]> = [
+      ["blur", () => fireEvent(window, new Event("blur"))],
+      [
+        "hidden",
+        () => {
+          vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+          fireEvent(document, new Event("visibilitychange"));
+        },
+      ],
+    ];
+    for (const [name, leave] of leaves) {
+      wheel(50);
+      leave();
+      vi.restoreAllMocks();
+      wheel(40);
+      wheel(200);
+      expect(heading(), name).toBe("11月20日（金）");
+      await quiet();
+    }
+    wheel(100);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
   it("日付を動かす横の入力は、ブラウザの戻る・進むに渡さない", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^11月16日（月）の日表示を開く/ });
