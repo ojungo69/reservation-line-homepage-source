@@ -1,0 +1,60 @@
+admin-app/src/components/schedule/reservation-create-panel.test.tsx
+  s_d52c2d995f51c6::t_6db362c659b95e 95
+  s_d52c2d995f51c6::t_0dd07cc7737d47 53
+  s_d52c2d995f51c6::t_5af40415133688 6-9
+  s_d52c2d995f51c6::t_d6605eba706857 653-655,659-660,667,671,676-679,686-736
+  s_d52c2d995f51c6::t_4b8a87d0e0f8bf 737
+admin-app/src/hooks/use-resources.ts
+  s_d52c2d995f51c6::t_cc3774c9f69e84 14-15
+  s_d52c2d995f51c6::t_6a85dbb4617e9b 41-45
+admin-app/src/lib/error-messages.test.ts
+  s_d52c2d995f51c6::t_dc5b1a5d37edbf 58-65
+admin-app/src/hooks/use-settings-hooks.test.tsx
+  s_d52c2d995f51c6::t_df2b6985860f26 1105
+  s_d52c2d995f51c6::t_190a4bd4b99712 433
+admin-app/src/components/schedule/reservation-create-panel.tsx
+  s_d52c2d995f51c6::t_433c245b687af1 53
+  s_d52c2d995f51c6::t_d359be467cf208 127
+  s_d52c2d995f51c6::t_a7f44a171dbbb8 724
+  s_d52c2d995f51c6::t_2d5e9a1104619a 983
+  s_d52c2d995f51c6::t_c5d5fc8eda2605 554,556-557
+  s_d52c2d995f51c6::t_a0c654726cb9cf 536,540,542-544
+  s_d52c2d995f51c6::t_c300d1e132df8a 807-810
+  s_d52c2d995f51c6::t_39e9c8d57533e6 904
+  s_d52c2d995f51c6::t_9aa27058a126ec 761-765
+  s_d52c2d995f51c6::t_10734ae569c75d 576
+  s_d52c2d995f51c6::t_e9a36b4d52f7d5 805-806
+admin-app/src/lib/error-messages.ts
+  s_d52c2d995f51c6::t_9832217b1c11bf 180-185
+  s_d52c2d995f51c6::t_b988f899030fb7 196
+specs/009-admin-simplification/contracts/ui-fields.md
+  s_d52c2d995f51c6::t_4d6f2093d1da49 18-22
+specs/009-admin-simplification/data-model.md
+  s_d52c2d995f51c6::t_012876c35af35e 29,32
+specs/009-admin-simplification/plan.md
+  s_d52c2d995f51c6::t_325c895016bd9f 53,55,61
+specs/009-admin-simplification/quickstart.md
+  s_d52c2d995f51c6::t_aebd021a88ab67 29,35-37,42-43
+specs/009-admin-simplification/research.md
+  s_d52c2d995f51c6::t_22a3051f4b65ab 9,20,25,42,89-90,106
+specs/009-admin-simplification/spec.md
+  s_d52c2d995f51c6::t_6c47c30f777901 161,175,178,217
+specs/009-admin-simplification/tasks.md
+  s_d52c2d995f51c6::t_aa4387c8e50d0a 123,177,182,308
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "49a23061ac812f65a8d5abeafb96d4874939ce9e",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
