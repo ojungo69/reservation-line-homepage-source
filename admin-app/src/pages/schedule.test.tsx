@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import type { Reservation } from "@/types/api";
+import type { Reservation, SettingsResponse } from "@/types/api";
 import type { ScheduleContext } from "@/lib/schedule-context";
 import { useSettings } from "@/hooks/use-settings";
 import { useExternalBlocks } from "@/hooks/use-external-blocks";
@@ -16,6 +16,8 @@ const routerState = vi.hoisted(() => {
 });
 vi.mock("@/components/schedule/sync-attention", () => ({ ScheduleSyncAttention: () => null }));
 let privileged = true;
+// 2 店舗の設定は全店舗を見られるオーナーにだけ返る（店舗スタッフには自店舗だけ）。
+let signedInAsOwner = false;
 let isNarrow = false;
 let selectedStoreId: string | null = "store-1";
 let renderRealCreatePanel = false;
@@ -30,16 +32,23 @@ const reservationsQuery = {
   dataUpdatedAt: Date.parse("2026-07-24T01:00:00Z"),
   refetch: vi.fn(),
 };
-const settingsData = { ok: true, settings: {
+const storeDefaults = {
+  timezone: "Asia/Tokyo", googleCalendarId: null, googleControlledEditMode: false,
+  maxActiveReservationsPerCustomer: 3, bookingWindowDays: 30, customerNotice: null,
+};
+const settingsData: SettingsResponse = { ok: true, settings: {
   resources: [
-    { id: "resource-1", storeId: "store-1", name: "担当A", active: true },
-    { id: "resource-2", storeId: "store-2", name: "担当B", active: true },
+    { id: "resource-1", storeId: "store-1", name: "担当A", resourceType: "staff_calendar", active: true },
+    { id: "resource-2", storeId: "store-2", name: "担当B", resourceType: "staff_calendar", active: true },
   ],
-  services: [], businessHours: [],
-  stores: [{ id: "store-1", name: "渋谷店" }, { id: "store-2", name: "新宿店" }],
+  services: [], businessHours: [], closures: [],
+  stores: [
+    { id: "store-1", name: "渋谷店", ...storeDefaults },
+    { id: "store-2", name: "新宿店", ...storeDefaults },
+  ],
 } };
 const settingsQuery = {
-  data: settingsData as typeof settingsData | undefined,
+  data: settingsData as SettingsResponse | undefined,
   isPending: false,
   isError: false,
   dataUpdatedAt: Date.parse("2026-07-24T01:00:00Z"),
@@ -64,7 +73,12 @@ vi.mock("@/hooks/use-stores", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ isPrivileged: privileged, user: { email: "staff@example.test", role: "staff", storeId: "store-1" } }),
+  useAuth: () => ({
+    isPrivileged: privileged,
+    user: signedInAsOwner
+      ? { email: "owner@example.test", role: "owner", storeId: null }
+      : { email: "staff@example.test", role: "staff", storeId: "store-1" },
+  }),
 }));
 
 vi.mock("@/hooks/use-media-query", () => ({
@@ -206,6 +220,7 @@ beforeEach(() => {
   routerState.location.state = null;
   routerState.navigate.mockReset();
   privileged = true;
+  signedInAsOwner = false;
   isNarrow = false;
   selectedStoreId = "store-1";
   renderRealCreatePanel = false;
@@ -423,14 +438,19 @@ describe("SchedulePage", () => {
 
   it("F5: 全店舗の空き枠から店舗を選択した予約作成を開き、リソースの欄は出さずその店舗の枠で送る", async () => {
     selectedStoreId = null;
+    signedInAsOwner = true;
     renderRealCreatePanel = true;
     settingsQuery.data = {
       ...settingsData,
       settings: {
         ...settingsData.settings,
-        services: [{ id: "service-9", storeId: "store-2", name: "新宿メニュー", durationMinutes: 30, active: true }],
+        services: [{
+          id: "service-9", storeId: "store-2", name: "新宿メニュー", durationMinutes: 30,
+          priceLabel: null, priceAmount: null, comboPriceAmount: null, comboWithPrefix: null,
+          active: true, mensMenu: false,
+        }],
       },
-    } as unknown as typeof settingsData;
+    };
     render(<SchedulePage />);
     const user = userEvent.setup();
 

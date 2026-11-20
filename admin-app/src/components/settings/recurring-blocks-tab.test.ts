@@ -60,6 +60,16 @@ describe("derivePreviewInvalid", () => {
     });
   });
 
+  it("枠が未判定（設定の読み込み中）のときは、リソースを選ばせず読み込み中を返す", () => {
+    const loading = { field: null, message: "店舗の設定を読み込み中です" };
+    expect(call({ kind: "unknown", resourceId: "" })).toEqual(loading);
+    expect(call({ kind: "unknown", resourceId: "", days: [] })).toEqual(loading);
+    expect(call({ kind: "unknown", resourceId: "", storeId: null })).toEqual({
+      field: null,
+      message: "店舗を選択してください",
+    });
+  });
+
   it.each([
     ["店舗未選択", { storeId: null }, null, "店舗を選択してください"],
     ["曜日未選択", { days: [] }, null, "曜日を選択してください"],

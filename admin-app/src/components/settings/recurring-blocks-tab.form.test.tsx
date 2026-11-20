@@ -122,15 +122,27 @@ describe("RecurringBlocksTab: 枠の数による出し分け", () => {
     expect(screen.queryByText(NO_RESOURCE_NOTICE)).toBeNull();
   });
 
-  it("読み込みが終わったあとに、冪等性のキーが新しく作られる", async () => {
+  it("読み込みが終わったあとに作った冪等性のキーで、作成を送る", async () => {
     resources = [room("resource-1", "施術室1")];
     let issued = 0;
-    const uuid = vi.spyOn(crypto, "randomUUID").mockImplementation(() => `00000000-0000-4000-8000-${String(++issued).padStart(12, "0")}`);
+    vi.spyOn(crypto, "randomUUID").mockImplementation(() => `00000000-0000-4000-8000-${String(++issued).padStart(12, "0")}`);
+    const user = userEvent.setup();
     renderTab();
-    const issuedBeforeLoad = uuid.mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: "月曜" }));
+    fireEvent.change(screen.getByLabelText("開始日"), { target: { value: "2026-12-07" } });
+    fireEvent.change(screen.getByLabelText("終了日"), { target: { value: "2026-12-14" } });
+    // 読み込み前に入力しただけでキーは 5 回作られている（最初の 1 回、マウント、曜日、開始日、終了日）。
+    expect(issued).toBe(5);
 
     releaseSettings();
+    await waitFor(() => expect(button("プレビュー").disabled).toBe(false));
+    await user.click(button("プレビュー"));
+    await waitFor(() => expect(button("作成").disabled).toBe(false));
+    await user.click(button("作成"));
 
-    await waitFor(() => expect(uuid.mock.calls.length).toBeGreaterThan(issuedBeforeLoad));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/admin/recurring/commit", expect.objectContaining({
+      idempotencyKey: "00000000-0000-4000-8000-000000000006",
+    })));
   });
 });

@@ -119,7 +119,7 @@
 - `isAdminPrivileged(role)` = owner / system_admin のみ（staff 不可）。
 - `isAdminAllowedForStoreSettings(admin, storeId)` = owner / system_admin は常に可、staff は **自分の所属店舗 (`admin.store_id === storeId`) に限り可**。
 
-「staff 自店舗可」を採用しているのは **services / closures / business-hours** の3系統。resources は owner+ のまま（予約枠の構成を決めるため。`DELETE` は行を消さず `active = 0` にするだけで、停止と同じく将来の予約がある枠は拒否する — `settings-common.ts` のコメント参照）。スタッフ CRUD は権限昇格リスクのため owner+ 固定。
+「staff 自店舗可」を採用しているのは **services / closures / business-hours** の3系統。resources は owner+ のまま（予約枠の構成を決めるため。`DELETE` は行を消さず `active = 0` にするだけ。承認待ち（`pending_approval`）・確定（`confirmed`）の将来の予約がある枠は、`PUT` が稼働中の枠を停止するときと `DELETE`（停止済みの枠でも確認する）のどちらも拒否する — `settings-resources.ts` と `settings-common.ts` のコメント参照）。スタッフ CRUD は権限昇格リスクのため owner+ 固定。
 
 | Endpoint | staff | owner | system_admin | 既存ガード位置 |
 |---|---|---|---|---|

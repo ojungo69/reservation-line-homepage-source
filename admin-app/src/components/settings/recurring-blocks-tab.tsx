@@ -36,6 +36,7 @@ const jstToIso = (date: string, time: string): string =>
 // 店舗 (早期 return で実質不達) と曜日 (複数選択で単一コントロールが
 // 無い) は field: null にしてヒント文言のみで伝える。
 // 枠が未設定 (kind: none) のときは、ほかの入力が何であれ最初にその理由を返す。
+// 枠が未判定 (kind: unknown。設定の読み込み中) は、店舗を選んだあとに読み込み中を返す。
 export function derivePreviewInvalid(
   selectedStoreId: string | null,
   selectedDays: number[],
@@ -47,6 +48,7 @@ export function derivePreviewInvalid(
 ): InvalidReason<"endTime" | "startDate" | "endDate" | "resourceId"> {
   if (resourceKind === "none") return { field: null, message: NO_RESOURCE_SETTINGS_NOTICE };
   if (!selectedStoreId) return { field: null, message: "店舗を選択してください" };
+  if (resourceKind === "unknown") return { field: null, message: "店舗の設定を読み込み中です" };
   if (selectedDays.length === 0) return { field: null, message: "曜日を選択してください" };
   if (durationMinutes <= 0) return { field: "endTime", message: "終了時刻は開始時刻より後にしてください" };
   if (durationMinutes > 240) return { field: "endTime", message: "1件あたり4時間（240分）以内にしてください" };

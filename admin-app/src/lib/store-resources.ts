@@ -28,7 +28,7 @@ export function resolveStoreResources(
   return { kind: "multiple", resources: active, resourceId };
 }
 
-export type CreateTarget = {
+type CreateTarget = {
   storeId: string;
   storeName: string | null;
   soleStore: boolean;

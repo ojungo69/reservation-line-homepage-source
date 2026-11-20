@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthContext } from "@/providers/auth-context";
 import { StoreProvider } from "@/providers/store-provider";
-import type { Resource, SettingsResponse } from "@/types/api";
+import type { ExternalBlockActionResponse, Resource, SettingsResponse } from "@/types/api";
 import { ExternalBlockCreateDialog } from "./external-block-create-dialog";
 
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
@@ -61,7 +61,16 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", { configurable: true, value: () => false });
   Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", { configurable: true, value: vi.fn() });
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
-  api.post.mockResolvedValue({ ok: true });
+  const created: ExternalBlockActionResponse = {
+    ok: true,
+    externalBlockId: "block-1",
+    status: "active",
+    storeId: store.id,
+    startAt: "2026-12-01T01:00:00.000Z",
+    endAt: "2026-12-01T02:00:00.000Z",
+    replayed: false,
+  };
+  api.post.mockResolvedValue(created);
   api.get.mockImplementation(async (path: string) => {
     if (path !== "/api/admin/settings") throw new Error(`Unexpected GET: ${path}`);
     if (settingsFail) throw new Error("settings unavailable");
@@ -106,6 +115,14 @@ describe("ExternalBlockCreateDialog: 枠の数による出し分け", () => {
     expect(await screen.findByText(NO_RESOURCE_NOTICE)).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: "リソース" })).toBeNull();
     expect((createButton() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("枠が 0 の案内は、設定の取得前から置かれた通知欄に入る", async () => {
+    renderDialog(openDialog());
+    const region = screen.getByRole("status");
+    expect(region.textContent).toBe("");
+
+    expect((await screen.findByText(NO_RESOURCE_NOTICE)).closest("[role=status]")).toBe(region);
   });
 
   it("枠が 2 つなら欄を出し、選ぶまで作成できない", async () => {

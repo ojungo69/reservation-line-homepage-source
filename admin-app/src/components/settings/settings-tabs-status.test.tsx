@@ -70,4 +70,24 @@ describe("settings tab loading state", () => {
     expect(screen.getByRole("button", { name: "無効化" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "有効化" })).toBeTruthy();
   });
+
+  it("無効化と有効化は、押した行のリソースの id で active を反転して更新する", async () => {
+    const user = userEvent.setup();
+    resources = [
+      { id: "resource-1", storeId: "store-1", name: "担当A", resourceType: "staff_calendar", active: true },
+      { id: "resource-2", storeId: "store-1", name: "担当B", resourceType: "staff_calendar", active: false },
+    ];
+    render(<ResourcesTab selectedStoreId="store-1" />);
+
+    await user.click(screen.getByRole("button", { name: "無効化" }));
+    expect(mutation.mutate).toHaveBeenLastCalledWith(
+      { id: "resource-1", storeId: "store-1", name: "担当A", resourceType: "staff_calendar", active: false },
+    );
+
+    await user.click(screen.getByRole("button", { name: "有効化" }));
+    expect(mutation.mutate).toHaveBeenLastCalledWith(
+      { id: "resource-2", storeId: "store-1", name: "担当B", resourceType: "staff_calendar", active: true },
+    );
+    expect(mutation.mutate).toHaveBeenCalledTimes(2);
+  });
 });

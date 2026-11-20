@@ -3,6 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const createReservation = vi.fn();
+const slotsState = vi.hoisted(() => ({
+  slots: [
+    { resourceId: "resource-1", resourceName: "担当A", startAt: "2026-07-24T10:00:00+09:00", available: true },
+  ],
+}));
 const customerState = vi.hoisted(() => ({ empty: false, isPrivileged: true, truncated: false, pending: false }));
 // 設定の状態は試験ごとに差し替える。undefined は「まだ取得できていない」。
 const settingsState = vi.hoisted(() => {
@@ -37,15 +42,7 @@ vi.mock("@/hooks/use-auth", () => ({
 vi.mock("@/hooks/use-reservations", () => ({
   useCreateReservation: () => ({ mutate: createReservation, isPending: customerState.pending }),
   useAvailableSlots: () => ({
-    data: {
-      ok: true,
-      slots: [{
-        resourceId: "resource-1",
-        resourceName: "担当A",
-        startAt: "2026-07-24T10:00:00+09:00",
-        available: true,
-      }],
-    },
+    data: { ok: true, slots: slotsState.slots },
     isFetching: false,
     isError: false,
   }),
@@ -95,6 +92,7 @@ beforeEach(() => {
   customerState.truncated = false;
   customerState.pending = false;
   settingsState.current = settingsState.fixtures.soleResource;
+  slotsState.slots = slotsState.slots.slice(0, 1);
 });
 
 afterEach(() => {
@@ -631,5 +629,65 @@ describe("ReservationCreatePanel のリソース・店舗・予約経路の自�
     const dialog = screen.getByRole("alertdialog");
     expect(within(dialog).getByText("担当：")).toBeTruthy();
     expect(within(dialog).getByText("担当A")).toBeTruthy();
+  });
+
+  it("確認を開いたあとに枠が増えても、確認の画面は送る枠の担当を出し、その枠で送る", async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderPanel();
+    await user.click(screen.getByRole("button", { name: "予約作成" }));
+
+    settingsState.current = settingsState.fixtures.twoResources;
+    rerender(<ReservationCreatePanel {...props} />);
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByText("担当：")).toBeTruthy();
+    expect(within(dialog).getByText("担当A")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "この内容で予約" }));
+
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: "resource-1" }),
+      expect.anything(),
+    );
+  });
+
+  it.each([
+    { label: "枠が 1 つ", fixture: "soleResource" as const },
+    { label: "枠が 2 つ以上", fixture: "twoResources" as const },
+  ])("$label の設定にない枠の空きは一覧に出さず、出した時刻で送れる", async ({ fixture }) => {
+    settingsState.current = settingsState.fixtures[fixture];
+    slotsState.slots = [
+      ...slotsState.slots,
+      { resourceId: "resource-unknown", resourceName: "設定にない担当", startAt: "2026-07-24T11:00:00+09:00", available: true },
+    ];
+    const user = userEvent.setup();
+    renderPanel({ defaultResourceId: "resource-1" });
+
+    expect(screen.queryByRole("button", { name: "11:00" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "10:00" }));
+    await submitAndConfirm(user);
+
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: "resource-1" }),
+      expect.anything(),
+    );
+  });
+
+  it("設定が未取得の間は、取得できた空きも一覧に出さない", () => {
+    settingsState.current = undefined;
+    renderPanel();
+
+    expect(screen.queryByRole("button", { name: "10:00" })).toBeNull();
+    expect(screen.getByText("空き枠なし")).toBeTruthy();
+  });
+
+  it("枠が 0 の案内は、設定の取得後に表示が変わる同じ通知欄で出す", () => {
+    settingsState.current = undefined;
+    const { rerender, props } = renderPanel();
+    const region = screen.getByRole("status");
+    expect(region.textContent).toBe("");
+
+    settingsState.current = settingsState.fixtures.noResource;
+    rerender(<ReservationCreatePanel {...props} />);
+    expect(screen.getByRole("status")).toBe(region);
+    expect(region.textContent).toBe("この店舗は予約枠が未設定のため、予約を作成できません。");
   });
 });

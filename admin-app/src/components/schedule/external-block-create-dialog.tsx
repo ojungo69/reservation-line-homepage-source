@@ -165,11 +165,10 @@ export function ExternalBlockCreateDialog({
               </Select>
             </div>
           )}
-          {resources.kind === "none" && (
-            <p role="status" className="text-sm text-muted-foreground">
-              {NO_RESOURCE_SETTINGS_NOTICE}
-            </p>
-          )}
+          {/* 設定の取得後に文言が入っても読み上げられるよう、通知欄は常に置く。 */}
+          <p role="status" className="text-sm text-muted-foreground">
+            {resources.kind === "none" && NO_RESOURCE_SETTINGS_NOTICE}
+          </p>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">

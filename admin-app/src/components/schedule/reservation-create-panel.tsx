@@ -533,10 +533,31 @@ function confirmationServiceNames(
     : selectedIds;
 }
 
-// 担当は、枠が 2 つ以上あって利用者が選んだときだけ確認の画面に出す。
-function confirmationResourceName(resources: StoreResources): string | null {
-  if (resources.kind !== "multiple") return null;
-  return resources.resources.find((r) => r.id === resources.resourceId)?.name ?? resources.resourceId;
+// 担当は、枠が 2 つ以上あるときだけ確認の画面に出す。名前は実際に送る枠（保留中の payload）から引く。
+function confirmationResourceName(
+  resources: StoreResources,
+  sentResourceId: string | undefined,
+): string | null {
+  if (resources.kind !== "multiple" || !sentResourceId) return null;
+  return resources.resources.find((r) => r.id === sentResourceId)?.name ?? sentResourceId;
+}
+
+// フォームが送れる枠（枠が 1 つならその枠、2 つ以上なら稼働中の候補）の空きだけを一覧にする。
+function sendableResourceIds(resources: StoreResources): string[] {
+  if (resources.kind === "single") return [resources.resourceId];
+  if (resources.kind === "multiple") return resources.resources.map((r) => r.id);
+  return [];
+}
+
+function groupSlotsByResource(slots: AvailableSlot[], resourceIds: string[]) {
+  const map = new Map<string, { name: string; slots: AvailableSlot[] }>();
+  for (const slot of slots) {
+    if (!resourceIds.includes(slot.resourceId)) continue;
+    const group = map.get(slot.resourceId) ?? { name: slot.resourceName, slots: [] };
+    group.slots.push(slot);
+    map.set(slot.resourceId, group);
+  }
+  return map;
 }
 
 export function ReservationCreatePanel({
@@ -698,17 +719,10 @@ export function ReservationCreatePanel({
     },
   );
 
-  const slotsByResource = useMemo(() => {
-    const availableSlots = slotsData?.ok ? slotsData.slots : [];
-    const map = new Map<string, { name: string; slots: typeof availableSlots }>();
-    for (const slot of availableSlots) {
-      if (!map.has(slot.resourceId)) {
-        map.set(slot.resourceId, { name: slot.resourceName, slots: [] });
-      }
-      map.get(slot.resourceId)!.slots.push(slot);
-    }
-    return map;
-  }, [slotsData]);
+  const slotsByResource = groupSlotsByResource(
+    slotsData?.ok ? slotsData.slots : [],
+    sendableResourceIds(target.resources),
+  );
 
   const handleSlotClick = (slot: { resourceId: string; startAt: string }) => {
     setResourceId(slot.resourceId);
@@ -857,9 +871,10 @@ export function ReservationCreatePanel({
                 </Select>
               </Field>
             )}
-            {target.resources.kind === "none" && (
-              <p className="text-sm text-muted-foreground" role="status">{NO_RESOURCE_CREATE_NOTICE}</p>
-            )}
+            {/* 設定の取得後に文言が入っても読み上げられるよう、通知欄は常に置く。 */}
+            <p className="text-sm text-muted-foreground" role="status">
+              {target.resources.kind === "none" && NO_RESOURCE_CREATE_NOTICE}
+            </p>
 
             <div className="grid grid-cols-2 gap-2">
               <Field id="rcp-date" label="日付">
@@ -955,7 +970,7 @@ export function ReservationCreatePanel({
             storeName={target.storeName ?? target.storeId}
             serviceNames={confirmationServiceNames(selectedServices, serviceIds)}
             totalMinutes={totalMinutes}
-            resourceName={confirmationResourceName(target.resources)}
+            resourceName={confirmationResourceName(target.resources, pendingPayload?.resourceId)}
             date={date}
             time={time}
             onClose={() => setPendingPayload(null)}
