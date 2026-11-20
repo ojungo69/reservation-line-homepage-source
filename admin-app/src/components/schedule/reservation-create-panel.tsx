@@ -743,14 +743,12 @@ export function ReservationCreatePanel({
     setSlotResourceId(slot.resourceId);
   };
 
-  // 店舗を変えたら、前の店舗の枠・メニュー・お客様と、空き枠から選んだ時刻を空にする（手で入れた時刻は残す）。
+  // 店舗を変えたら、前の店舗の枠・メニュー・お客様と空き枠の枠を空にする（時刻は今どおり残す）。
   const handleStoreChange = (value: string) => {
     setStoreId(value);
     setServiceIds([]);
     setUnavailableNotice(null);
     setResourceId("");
-    if (slotResourceId !== "") setTime("");
-    setTimeFromSlot(false);
     setSlotResourceId("");
     setSelectedCustomer(null);
     setCustomerSearch("");

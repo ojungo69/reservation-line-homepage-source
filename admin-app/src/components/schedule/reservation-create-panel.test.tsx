@@ -527,6 +527,7 @@ describe("ReservationCreatePanel のリソース・店舗・予約経路の自�
     const user = userEvent.setup();
     renderPanel({ defaultResourceId: "resource-1", defaultMinutes: null });
 
+    fireEvent.change(screen.getByLabelText("時間"), { target: { value: "13:15" } });
     await selectByKeyboard(user, "店舗", "渋谷店");
     await user.click(screen.getByRole("checkbox", { name: /渋谷メニュー/ }));
     await user.click(screen.getByRole("tab", { name: "新規のお客様" }));
@@ -536,31 +537,26 @@ describe("ReservationCreatePanel のリソース・店舗・予約経路の自�
     await submitAndConfirm(user);
 
     expect(createReservation).toHaveBeenCalledWith(
-      expect.objectContaining({ storeId: "store-2", resourceId: "resource-2", startAt: "2026-07-24T10:00:00+09:00" }),
+      expect.objectContaining({ storeId: "store-2", resourceId: "resource-2", startAt: "2026-07-24T13:15:00+09:00" }),
       expect.anything(),
     );
   });
 
-  it("FR-004: 予定表の空きから開いて店舗を切り替えると、空き枠の時刻を空にし、入れ直すまで送らない", async () => {
+  it("FR-004: 予定表の空きから開いて店舗を切り替えても、今どおり時刻は残り、新しい店舗の枠で送る", async () => {
     settingsState.current = settingsState.fixtures.twoStores;
     const user = userEvent.setup();
     renderPanel({ defaultResourceId: "resource-1", defaultMinutes: 660 });
 
     await selectByKeyboard(user, "店舗", "渋谷店");
-    expect((screen.getByLabelText("時間") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("時間") as HTMLInputElement).value).toBe("11:00");
     await user.click(screen.getByRole("checkbox", { name: /渋谷メニュー/ }));
     await user.click(screen.getByRole("tab", { name: "新規のお客様" }));
     await user.type(screen.getByLabelText("氏名"), "新規 太郎");
     await user.type(screen.getByLabelText("カナ"), "シンキ タロウ");
     await user.type(screen.getByLabelText("電話番号"), "090-1111-2222");
-    await user.click(screen.getByRole("button", { name: "予約作成" }));
-    expect(screen.queryByRole("alertdialog")).toBeNull();
-    expect(screen.getByRole("alert").textContent).toBe("必須項目を入力してください");
-
-    fireEvent.change(screen.getByLabelText("時間"), { target: { value: "13:00" } });
     await submitAndConfirm(user);
     expect(createReservation).toHaveBeenCalledWith(
-      expect.objectContaining({ storeId: "store-2", resourceId: "resource-2", startAt: "2026-07-24T13:00:00+09:00" }),
+      expect.objectContaining({ storeId: "store-2", resourceId: "resource-2", startAt: "2026-07-24T11:00:00+09:00" }),
       expect.anything(),
     );
   });
