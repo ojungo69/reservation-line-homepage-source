@@ -1,0 +1,33 @@
+admin-app/src/components/calendar-v2/body.tsx
+  s_d52c2d995f51c6::t_ec32d0a59aa68b 3,15-16,23,25-28,62-64,77,80-83,89-90
+admin-app/src/components/calendar-v2/column.tsx
+  s_d52c2d995f51c6::t_d000f3b8f17544 17-19,66-70,117-119,153,177,204-206
+admin-app/src/components/calendar-v2/geometry.test.ts
+  s_d52c2d995f51c6::t_bcec5e45f69d9f 146-147,155-156
+admin-app/src/components/calendar-v2/geometry.ts
+  s_d52c2d995f51c6::t_79332d1120d2d8 120-124,126-127
+admin-app/src/components/calendar-v2/notices.tsx
+  s_d52c2d995f51c6::t_eb19f657713c51 96
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_7b753e718fb01e 418,647,651,655-657,659-661,672-674,678-679,684,710-723,730-732
+admin-app/src/pages/schedule-v2.tsx
+  s_d52c2d995f51c6::t_80a0796a5d8836 3,62,258-260
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_8a2ac6f7431425 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e3cdec7e2ce23f3491139e5c5db182ac6eda8e1f",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
