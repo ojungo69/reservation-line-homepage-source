@@ -1,0 +1,39 @@
+admin-app/src/components/calendar-v2/use-calendar-view.ts
+  s_d52c2d995f51c6::t_0a78fd4d37e823 1-34
+admin-app/src/components/calendar-v2/swipe.test.ts
+  s_d52c2d995f51c6::t_b71cf5bc190fbd 2,39-54
+admin-app/src/components/calendar-v2/swipe.ts
+  s_d52c2d995f51c6::t_db72a0a10d971e 8-10,32-47
+admin-app/src/components/calendar-v2/top-bar.tsx
+  s_d52c2d995f51c6::t_b2fa63f856e65b 1-3,7,26-28,33-34,50-51,67,105-127
+admin-app/src/components/calendar-v2/use-period-swipe.ts
+  s_d52c2d995f51c6::t_70d6a7d118edb7 3,14-15,29-31,50-52,137-158,164-165,171-172
+admin-app/src/components/schedule/mini-calendar.test.tsx
+  s_d52c2d995f51c6::t_f82df9bbc09999 71-78
+admin-app/src/components/schedule/mini-calendar.tsx
+  s_d52c2d995f51c6::t_b792cec0fb074a 17-18,25,27-28,92
+admin-app/src/lib/timeline.ts
+  s_d52c2d995f51c6::t_8514fbcb870983 267-271,273
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_99b292503bc959 256,1136-1263
+admin-app/src/pages/schedule-v2.tsx
+  s_d52c2d995f51c6::t_5cdac87e3b74fd 12,77,192,201-202,204,206,250-251
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_dcb68507de0eae 35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b2776238c18213bd5562ede8de51e26b6fad846e",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
