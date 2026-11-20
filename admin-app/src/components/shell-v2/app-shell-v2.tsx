@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router";
 import { CommandPalette } from "@/components/command-palette";
 import { CHUNK_RELOAD_FLAG } from "@/components/error-boundary";
@@ -6,8 +6,10 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useAdminPushReconcile } from "@/hooks/use-admin-push";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useTheme } from "@/hooks/use-theme";
+import { cn } from "@/lib/utils";
 import { StoreProvider } from "@/providers/store-provider";
 import { HeaderV2 } from "./header-v2";
+import { ShellV2Context, type ShellV2 } from "./shell-context";
 import { SidebarV2 } from "./sidebar-v2";
 
 // The docked sidebar's breakpoint: Tailwind's lg, in the same unit. Media queries
@@ -28,11 +30,19 @@ export const DOCKED_QUERY = "(min-width: 64rem)";
 export default function AppShellV2() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // The calendar's own top bar (T005) stands in for the header; see ShellV2.
+  const [ownTopBar, setOwnTopBar] = useState(false);
+  const paletteBlocked = useRef(false);
   const { pathname } = useLocation();
   const docked = useMediaQuery(DOCKED_QUERY);
   // Held here, not in the menu: the drawer's menu unmounts on close.
   const { theme, setTheme } = useTheme();
-  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  // The header's menu button, or the calendar bar's when that bar stands in for the
+  // header. Two refs, not one shared: the header unmounting would null a shared one
+  // after the bar had set it.
+  const headerMenuRef = useRef<HTMLButtonElement>(null);
+  const barMenuRef = useRef<HTMLButtonElement>(null);
+  const menuButton = () => barMenuRef.current ?? headerMenuRef.current;
   const mainRef = useRef<HTMLElement>(null);
   const paletteReturnRef = useRef<HTMLElement | null>(null);
 
@@ -58,6 +68,7 @@ export default function AppShellV2() {
   // closes the drawer. Focus goes back to the button that opened it (Safari does
   // not focus buttons on click), else to what had focus for ⌘K, else the page.
   const onPaletteOpenChange = (open: boolean, opener?: HTMLElement) => {
+    if (open && paletteBlocked.current) return;
     if (open) {
       paletteReturnRef.current =
         opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
@@ -110,8 +121,24 @@ export default function AppShellV2() {
     shown.current = { pathname, docked };
     if (document.activeElement !== document.body || lastFocused.current?.isConnected !== false) return;
     if (before.pathname !== pathname) mainRef.current?.focus();
-    else if (before.docked !== docked) (menuButtonRef.current ?? mainRef.current)?.focus();
+    else if (before.docked !== docked) (menuButton() ?? mainRef.current)?.focus();
   }, [pathname, docked]);
+
+  const shell = useMemo<ShellV2>(
+    () => ({
+      showMenuButton: !docked,
+      menuButtonRef: barMenuRef,
+      menuOpen: drawerOpen,
+      openMenu: () => setDrawerOpen(true),
+      // onPaletteOpenChange reads only refs and setters, so the first render's copy is current.
+      openPalette: (opener) => onPaletteOpenChange(true, opener),
+      setOwnTopBar,
+      setPaletteBlocked: (blocked) => {
+        paletteBlocked.current = blocked;
+      },
+    }),
+    [docked, drawerOpen],
+  );
 
   return (
     <StoreProvider>
@@ -150,7 +177,7 @@ export default function AppShellV2() {
                 // The menu button opened it. Once the screen is wide that button is
                 // unmounted (its ref is null by the time this runs), so the page gets focus.
                 event.preventDefault();
-                (menuButtonRef.current ?? mainRef.current)?.focus();
+                (menuButton() ?? mainRef.current)?.focus();
               }}
             >
               <SheetTitle className="sr-only">メニュー</SheetTitle>
@@ -160,21 +187,28 @@ export default function AppShellV2() {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <HeaderV2
-            showMenuButton={!docked}
-            menuButtonRef={menuButtonRef}
-            menuOpen={drawerOpen}
-            onMenuToggle={() => setDrawerOpen(true)}
-            onOpenPalette={(opener) => onPaletteOpenChange(true, opener)}
-          />
+          {!ownTopBar && (
+            <HeaderV2
+              showMenuButton={!docked}
+              menuButtonRef={headerMenuRef}
+              menuOpen={drawerOpen}
+              onMenuToggle={() => setDrawerOpen(true)}
+              onOpenPalette={(opener) => onPaletteOpenChange(true, opener)}
+            />
+          )}
           {/* Pages keep today's colors; only the shell, the calendar and the chart change (plan.md). */}
           <main
             ref={mainRef}
             id="main-content"
             tabIndex={-1}
-            className="min-h-0 flex-1 overflow-auto bg-background text-foreground lg:rounded-3xl"
+            className={cn(
+              "min-h-0 flex-1 bg-background text-foreground lg:rounded-3xl",
+              ownTopBar ? "overflow-hidden" : "overflow-auto",
+            )}
           >
-            <Outlet />
+            <ShellV2Context.Provider value={shell}>
+              <Outlet />
+            </ShellV2Context.Provider>
           </main>
         </div>
       </div>

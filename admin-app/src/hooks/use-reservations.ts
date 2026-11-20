@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/error-messages";
@@ -17,11 +17,13 @@ import type {
   CreateReservationPayload,
 } from "@/types/api";
 
-export function useReservations(date: string) {
+// 1 日分の予約一覧の取得定義。新しい予定表 (specs/008) は週の 7 日を useQueries
+// で同じ定義から取り、日表示とキャッシュを共有する。
+export function reservationsQuery(date: string) {
   // 取得は range=date のみで全店舗分を返し、店舗フィルタは呼び出し側で行う。
   // storeId を queryKey に含めると WeekView が店舗切替ごとに 7 リクエストを
   // 無駄に再発行してしまうため、キーは date のみにする。
-  return useQuery({
+  return queryOptions({
     queryKey: ["reservations", date],
     queryFn: () =>
       api.get<ReservationsResponse>(
@@ -32,6 +34,10 @@ export function useReservations(date: string) {
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: "always",
   });
+}
+
+export function useReservations(date: string) {
+  return useQuery(reservationsQuery(date));
 }
 
 export function usePendingReservations() {

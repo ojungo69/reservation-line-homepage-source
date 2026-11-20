@@ -508,6 +508,26 @@ describe("PendingApprovalsCard", () => {
     renderCard();
     expect(screen.getByText(/受付:/).textContent).toContain(`受付: — · 承認期限: ${expected}`);
   });
+  it("一覧が上限に届いたと渡された時だけ、件数を「以上」とし、空でも欠けている恐れを伝える", () => {
+    mocks.reservations = [reservation("reservation-2", "store-2", "渋谷 花子", 1)];
+    const { unmount } = render(
+      <MemoryRouter>
+        <PendingApprovalsCard selectedStoreId="store-1" onSelect={vi.fn()} fullList listCapped />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: /承認待ちの予約/ }).textContent).toContain("0以上");
+    expect(screen.getByText(/表示されていない承認待ちがある場合があります/)).toBeTruthy();
+    unmount();
+    // Other screens pass nothing and keep today's wording.
+    render(
+      <MemoryRouter>
+        <PendingApprovalsCard selectedStoreId="store-1" onSelect={vi.fn()} fullList />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("この条件に合う承認待ちはありません")).toBeTruthy();
+    expect(screen.queryByText(/以上/)).toBeNull();
+  });
+
   it("承認待ちの取得失敗を0件と扱わず、再読み込みを提供する", async () => {
     mocks.hasData = false;
     mocks.query.isError = true;
