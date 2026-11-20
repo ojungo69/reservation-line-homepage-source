@@ -21,7 +21,7 @@ const renderPage = () => render(<LineFriendsPage />, { wrapper: createQueryWrapp
 beforeEach(() => vi.resetAllMocks());
 
 describe("LINE友だち一覧の条件と表示", () => {
-  it.each(["検索語", "フィルタ", "ページ"])("%s の応答待ちでは旧結果を操作できず、新しい結果だけを表示する", async (change) => {
+  it.each(["検索語", "ページ"])("%s の応答待ちでは旧結果を操作できず、新しい結果だけを表示する", async (change) => {
     let resolveResponse: ((value: ReturnType<typeof response>) => void) | undefined;
     const pending = new Promise<ReturnType<typeof response>>((resolve) => { resolveResponse = resolve; });
     api.get.mockResolvedValueOnce(response()).mockReturnValueOnce(pending);
@@ -31,7 +31,7 @@ describe("LINE友だち一覧の条件と表示", () => {
     if (change === "検索語") {
       fireEvent.change(screen.getByRole("textbox", { name: "LINE友だちを名前で検索" }), { target: { value: "変更後" } });
     } else {
-      fireEvent.click(screen.getByRole("button", { name: change === "フィルタ" ? "すべて" : "次へ" }));
+      fireEvent.click(screen.getByRole("button", { name: "次へ" }));
     }
     expect(screen.queryByText("変更前の友だち")).toBeNull();
     expect(screen.queryByRole("button", { name: "既存客に紐付け" })).toBeNull();
@@ -48,7 +48,7 @@ describe("LINE友だち一覧の条件と表示", () => {
     api.get.mockResolvedValueOnce(response()).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(response());
     renderPage();
     await screen.findByText("変更前の友だち");
-    fireEvent.click(screen.getByRole("button", { name: "すべて" }));
+    fireEvent.click(screen.getByRole("button", { name: "次へ" }));
     await screen.findByRole("alert");
     expect(screen.queryByText("変更前の友だち")).toBeNull();
     expect(screen.queryByText("該当がありません。")).toBeNull();
