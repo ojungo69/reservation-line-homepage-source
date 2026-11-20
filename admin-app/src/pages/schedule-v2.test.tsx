@@ -1030,9 +1030,11 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     // The click a touch produces carries its click count.
     fireEvent.click(card, { detail: 1 });
     expect(screen.queryByRole("dialog", { name: "予約の詳細" })).toBeNull();
+    // A swipe whose touch produced no click: the next touch clears the guard.
+    swipe(card, -30);
     point("pointerDown", card, 300, 400);
     point("pointerUp", card, 300, 400);
-    fireEvent.click(card);
+    fireEvent.click(card, { detail: 1 });
     expect(screen.getByRole("dialog", { name: "予約の詳細" })).toBeTruthy();
   });
 
@@ -1071,6 +1073,30 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     point("pointerMove", scroller(), 240, 400);
     point("pointerUp", scroller(), 215, 400);
     expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("向きが決まる前に指を離しても、離した位置で向きと距離を決める", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 294, 400);
+    point("pointerUp", scroller(), 215, 400);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("掴んでいた予約が描き直しで消えて、本文の外で指を離しても、フリックを終える", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const card = await eventButton(/^山田 花子、/);
+    const title = screen.getByRole("heading", { level: 1 });
+    point("pointerDown", card, 300, 400);
+    point("pointerMove", card, 215, 400);
+    card.remove();
+    point("pointerUp", title, 215, 400);
+    expect(heading()).toBe("11月21日（土）");
+    expect([...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")].map((pane) => pane.style.transform)).toEqual(["", ""]);
   });
 
   it("狭い画面の一覧でもフリックで日を送る", async () => {

@@ -84,7 +84,7 @@ export function usePeriodSwipe(
       gesture = null;
     };
 
-    // Listens on the whole page, so a second finger outside the body is seen too.
+    // A second finger outside the body is seen too: the listener is on the document.
     const onDown = (event: PointerEvent) => {
       unblock?.();
       // INT-04-07: a second finger ends the swipe and leaves the pinch to the browser.
@@ -110,7 +110,9 @@ export function usePeriodSwipe(
     };
     const onUp = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
-      const { axis, x, dx: shown } = gesture;
+      const { x, dx: shown } = gesture;
+      // A fast flick may lift before a move has decided the axis.
+      const axis = gesture.axis ?? swipeAxis(event.clientX - x, event.clientY - gesture.y);
       gesture = null;
       if (axis !== "x") return;
       blockClick();
@@ -129,15 +131,17 @@ export function usePeriodSwipe(
       if (event.pointerId === gesture?.id) stop();
     };
 
+    // On the document: a touch whose target is redrawn away loses its capture,
+    // and its later events land wherever the finger is.
     document.addEventListener("pointerdown", onDown, true);
-    scroller.addEventListener("pointermove", onMove);
-    scroller.addEventListener("pointerup", onUp);
-    scroller.addEventListener("pointercancel", onCancel);
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onCancel);
     return () => {
       document.removeEventListener("pointerdown", onDown, true);
-      scroller.removeEventListener("pointermove", onMove);
-      scroller.removeEventListener("pointerup", onUp);
-      scroller.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onCancel);
       unblock?.();
       place(0);
     };
