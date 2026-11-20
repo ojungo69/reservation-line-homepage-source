@@ -993,6 +993,7 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(heading()).toBe("1月1日（金）");
     swipe(scroller(), 80);
     expect(heading()).toBe("12月31日（木）");
+    expect(screen.getByText("2026年12月31日 (木)").getAttribute("aria-live")).toBe("polite");
     swipe(scroller(), -80);
     swipe(scroller(), -80);
     expect(heading()).toBe("1月2日（土）");
@@ -1357,7 +1358,8 @@ describe("ScheduleV2Page の日付選択（T006）の細部", () => {
     await screen.findByRole("button", { name: /^11月16日（月）の日表示を開く/ });
     swipe(scroller(), -80);
     expect(heading()).toBe("2026年11月");
-    const spoken = screen.getByText("11月23日（月）から11月29日（日）");
+    // With the year: the same month and day in another year is another period.
+    const spoken = screen.getByText("2026年11月23日 (月)から2026年11月29日 (日)");
     expect(spoken.getAttribute("aria-live")).toBe("polite");
   });
 });

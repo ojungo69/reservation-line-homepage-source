@@ -24,16 +24,16 @@ import { NARROW_QUERY, useMediaQuery } from "@/hooks/use-media-query";
 import { usePendingReservations } from "@/hooks/use-reservations";
 import { useSettings } from "@/hooks/use-settings";
 import { useStores } from "@/hooks/use-stores";
-import { addDays, formatJstDate, toJstDate } from "@/lib/timeline";
+import { addDays, formatFullJstDate, formatJstDate, toJstDate } from "@/lib/timeline";
 import type { ExternalBlock } from "@/types/api";
 
 // The pending list's row limit (listPendingReservations in src/admin/reservations.ts).
 const PENDING_ROW_CAP = 200;
 
-/** The bar's heading, the period read out when it changes, and the step of 前/次 for the view. */
+/** The bar's heading, the period read out when it changes (with its year), and the step of 前/次 for the view. */
 function barText(week: boolean, narrow: boolean, date: Date, dayDates: readonly Date[]) {
-  if (week) return { heading: weekHeading(dayDates), spoken: `${dayLabel(dayDates[0])}から${dayLabel(dayDates[6])}`, stepUnit: "週" as const, stepDays: 7 };
-  return { heading: narrow ? shortDayLabel(date) : dayLabel(date), spoken: dayLabel(date), stepUnit: "日" as const, stepDays: 1 };
+  if (week) return { heading: weekHeading(dayDates), spoken: `${formatFullJstDate(dayDates[0])}から${formatFullJstDate(dayDates[6])}`, stepUnit: "週" as const, stepDays: 7 };
+  return { heading: narrow ? shortDayLabel(date) : dayLabel(date), spoken: formatFullJstDate(date), stepUnit: "日" as const, stepDays: 1 };
 }
 
 /** The pending count for the store shown; null until the list is read. */
