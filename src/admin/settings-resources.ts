@@ -22,9 +22,8 @@ import {
 // Tier C.3 4c — store_resources editor. Same shape as settings-services.ts
 // (role gate, idempotency_keys POST, audit_logs, has_future_reservations
 // write-time guard on deactivation). FK from reservations(resource_id) is
-// ON DELETE RESTRICT; hard delete also cascades to lock/block state.
-// Soft-delete via active=0 with the future-reservation
-// guard keeps the contract intact.
+// ON DELETE RESTRICT. DELETE only sets active=0 (the row is never removed), so
+// it behaves like deactivation: both refuse a resource with future reservations.
 
 export type AdminResourceType = "staff_calendar";
 

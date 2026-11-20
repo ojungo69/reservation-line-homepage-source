@@ -37,7 +37,6 @@ import {
 } from "./use-reservation-cap";
 import {
   useResourceCreate,
-  useResourceDelete,
   useResourceList,
   useResourceUpdate,
 } from "./use-resources";
@@ -433,16 +432,6 @@ const mutationCases = [
     error: "リソースの更新に失敗しました",
   },
   {
-    name: "resource delete",
-    useHook: useResourceDelete,
-    method: "delete",
-    variables: "resource-1",
-    call: ["/api/admin/settings/resources/resource-1"],
-    invalidates: [["settings"]],
-    success: "リソースを削除しました",
-    error: "リソースの削除に失敗しました",
-  },
-  {
     name: "staff create",
     useHook: useStaffCreate,
     method: "post",
@@ -816,6 +805,27 @@ describe("shared settings queries", () => {
     expect(closures.result.current.closureList).toEqual([]);
     expect(resources.result.current.resourceList).toEqual([]);
     expect(staff.result.current.staffList).toEqual([]);
+  });
+
+  it("reports resources as loaded only after the settings request succeeds", async () => {
+    mocks.api.get.mockResolvedValue(settingsResponse);
+    const { result } = renderHook(() => useResourceList("store-1"), {
+      wrapper: createWrapper(createClient()),
+    });
+
+    expect(result.current.isLoaded).toBe(false);
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    expect(result.current.resourceList).toEqual([resource1]);
+  });
+
+  it("does not report resources as loaded when the settings request fails", async () => {
+    mocks.api.get.mockRejectedValue(new Error("network"));
+    const { result } = renderHook(() => useResourceList("store-1"), {
+      wrapper: createWrapper(createClient()),
+    });
+
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+    expect(result.current.isLoaded).toBe(false);
   });
 
   it("defaults optional reminder offsets to an empty list", async () => {

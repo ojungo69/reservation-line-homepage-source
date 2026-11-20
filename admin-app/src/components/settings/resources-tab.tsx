@@ -19,10 +19,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { PendingConfirmDialog } from "@/components/ui/pending-confirm-dialog";
 import { SettingsLoadError, SettingsTabStatus } from "@/components/settings/settings-tab-status";
 import { useSettings } from "@/hooks/use-settings";
-import { useResourceList, useResourceCreate, useResourceUpdate, useResourceDelete } from "@/hooks/use-resources";
+import { useResourceList, useResourceCreate, useResourceUpdate } from "@/hooks/use-resources";
 import type { Resource } from "@/types/api";
 
 type Props = {
@@ -34,11 +33,9 @@ export function ResourcesTab({ selectedStoreId }: Readonly<Props>) {
   const { isError, refetch } = useSettings();
   const createMutation = useResourceCreate();
   const updateMutation = useResourceUpdate();
-  const deleteMutation = useResourceDelete();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editResource, setEditResource] = useState<Resource | null>(null);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   // useResourceUpdate は dialog の編集と row toggle の active 切替で共有されるため、
@@ -97,17 +94,6 @@ export function ResourcesTab({ selectedStoreId }: Readonly<Props>) {
     );
   };
 
-  const handleDelete = () => {
-    if (!deleteId) return;
-    deleteMutation.mutate(deleteId, {
-      // 成功時のみ確認ダイアログを閉じる。エラー時は開いたままにして
-      // 再試行できるようにする（onSettled だと失敗でも閉じてしまう）。
-      onSuccess: () => {
-        setDeleteId(null);
-      },
-    });
-  };
-
   if (isError) return <SettingsLoadError onRetry={() => { void refetch(); }} />;
 
   if (!selectedStoreId || isPending) {
@@ -152,9 +138,6 @@ export function ResourcesTab({ selectedStoreId }: Readonly<Props>) {
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => handleToggleActive(r)} disabled={updateMutation.isPending}>
                         {r.active ? "無効化" : "有効化"}
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setDeleteId(r.id)}>
-                        削除
                       </Button>
                     </div>
                   </TableCell>
@@ -203,16 +186,6 @@ export function ResourcesTab({ selectedStoreId }: Readonly<Props>) {
           </div>
         </DialogContent>
       </Dialog>
-
-      <PendingConfirmDialog
-        open={deleteId !== null}
-        pending={deleteMutation.isPending}
-        title="リソースを削除"
-        description="このリソースを削除しますか？将来の予約がある場合は削除できません。"
-        confirmLabel="削除する"
-        onOpenChange={() => setDeleteId(null)}
-        onConfirm={handleDelete}
-      />
     </div>
   );
 }

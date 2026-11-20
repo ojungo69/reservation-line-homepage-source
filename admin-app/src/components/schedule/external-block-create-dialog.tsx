@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { useStores } from "@/hooks/use-stores";
 import { useResourceList } from "@/hooks/use-resources";
+import { NO_RESOURCE_SETTINGS_NOTICE, resolveStoreResources } from "@/lib/store-resources";
 import { useExternalBlockCreate } from "@/hooks/use-external-blocks";
 import {
   buildExternalBlockTimes,
@@ -43,7 +44,7 @@ export function ExternalBlockCreateDialog({
   const create = useExternalBlockCreate();
 
   const [storeId, setStoreId] = useState<string>(defaultStoreId ?? "");
-  const [resourceId, setResourceId] = useState("");
+  const [chosenResourceId, setChosenResourceId] = useState("");
   const [startLocal, setStartLocal] = useState("");
   const [endLocal, setEndLocal] = useState("");
   const [title, setTitle] = useState("");
@@ -54,15 +55,17 @@ export function ExternalBlockCreateDialog({
     idempotencyKeyRef.current = crypto.randomUUID();
   }
 
-  const { resourceList } = useResourceList(storeId || null);
-  const activeResources = resourceList.filter((r) => r.active);
+  const { resourceList, isLoaded } = useResourceList(storeId || null);
+  // 枠が 1 つなら選ばせずその枠に決める。取得に失敗したときは 0 件とは扱わない。
+  const resources = resolveStoreResources(isLoaded ? resourceList : undefined, storeId, chosenResourceId);
+  const resourceId = resources.resourceId;
 
   // ダイアログを開くたびに defaultStoreId を反映し、入力をリセットする。
   // 作成リクエスト送信中はリセットしない（idempotencyKey を保持して再試行を安全にする）。
   useEffect(() => {
     if (open && !create.isPending) {
       setStoreId(defaultStoreId ?? "");
-      setResourceId("");
+      setChosenResourceId("");
       setStartLocal("");
       setEndLocal("");
       setTitle("");
@@ -83,7 +86,7 @@ export function ExternalBlockCreateDialog({
   // 店舗を切り替えたらリソース選択をクリアする。
   const handleStoreChange = (value: string) => {
     setStoreId(value);
-    setResourceId("");
+    setChosenResourceId("");
   };
 
   const canSubmit =
@@ -122,7 +125,7 @@ export function ExternalBlockCreateDialog({
         <DialogHeader>
           <DialogTitle>ブロックを作成</DialogTitle>
           <DialogDescription>
-            指定したリソース・時間帯を予約不可にします。時刻は5分単位で指定してください。
+            選んだ時間帯を予約不可にします。時刻は5分単位で指定してください。
           </DialogDescription>
         </DialogHeader>
 
@@ -145,27 +148,28 @@ export function ExternalBlockCreateDialog({
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label htmlFor="block-resource">リソース</Label>
-            <Select
-              value={resourceId}
-              onValueChange={setResourceId}
-              disabled={!storeId}
-            >
-              <SelectTrigger id="block-resource">
-                <SelectValue
-                  placeholder={storeId ? "リソースを選択" : "先に店舗を選択"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {activeResources.map((r) => (
-                  <SelectItem key={r.id} value={r.id}>
-                    {r.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {resources.kind === "multiple" && (
+            <div className="space-y-2">
+              <Label htmlFor="block-resource">リソース</Label>
+              <Select value={resourceId} onValueChange={setChosenResourceId}>
+                <SelectTrigger id="block-resource">
+                  <SelectValue placeholder="リソースを選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  {resources.resources.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {resources.kind === "none" && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {NO_RESOURCE_SETTINGS_NOTICE}
+            </p>
+          )}
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">

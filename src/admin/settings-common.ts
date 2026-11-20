@@ -24,11 +24,10 @@ export const isAdminPrivileged = (role: AdminUser["role"]): boolean =>
  *
  * Use this for services, closures, business-hours — areas where staff are
  * permitted to edit within their own store scope.
- * Resources stay `isAdminPrivileged`-only: deleting a store_resource cascades
- * to slot_locks / slot_lock_history / external_blocks (reservations.resource_id
- * is ON DELETE RESTRICT, so reservations survive, but the cascades silently
- * drop lock/block state). Staff CRUD also remains `isAdminPrivileged`-only
- * (privilege escalation risk).
+ * Resources stay `isAdminPrivileged`-only: they define the bookable slots, and
+ * "delete" only sets active = 0 (same as deactivation, the row is kept); both
+ * refuse a resource that has future reservations. Staff CRUD also remains
+ * `isAdminPrivileged`-only (privilege escalation risk).
  */
 export const isAdminAllowedForStoreSettings = (
   admin: Pick<AdminUser, "role" | "store_id">,

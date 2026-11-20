@@ -11,7 +11,8 @@ export function useResourceList(storeId: string | null) {
     if (!storeId) return resources;
     return resources.filter((r) => r.storeId === storeId);
   });
-  return { resourceList: query.data ?? [], isPending: query.isPending };
+  // 取得の失敗と読み込み中は resourceList が [] になり「枠が 0 件」と区別できないので、成功だけを示す。
+  return { resourceList: query.data ?? [], isPending: query.isPending, isLoaded: query.data !== undefined };
 }
 
 export function useResourceCreate() {
@@ -37,18 +38,5 @@ export function useResourceUpdate() {
       toast.success("リソースを更新しました");
     },
     onError: (err) => showErrorToast(err, "リソースの更新に失敗しました"),
-  });
-}
-
-export function useResourceDelete() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      api.delete<MutationOkResponse>(`/api/admin/settings/resources/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings"] });
-      toast.success("リソースを削除しました");
-    },
-    onError: (err) => showErrorToast(err, "リソースの削除に失敗しました"),
   });
 }

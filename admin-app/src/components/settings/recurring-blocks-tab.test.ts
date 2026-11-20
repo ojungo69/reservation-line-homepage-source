@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { StoreResources } from "@/lib/store-resources";
 import { derivePreviewInvalid } from "./recurring-blocks-tab";
 
 // 元はネスト三項 8 段だった検証チェーン。分解しても「最初に該当した理由だけを返す」
@@ -10,6 +11,7 @@ type Args = {
   startDate: string;
   endDate: string;
   resourceId: string;
+  kind: StoreResources["kind"];
 };
 
 const valid: Args = {
@@ -19,6 +21,7 @@ const valid: Args = {
   startDate: "2026-08-01",
   endDate: "2026-08-31",
   resourceId: "resource-1",
+  kind: "multiple",
 };
 
 const call = (o: Partial<Args> = {}) => {
@@ -30,12 +33,31 @@ const call = (o: Partial<Args> = {}) => {
     a.startDate,
     a.endDate,
     a.resourceId,
+    a.kind,
   );
 };
 
 describe("derivePreviewInvalid", () => {
   it("全て揃っていれば null", () => {
     expect(call()).toBeNull();
+  });
+
+  it("枠が 1 つなら選択済みとして扱い、null", () => {
+    expect(call({ kind: "single" })).toBeNull();
+  });
+
+  it("枠が未設定のときは、ほかが全部有効でも案内の理由を返す", () => {
+    expect(call({ kind: "none", resourceId: "" })).toEqual({
+      field: null,
+      message: "この店舗は予約枠が未設定です。店舗設定の「リソース」タブで追加してください。",
+    });
+  });
+
+  it("枠が未設定の理由は、曜日が未選択でも先に返す", () => {
+    expect(call({ kind: "none", resourceId: "", days: [] })).toEqual({
+      field: null,
+      message: "この店舗は予約枠が未設定です。店舗設定の「リソース」タブで追加してください。",
+    });
   });
 
   it.each([

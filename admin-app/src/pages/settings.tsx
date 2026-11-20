@@ -32,8 +32,9 @@ export default function SettingsPage() {
           <TabsTrigger value="hours">営業時間</TabsTrigger>
           <TabsTrigger value="closures">休業日</TabsTrigger>
           {/* リソース/予約ルール・通知/繰り返しブロックは owner+ 限定のまま:
-              リソース削除は slot_locks / external_blocks へ CASCADE し、
-              予約ルール・通知は各店舗の受付ルール、繰り返しブロックは予約枠に触るため。
+              リソースの停止（削除 API も active = 0 にするだけ）は将来の予約がある枠を拒否するが、
+              予約枠の構成そのものを変える。予約ルール・通知は各店舗の受付ルール、
+              繰り返しブロックは予約枠に触るため。
               バックエンド側も isAdminPrivileged のまま (二重ゲート)。 */}
           {isPrivileged && (
             <>

@@ -22,7 +22,6 @@ vi.mock("@/hooks/use-resources", () => ({
   useResourceList: () => ({ resourceList: resources, isPending: false }),
   useResourceCreate: () => mutation,
   useResourceUpdate: () => mutation,
-  useResourceDelete: () => mutation,
 }));
 
 import { ClosuresTab } from "./closures-tab";
@@ -44,7 +43,7 @@ describe("settings tab loading state", () => {
     expect(screen.getByText("店舗を選択してください")).toBeTruthy();
   });
 
-  it("両タブの削除確認をキャンセルできる", async () => {
+  it("休業日の削除確認をキャンセルできる", async () => {
     const user = userEvent.setup();
     closures = [{
       id: "closure-1",
@@ -54,21 +53,21 @@ describe("settings tab loading state", () => {
       reason: null,
       source: "admin",
     }];
-    const { unmount } = render(<ClosuresTab selectedStoreId="store-1" />);
-    await user.click(screen.getByRole("button", { name: "削除" }));
-    await user.click(screen.getByRole("button", { name: "キャンセル" }));
-    unmount();
-
-    resources = [{
-      id: "resource-1",
-      storeId: "store-1",
-      name: "担当A",
-      resourceType: "staff_calendar",
-      active: true,
-    }];
-    render(<ResourcesTab selectedStoreId="store-1" />);
+    render(<ClosuresTab selectedStoreId="store-1" />);
     await user.click(screen.getByRole("button", { name: "削除" }));
     await user.click(screen.getByRole("button", { name: "キャンセル" }));
     expect(mutation.mutate).not.toHaveBeenCalled();
+  });
+
+  it("リソース一覧には削除が無く、無効化と有効化がある", () => {
+    resources = [
+      { id: "resource-1", storeId: "store-1", name: "担当A", resourceType: "staff_calendar", active: true },
+      { id: "resource-2", storeId: "store-1", name: "担当B", resourceType: "staff_calendar", active: false },
+    ];
+    render(<ResourcesTab selectedStoreId="store-1" />);
+
+    expect(screen.queryByRole("button", { name: "削除" })).toBeNull();
+    expect(screen.getByRole("button", { name: "無効化" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "有効化" })).toBeTruthy();
   });
 });
