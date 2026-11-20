@@ -1,6 +1,6 @@
 // 店舗の稼働中の予約枠（リソース）から、画面が枠の欄を出すか・どの枠を送るかを決める。
-// resources は設定の取得が成功したときだけ渡す。undefined（読み込み中・取得失敗）を
-// 空の配列（本当に 0 件）と分け、取得の失敗を「枠が未設定」と取り違えないため。
+// resources は設定のデータがあるときだけ渡す（取り直しに失敗しても前のデータがあれば渡す）。
+// undefined（読み込み中・最初の取得の失敗）を空の配列（本当に 0 件）と分け、「枠が未設定」と取り違えないため。
 import type { Resource, SettingsResponse } from "@/types/api";
 
 export type StoreResources =

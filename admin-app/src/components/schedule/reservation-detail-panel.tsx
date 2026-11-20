@@ -125,7 +125,7 @@ function getNotesSaveLabel(isSavingNotes: boolean, isFetching: boolean, hasVisit
 }
 
 // 店舗の枠が 1 つで予約がその枠なら、枠の名前は何も区別しないので行ごと出さない。
-// 設定の読み込み中も出さない（取得に失敗したときは判断できないので出す）。
+// 設定の読み込み中も出さない（最初の取得に失敗したときは判断できないので出す。取り直しの失敗では前の設定で判断する）。
 function useShowResourceRow(reservation: { storeId: string; resourceId: string } | null) {
   const { data, isPending } = useSettings();
   if (isPending) return false;

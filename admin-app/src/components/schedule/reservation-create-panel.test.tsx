@@ -50,7 +50,6 @@ vi.mock("@/hooks/use-reservations", () => ({
 vi.mock("@/hooks/use-settings", () => ({
   useSettings: () => ({
     data: settingsState.current ? { ok: true, settings: settingsState.current } : undefined,
-    isPending: settingsState.current === undefined,
   }),
 }));
 
@@ -469,6 +468,8 @@ async function selectByKeyboard(user: ReturnType<typeof userEvent.setup>, name: 
   expect(select.textContent).toContain(label);
 }
 
+const SLOT_MISMATCH = "選んだ空き枠と送る枠が合いません。空き枠を選び直すか、時刻を入れ直してください。";
+
 async function submitAndConfirm(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "予約作成" }));
   await user.click(screen.getByRole("button", { name: "この内容で予約" }));
@@ -477,7 +478,7 @@ async function submitAndConfirm(user: ReturnType<typeof userEvent.setup>) {
 describe("ReservationCreatePanel のリソース・店舗・予約経路の自動決定", () => {
   it("FR-001: 枠が 1 つの店舗ではリソースの欄を出さず、その枠で送る", async () => {
     const user = userEvent.setup();
-    renderPanel({ defaultResourceId: "resource-stopped" });
+    renderPanel({ defaultResourceId: "resource-stopped", defaultMinutes: null });
 
     expect(screen.queryByRole("combobox", { name: "リソース" })).toBeNull();
     await submitAndConfirm(user);
@@ -550,9 +551,9 @@ describe("ReservationCreatePanel のリソース・店舗・予約経路の自�
     expect(screen.getByRole("button", { name: "予約作成" })).toHaveProperty("disabled", false);
   });
 
-  it("FR-004: 初期値の枠が停止中でも、枠が 1 つの店舗ではその店舗の稼働中の枠で送る", async () => {
+  it("FR-004: 前の予約から作るときに初期値の枠が停止中でも、枠が 1 つの店舗ではその店舗の稼働中の枠で送る", async () => {
     const user = userEvent.setup();
-    renderPanel({ defaultStoreId: "store-1", defaultResourceId: "resource-stopped" });
+    renderPanel({ defaultStoreId: "store-1", defaultResourceId: "resource-stopped", defaultMinutes: null });
 
     await submitAndConfirm(user);
 
@@ -683,10 +684,11 @@ describe("ReservationCreatePanel のリソース・店舗・予約経路の自�
     expect(screen.getByText("空き枠なし")).toBeTruthy();
   });
 
-  it("設定の読み込み中は、空き枠の一覧に時刻も「空き枠なし」も出さない", () => {
+  it("設定のデータがまだ無い間は、空き枠の欄を出さない", () => {
     settingsState.current = undefined;
     renderPanel();
 
+    expect(screen.queryByText("空き枠")).toBeNull();
     expect(screen.queryByRole("button", { name: "10:00" })).toBeNull();
     expect(screen.queryByText("空き枠なし")).toBeNull();
   });
@@ -726,11 +728,61 @@ describe("ReservationCreatePanel のリソース・店舗・予約経路の自�
     await user.click(screen.getByRole("button", { name: "予約作成" }));
 
     expect(screen.queryByRole("alertdialog")).toBeNull();
-    expect(screen.getByRole("alert").textContent).toBe("選んだ空き枠が使えなくなりました。空き枠を選び直してください。");
+    expect(screen.getByRole("alert").textContent).toBe(SLOT_MISMATCH);
     await user.click(screen.getByRole("button", { name: "10:00" }));
     await submitAndConfirm(user);
     expect(createReservation).toHaveBeenCalledWith(
       expect.objectContaining({ resourceId: "resource-1", startAt: "2026-07-24T10:00:00+09:00" }),
+      expect.anything(),
+    );
+  });
+
+  it("予定表の空きから開いた枠が止まったら、時刻を入れ直すまで送らない", async () => {
+    settingsState.current = settingsState.fixtures.twoResources;
+    const [resourceA, resourceB] = settingsState.fixtures.twoResources.resources;
+    const user = userEvent.setup();
+    const { rerender, props } = renderPanel({ defaultResourceId: "resource-1b", defaultMinutes: 660 });
+
+    settingsState.current = { ...settingsState.fixtures.twoResources, resources: [resourceA, { ...resourceB, active: false }] };
+    rerender(<ReservationCreatePanel {...props} />);
+    await user.click(screen.getByRole("button", { name: "予約作成" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe(SLOT_MISMATCH);
+
+    fireEvent.change(screen.getByLabelText("時間"), { target: { value: "10:00" } });
+    await submitAndConfirm(user);
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: "resource-1", startAt: "2026-07-24T10:00:00+09:00" }),
+      expect.anything(),
+    );
+  });
+
+  it("3 つの枠のうち選んだ空き枠の枠が止まったら、リソースの欄で別の枠を選んでも、その枠の空き枠を選ぶまで送らない", async () => {
+    const [resourceA, resourceB] = settingsState.fixtures.twoResources.resources;
+    const resourceC = { id: "resource-1c", storeId: "store-1", name: "担当C", active: true };
+    settingsState.current = { ...settingsState.fixtures.twoResources, resources: [resourceA, resourceB, resourceC] };
+    slotsState.slots = [
+      ...slotsState.slots,
+      { resourceId: "resource-1b", resourceName: "担当B", startAt: "2026-07-24T11:00:00+09:00", available: true },
+      { resourceId: "resource-1c", resourceName: "担当C", startAt: "2026-07-24T11:30:00+09:00", available: true },
+    ];
+    const user = userEvent.setup();
+    const { rerender, props } = renderPanel();
+    await user.click(screen.getByRole("button", { name: "11:00" }));
+
+    settingsState.current = { ...settingsState.fixtures.twoResources, resources: [resourceA, { ...resourceB, active: false }, resourceC] };
+    rerender(<ReservationCreatePanel {...props} />);
+    await user.click(screen.getByRole("button", { name: "予約作成" }));
+    expect(screen.getByRole("alert").textContent).toBe(SLOT_MISMATCH);
+    await selectByKeyboard(user, "リソース", "担当C");
+    await user.click(screen.getByRole("button", { name: "予約作成" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe(SLOT_MISMATCH);
+
+    await user.click(screen.getByRole("button", { name: "11:30" }));
+    await submitAndConfirm(user);
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: "resource-1c", startAt: "2026-07-24T11:30:00+09:00" }),
       expect.anything(),
     );
   });

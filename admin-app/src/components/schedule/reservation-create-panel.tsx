@@ -544,6 +544,11 @@ function confirmationResourceName(
   return allResources.find((r) => r.id === sentResourceId)?.name ?? sentResourceId;
 }
 
+// 予定表の空きのクリックは時刻と枠を一緒に渡す。時刻の無い初期値（前の予約から作る）の枠は、空き枠の枠ではない。
+function scheduleSlotResourceId(defaultMinutes: number | null, defaultResourceId: string | null): string {
+  return defaultMinutes == null ? "" : defaultResourceId ?? "";
+}
+
 // フォームが送れる枠（枠が 1 つならその枠、2 つ以上なら稼働中の候補）の空きだけを一覧にする。
 function sendableResourceIds(resources: StoreResources): string[] {
   if (resources.kind === "single") return [resources.resourceId];
@@ -573,7 +578,7 @@ export function ReservationCreatePanel({
   defaultCustomer,
 }: Readonly<ReservationCreatePanelProps>) {
   const { isPrivileged } = useAuth();
-  const { data: settingsData, isPending: settingsPending } = useSettings();
+  const { data: settingsData } = useSettings();
   const { mutate: create, isPending } = useCreateReservation();
 
   // 応答喪失後に同じ内容を再送するときだけ key を保ち、フォーム内容を変えた
@@ -593,6 +598,8 @@ export function ReservationCreatePanel({
   const [time, setTime] = useState(initialTime);
   // 空き枠クリック由来の時刻か（メニュー変更時にリセットするかの判定に使う）。
   const [timeFromSlot, setTimeFromSlot] = useState(false);
+  // 時刻を空き枠（予定表の空きのクリックを含む）から選んだときの枠。リソースの欄の値とは別に持つ。
+  const [slotResourceId, setSlotResourceId] = useState(() => scheduleSlotResourceId(defaultMinutes, defaultResourceId));
   // rebook 初期値のうち現在選択できないメニューを外したときの警告。
   const [unavailableNotice, setUnavailableNotice] = useState<string | null>(null);
 
@@ -731,6 +738,7 @@ export function ReservationCreatePanel({
     const m = String(d.getUTCMinutes()).padStart(2, "0");
     setTime(`${h}:${m}`);
     setTimeFromSlot(true);
+    setSlotResourceId(slot.resourceId);
   };
 
   const resetForm = () => {
@@ -747,6 +755,11 @@ export function ReservationCreatePanel({
 
   const handleSubmit = () => {
     setError(null);
+    // 空き枠で選んだ時刻はその枠の空きなので、送る枠が違えば選び直してもらう。
+    if (slotResourceId !== "" && slotResourceId !== target.resources.resourceId) {
+      setError("選んだ空き枠と送る枠が合いません。空き枠を選び直すか、時刻を入れ直してください。");
+      return;
+    }
     const baseValid = target.storeId && serviceIds.length > 0 && target.resources.resourceId && date && time;
     if (!baseValid) {
       setError("必須項目を入力してください");
@@ -756,11 +769,6 @@ export function ReservationCreatePanel({
       setError(
         `メニューは最大${MAX_SERVICE_SELECTIONS}件・施術時間の合計${MAX_ADMIN_TOTAL_SERVICE_DURATION_MINUTES}分以内になるように選択を減らしてください`,
       );
-      return;
-    }
-    // 空き枠で選んだ時刻はその枠の空きなので、送る枠が変わったら選び直してもらう。
-    if (timeFromSlot && resourceId !== "" && resourceId !== target.resources.resourceId) {
-      setError("選んだ空き枠が使えなくなりました。空き枠を選び直してください。");
       return;
     }
 
@@ -846,7 +854,7 @@ export function ReservationCreatePanel({
           <div className="space-y-3">
             {!target.soleStore && (
               <Field id="rcp-store" label="店舗">
-                <Select value={storeId} onValueChange={(v) => { setStoreId(v); setServiceIds([]); setUnavailableNotice(null); setResourceId(""); setSelectedCustomer(null); setCustomerSearch(""); }}>
+                <Select value={storeId} onValueChange={(v) => { setStoreId(v); setServiceIds([]); setUnavailableNotice(null); setResourceId(""); setSlotResourceId(""); setSelectedCustomer(null); setCustomerSearch(""); }}>
                   <SelectTrigger id="rcp-store"><SelectValue placeholder="店舗を選択" /></SelectTrigger>
                   <SelectContent>
                     {settings?.stores.map((s) => (
@@ -891,17 +899,17 @@ export function ReservationCreatePanel({
                 <Input id="rcp-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
               </Field>
               <Field id="rcp-time" label="時間">
-                <Input id="rcp-time" type="time" value={time} onChange={(e) => { setTime(e.target.value); setTimeFromSlot(false); }} step="300" />
+                <Input id="rcp-time" type="time" value={time} onChange={(e) => { setTime(e.target.value); setTimeFromSlot(false); setSlotResourceId(""); }} step="300" />
               </Field>
             </div>
           </div>
 
-          {target.storeId && date && serviceIds.length > 0 && !overLimit && (
+          {settings && target.storeId && date && serviceIds.length > 0 && !overLimit && (
             <>
               <Separator />
               <Field label="空き枠">
                 {renderSlotsField({
-                  fetching: slotsFetching || settingsPending,
+                  fetching: slotsFetching,
                   failed: slotsError || slotsData?.ok === false,
                   slotsByResource,
                   resourceId: target.resources.resourceId,

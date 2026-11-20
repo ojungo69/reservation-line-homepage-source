@@ -819,6 +819,25 @@ describe("shared settings queries", () => {
     expect(result.current.resourceList).toEqual([resource1]);
   });
 
+  it("keeps the previous resources and stays loaded when a later refetch fails", async () => {
+    mocks.api.get.mockResolvedValueOnce(settingsResponse).mockRejectedValueOnce(new Error("network"));
+    const client = createClient();
+    const { result } = renderHook(() => useResourceList("store-1"), { wrapper: createWrapper(client) });
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["settings"] });
+    });
+    expect(client.getQueryState(["settings"])?.status).toBe("error");
+    // TanStack Query は描画への知らせを setTimeout の後に送るので、それを待ってから見る。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(mocks.api.get).toHaveBeenCalledTimes(2);
+    expect(result.current.isLoaded).toBe(true);
+    expect(result.current.resourceList).toEqual([resource1]);
+  });
+
   it("does not report resources as loaded when the settings request fails", async () => {
     mocks.api.get.mockRejectedValue(new Error("network"));
     const { result } = renderHook(() => useResourceList("store-1"), {
