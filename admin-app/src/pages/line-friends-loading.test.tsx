@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { onlineManager } from "@tanstack/react-query";
 import { createTestQueryClient, createQueryWrapper } from "@/test-utils/query-client";
 import type { LineFriendListItem } from "@/types/api";
 
@@ -19,6 +20,7 @@ const response = (item = friend) => ({ ok: true, items: [item], total: 100, page
 const renderPage = () => render(<LineFriendsPage />, { wrapper: createQueryWrapper(createTestQueryClient()) });
 
 beforeEach(() => vi.resetAllMocks());
+afterEach(() => onlineManager.setOnline(true));
 
 describe("LINE友だち一覧の条件と表示", () => {
   it.each(["検索語", "ページ"])("%s の応答待ちでは旧結果を操作できず、新しい結果だけを表示する", async (change) => {
@@ -123,5 +125,36 @@ describe("LINE友だち一覧の条件と表示", () => {
       "/api/admin/line-friends?filter=unlinked&page=2",
       "/api/admin/line-friends?filter=unlinked&page=1",
     ]);
+  });
+
+  it("最終ページへ戻す取り直しが通信の切断で止まっている間は、古い行と紐付けの操作を出さない", async () => {
+    const linkedElsewhere = { ...friend, lineUserId: "U-linked", displayName: "別の端末で紐付けた友だち" };
+    const remaining = { ...friend, lineUserId: "U-rest", displayName: "残った友だち" };
+    let linked = false;
+    api.get.mockImplementation(async (url: string) => {
+      const page = new URL(url, "http://localhost").searchParams.get("page");
+      if (!linked) return { ok: true, items: [linkedElsewhere], total: 51, page: Number(page), pageSize: 50 };
+      if (page === "2") {
+        onlineManager.setOnline(false);
+        return { ok: true, items: [], total: 50, page: 2, pageSize: 50 };
+      }
+      return { ok: true, items: [remaining], total: 50, page: 1, pageSize: 50 };
+    });
+    renderPage();
+    await screen.findByText("別の端末で紐付けた友だち");
+
+    linked = true;
+    fireEvent.click(screen.getByRole("button", { name: "次へ" }));
+    await waitFor(() => expect(onlineManager.isOnline()).toBe(false));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(screen.getByText("読み込み中...")).toBeTruthy();
+    expect(screen.queryByText("別の端末で紐付けた友だち")).toBeNull();
+    expect(screen.queryByRole("button", { name: "既存客に紐付け" })).toBeNull();
+
+    act(() => onlineManager.setOnline(true));
+    await screen.findByText("残った友だち");
+    expect(screen.queryByText("別の端末で紐付けた友だち")).toBeNull();
   });
 });

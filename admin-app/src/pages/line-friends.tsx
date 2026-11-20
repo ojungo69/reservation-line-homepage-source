@@ -34,12 +34,12 @@ export default function LineFriendsPage() {
   const [newFor, setNewFor] = useState<LineFriendListItem | null>(null);
   const [existingFor, setExistingFor] = useState<LineFriendListItem | null>(null);
 
-  const { items, total, pageSize, isPending, isFetching, isError, refetch } = useLineFriends({ filter: "unlinked", q: debouncedQ, page });
-  const settled = !isPending && !isFetching && !isError;
+  const { items, total, pageSize, isPending, isFetching, isPaused, isError, refetch } = useLineFriends({ filter: "unlinked", q: debouncedQ, page });
+  const settled = !isPending && !isFetching && !isPaused && !isError;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   // 紐付けで件数が減り現在のページが範囲外になったら、最終ページへ戻して取得し直す。
   const pastLastPage = settled && page > totalPages;
-  const loadingResults = isPending || isFetching || q.trim() !== debouncedQ || pastLastPage;
+  const loadingResults = isPending || isFetching || isPaused || q.trim() !== debouncedQ || pastLastPage;
   const queryClient = useQueryClient();
   useEffect(() => {
     if (!pastLastPage) return;

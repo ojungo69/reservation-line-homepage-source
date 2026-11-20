@@ -33,6 +33,8 @@ export function useLineFriends(params: { filter: LineFriendsFilter; q: string; p
     // keepPreviousData keeps stale items during a refetch; isFetching lets callers
     // hide them while a new search term is loading (avoids clicking a no-longer-matching row).
     isFetching: query.isFetching,
+    // 通信が切れて取得が止まっている間（isFetching は false）も、古い行を出さないために使う。
+    isPaused: query.isPaused,
     isError: query.isError,
     refetch: query.refetch,
   };
