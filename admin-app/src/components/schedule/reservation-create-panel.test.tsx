@@ -522,10 +522,10 @@ describe("ReservationCreatePanel のリソース・店舗・予約経路の自�
     );
   });
 
-  it("FR-004: 2 店舗で店舗を切り替えると、送る店舗と枠が新しい店舗のものになる", async () => {
+  it("FR-004: 2 店舗で店舗を切り替えると、送る店舗と枠が新しい店舗のものになり、手で入れた時刻は残る", async () => {
     settingsState.current = settingsState.fixtures.twoStores;
     const user = userEvent.setup();
-    renderPanel({ defaultResourceId: "resource-1" });
+    renderPanel({ defaultResourceId: "resource-1", defaultMinutes: null });
 
     await selectByKeyboard(user, "店舗", "渋谷店");
     await user.click(screen.getByRole("checkbox", { name: /渋谷メニュー/ }));
@@ -536,7 +536,31 @@ describe("ReservationCreatePanel のリソース・店舗・予約経路の自�
     await submitAndConfirm(user);
 
     expect(createReservation).toHaveBeenCalledWith(
-      expect.objectContaining({ storeId: "store-2", resourceId: "resource-2" }),
+      expect.objectContaining({ storeId: "store-2", resourceId: "resource-2", startAt: "2026-07-24T10:00:00+09:00" }),
+      expect.anything(),
+    );
+  });
+
+  it("FR-004: 予定表の空きから開いて店舗を切り替えると、空き枠の時刻を空にし、入れ直すまで送らない", async () => {
+    settingsState.current = settingsState.fixtures.twoStores;
+    const user = userEvent.setup();
+    renderPanel({ defaultResourceId: "resource-1", defaultMinutes: 660 });
+
+    await selectByKeyboard(user, "店舗", "渋谷店");
+    expect((screen.getByLabelText("時間") as HTMLInputElement).value).toBe("");
+    await user.click(screen.getByRole("checkbox", { name: /渋谷メニュー/ }));
+    await user.click(screen.getByRole("tab", { name: "新規のお客様" }));
+    await user.type(screen.getByLabelText("氏名"), "新規 太郎");
+    await user.type(screen.getByLabelText("カナ"), "シンキ タロウ");
+    await user.type(screen.getByLabelText("電話番号"), "090-1111-2222");
+    await user.click(screen.getByRole("button", { name: "予約作成" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe("必須項目を入力してください");
+
+    fireEvent.change(screen.getByLabelText("時間"), { target: { value: "13:00" } });
+    await submitAndConfirm(user);
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: "store-2", resourceId: "resource-2", startAt: "2026-07-24T13:00:00+09:00" }),
       expect.anything(),
     );
   });
@@ -735,6 +759,41 @@ describe("ReservationCreatePanel のリソース・店舗・予約経路の自�
       expect.objectContaining({ resourceId: "resource-1", startAt: "2026-07-24T10:00:00+09:00" }),
       expect.anything(),
     );
+  });
+
+  it("空き枠の選択中の表示は時刻を選んだ枠で出し、リソースの欄を変えても別の枠の同じ時刻は選択中にしない", async () => {
+    settingsState.current = settingsState.fixtures.twoResources;
+    slotsState.slots = [
+      ...slotsState.slots,
+      { resourceId: "resource-1", resourceName: "担当A", startAt: "2026-07-24T11:00:00+09:00", available: true },
+      { resourceId: "resource-1b", resourceName: "担当B", startAt: "2026-07-24T11:00:00+09:00", available: true },
+    ];
+    const user = userEvent.setup();
+    renderPanel();
+    const group = (name: string) => screen.getAllByText(name).find((element) => element.tagName === "P")?.parentElement as HTMLElement;
+    await user.click(within(group("担当B")).getByRole("button", { name: "11:00" }));
+    expect(within(group("担当B")).getByRole("button", { name: "11:00" }).getAttribute("aria-pressed")).toBe("true");
+
+    await selectByKeyboard(user, "リソース", "担当A");
+    expect(within(group("担当A")).getByRole("button", { name: "11:00" }).getAttribute("aria-pressed")).toBe("false");
+    expect(within(group("担当B")).getByRole("button", { name: "11:00" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("空き枠で選んだ時刻がメニューの変更で消えたら、空き枠の枠も消え、必須の案内になる", async () => {
+    settingsState.current = settingsState.fixtures.twoResources;
+    slotsState.slots = [
+      ...slotsState.slots,
+      { resourceId: "resource-1b", resourceName: "担当B", startAt: "2026-07-24T11:00:00+09:00", available: true },
+    ];
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(screen.getByRole("button", { name: "11:00" }));
+    await user.click(screen.getByRole("checkbox", { name: /追加メニュー/ }));
+    expect((screen.getByLabelText("時間") as HTMLInputElement).value).toBe("");
+
+    await selectByKeyboard(user, "リソース", "担当A");
+    await user.click(screen.getByRole("button", { name: "予約作成" }));
+    expect(screen.getByRole("alert").textContent).toBe("必須項目を入力してください");
   });
 
   it("予定表の空きから開いた枠が止まったら、時刻を入れ直すまで送らない", async () => {

@@ -135,6 +135,7 @@ function renderSlotsField({
                     badgeVariants({ variant: selected ? "default" : "outline" }),
                     "min-h-11 min-w-11 cursor-pointer justify-center text-xs",
                   )}
+                  aria-pressed={selected}
                   onClick={() => onSlotClick(slot)}
                 >
                   {formatTime(slot.startAt)}
@@ -707,6 +708,7 @@ export function ReservationCreatePanel({
     );
     // 合算時間が変わると空き枠クリックで選んだ時刻は無効になり得るためリセットする。
     setTime((prev) => nextTimeAfterServiceChange(prev, timeFromSlot));
+    if (timeFromSlot) setSlotResourceId("");
     setTimeFromSlot(false);
     setError(null);
   };
@@ -739,6 +741,19 @@ export function ReservationCreatePanel({
     setTime(`${h}:${m}`);
     setTimeFromSlot(true);
     setSlotResourceId(slot.resourceId);
+  };
+
+  // 店舗を変えたら、前の店舗の枠・メニュー・お客様と、空き枠から選んだ時刻を空にする（手で入れた時刻は残す）。
+  const handleStoreChange = (value: string) => {
+    setStoreId(value);
+    setServiceIds([]);
+    setUnavailableNotice(null);
+    setResourceId("");
+    if (slotResourceId !== "") setTime("");
+    setTimeFromSlot(false);
+    setSlotResourceId("");
+    setSelectedCustomer(null);
+    setCustomerSearch("");
   };
 
   const resetForm = () => {
@@ -854,7 +869,7 @@ export function ReservationCreatePanel({
           <div className="space-y-3">
             {!target.soleStore && (
               <Field id="rcp-store" label="店舗">
-                <Select value={storeId} onValueChange={(v) => { setStoreId(v); setServiceIds([]); setUnavailableNotice(null); setResourceId(""); setSlotResourceId(""); setSelectedCustomer(null); setCustomerSearch(""); }}>
+                <Select value={storeId} onValueChange={handleStoreChange}>
                   <SelectTrigger id="rcp-store"><SelectValue placeholder="店舗を選択" /></SelectTrigger>
                   <SelectContent>
                     {settings?.stores.map((s) => (
@@ -912,7 +927,7 @@ export function ReservationCreatePanel({
                   fetching: slotsFetching,
                   failed: slotsError || slotsData?.ok === false,
                   slotsByResource,
-                  resourceId: target.resources.resourceId,
+                  resourceId: slotResourceId || target.resources.resourceId,
                   showResourceNames: target.resources.kind === "multiple",
                   time,
                   onSlotClick: handleSlotClick,
