@@ -1,0 +1,45 @@
+admin-app/src/components/schedule/external-block-create-dialog.tsx
+  s_d52c2d995f51c6::t_c600052175b6d2 168-171
+admin-app/src/components/schedule/external-block-create-dialog.test.tsx
+  s_d52c2d995f51c6::t_9116e5602b31fb 8,64-73,120-127
+admin-app/src/components/schedule/reservation-create-panel.test.tsx
+  s_d52c2d995f51c6::t_6ca3d4c25a2947 6-10,45,95,633-692
+admin-app/src/components/schedule/reservation-create-panel.tsx
+  s_d52c2d995f51c6::t_f08094fe301de7 536-560,722-725,874-877,973
+admin-app/src/components/settings/recurring-blocks-tab.form.test.tsx
+  s_d52c2d995f51c6::t_901d7300b5e70a 125,128-129,131-136,139-142,144-146
+admin-app/src/components/settings/recurring-blocks-tab.test.ts
+  s_d52c2d995f51c6::t_9508dc4da32864 63-72
+admin-app/src/components/settings/recurring-blocks-tab.tsx
+  s_d52c2d995f51c6::t_369ccc9f08cf2f 39,51
+admin-app/src/components/settings/settings-tabs-status.test.tsx
+  s_d52c2d995f51c6::t_b2fc0831a2ef88 73-92
+admin-app/src/lib/store-resources.ts
+  s_d52c2d995f51c6::t_1115d01c11274a 31
+admin-app/src/pages/schedule.test.tsx
+  s_d52c2d995f51c6::t_762605e66f3986 2,19-20,35-39,41-47,51,76-81,223,441,447-451,453
+admin-app/src/pages/settings.tsx
+  s_d52c2d995f51c6::t_662a066abe078a 35-36
+docs/admin-authz-matrix.md
+  s_d52c2d995f51c6::t_079c9ba18e0270 122
+src/admin/settings-common.ts
+  s_d52c2d995f51c6::t_d759847bb760ba 28-30
+src/admin/settings-resources.ts
+  s_d52c2d995f51c6::t_f8a82ccce26a75 25-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4a6fd0cf6015c9f12653ae2e3863835833096ed2",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
