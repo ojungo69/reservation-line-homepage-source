@@ -11,7 +11,8 @@ export function useResourceList(storeId: string | null) {
     if (!storeId) return resources;
     return resources.filter((r) => r.storeId === storeId);
   });
-  // 取得の失敗と読み込み中は resourceList が [] になり「枠が 0 件」と区別できないので、成功だけを示す。
+  // 一度も取得できていない間は resourceList が [] になり「枠が 0 件」と区別できないので、データの有無を示す。
+  // 取り直しの間と取り直しの失敗では前のデータが残るので、true のまま。
   return { resourceList: query.data ?? [], isPending: query.isPending, isLoaded: query.data !== undefined };
 }
 
@@ -37,6 +38,10 @@ export function useResourceUpdate() {
       qc.invalidateQueries({ queryKey: ["settings"] });
       toast.success("リソースを更新しました");
     },
-    onError: (err) => showErrorToast(err, "リソースの更新に失敗しました"),
+    // 画面からの更新は無効化だけが将来の予約で断られる（共通の文言は削除向け）。
+    onError: (err) =>
+      showErrorToast(err, "リソースの更新に失敗しました", {
+        has_future_reservations: "将来の予約があるため無効化できません",
+      }),
   });
 }

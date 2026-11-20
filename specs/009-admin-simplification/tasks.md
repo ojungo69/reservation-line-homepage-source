@@ -120,7 +120,7 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
 - [X] T010 [US2] 同じファイルで `@/hooks/use-settings` をモックし（試験ごとに設定を差し替えられる形）、次を書いて赤を確かめる
   - FR-008: リソースの行の出し分け
     - 出ない: 店舗の稼働中の枠が 1 つで、予約がその枠のとき。設定の読み込み中のとき
-    - 出る: 稼働中の枠が 2 つのとき。予約の枠が停止中のとき。設定の取得に失敗したとき
+    - 出る: 稼働中の枠が 2 つのとき。予約の枠が停止中のとき。設定の最初の取得に失敗したとき
   - FR-010: 確定・承認待ちの予約では、「開始時刻を変更」「長さを変更」のボタンがあり、「時間変更」「施術時間変更」は無い。完了の予約では、どちらのボタンも無い
   - FR-012: 来店履歴の欄と、確認の文
     - 「来店履歴」の見出しが無い。「施術メモ」と、その編集のボタンは残る
@@ -174,12 +174,12 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
 
 ### Tests for User Story 3（先に書き、赤を確かめる）
 
-- [X] T022 [P] [US3] `admin-app/src/hooks/use-settings-hooks.test.tsx` に、`useResourceList` が返す `isLoaded` を書く。取得が成功したら `true`、取得の失敗と読み込み中は `false`
+- [X] T022 [P] [US3] `admin-app/src/hooks/use-settings-hooks.test.tsx` に、`useResourceList` が返す `isLoaded` を書く。データがあれば `true`（取り直しに失敗しても前のデータが残れば `true`）、読み込み中と最初の取得の失敗は `false`
 - [X] T023 [P] [US3] `admin-app/src/components/schedule/external-block-create-dialog.test.tsx`（新規）に、次を書く
   - 枠 1: 「リソース」の欄が無い。開始・終了を入れて作成すると、その枠で送る。説明の文が「選んだ時間帯を予約不可にします。時刻は5分単位で指定してください。」で、「リソース」の語が無い
   - 枠 0: 「この店舗は予約枠が未設定です。店舗設定の「リソース」タブで追加してください。」が出て、作成できない
   - 枠 2: 欄が出て、選ぶまで作成できない
-  - 設定の取得に失敗: 0 件の案内を出さず、作成できない
+  - 設定の最初の取得に失敗: 0 件の案内を出さず、作成できない
 - [X] T024 [P] [US3] `admin-app/src/components/settings/recurring-blocks-tab.test.ts` の `derivePreviewInvalid` の試験に、7 つ目の引数（リソースの判断の `kind`）を足す。既存の場合は `multiple` を渡す。`none` のときは、ほかが全部有効でも、曜日が未選択でも、枠が未設定の理由が返ることを書く
 - [X] T025 [P] [US3] `admin-app/src/components/settings/recurring-blocks-tab.form.test.tsx`（新規）に、次を書く
   - 枠 1: 欄が無く、プレビューから作成まで進むと、その枠で送る
@@ -305,7 +305,7 @@ FR-026 の詳細側は、今の予定表・新しい予定表・予約管理・�
   - `src/storage/r2-helpers.ts` と `test/r2-helpers.test.ts` を消す
   - `src/routes/admin-api.ts` の読み込みと、CSV 出力の中の控えの処理を消す。応答は、元のストリームをそのまま返す
   - `src/bindings.ts` の、使われなくなる 2 つの型を消す
-  - 配備の設定ファイル（`wrangler.jsonc`）と、導入の手順書は変えない
+  - 配備の設定ファイル（`wrangler.jsonc`）は変えない。導入の手順書（`docs/INSTALL.md`）は、保管場所の手順を残し、控えを保管するという説明だけを今の動きに直す（PR B のレビューで足した）
 
 **Checkpoint**: US5 の試験が緑。
 

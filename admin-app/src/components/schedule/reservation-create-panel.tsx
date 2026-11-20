@@ -50,7 +50,7 @@ import {
   totalServiceDuration,
   type SelectableService,
 } from "@/lib/service-selection";
-import type { AvailableSlot, CustomerSearchItem, CreateReservationPayload, CreateReservationOrigin } from "@/types/api";
+import type { AvailableSlot, AvailableSlotsResponse, CustomerSearchItem, CreateReservationPayload, CreateReservationOrigin, Resource } from "@/types/api";
 
 type ReservationCreatePanelProps = {
   open: boolean;
@@ -124,7 +124,7 @@ function renderSlotsField({
         <div key={resId} className="space-y-1">
           {showResourceNames && <p className="text-xs font-medium text-muted-foreground">{name}</p>}
           <div className="flex flex-wrap gap-1">
-            {slots.filter((s) => s.available).map((slot) => {
+            {slots.map((slot) => {
               const selected = resourceId === slot.resourceId &&
                 time === formatTime(slot.startAt);
               return (
@@ -533,13 +533,15 @@ function confirmationServiceNames(
     : selectedIds;
 }
 
-// 担当は、枠が 2 つ以上あるときだけ確認の画面に出す。名前は実際に送る枠（保留中の payload）から引く。
+// 担当は、送る枠（保留中の payload）が今の唯一の枠と同じときだけ省く。名前は停止中の枠も含めて引く。
 function confirmationResourceName(
   resources: StoreResources,
   sentResourceId: string | undefined,
+  allResources: readonly Resource[],
 ): string | null {
-  if (resources.kind !== "multiple" || !sentResourceId) return null;
-  return resources.resources.find((r) => r.id === sentResourceId)?.name ?? sentResourceId;
+  if (!sentResourceId) return null;
+  if (resources.kind === "single" && resources.resourceId === sentResourceId) return null;
+  return allResources.find((r) => r.id === sentResourceId)?.name ?? sentResourceId;
 }
 
 // フォームが送れる枠（枠が 1 つならその枠、2 つ以上なら稼働中の候補）の空きだけを一覧にする。
@@ -549,10 +551,10 @@ function sendableResourceIds(resources: StoreResources): string[] {
   return [];
 }
 
-function groupSlotsByResource(slots: AvailableSlot[], resourceIds: string[]) {
+function groupSlotsByResource(data: AvailableSlotsResponse | undefined, resourceIds: string[]) {
   const map = new Map<string, { name: string; slots: AvailableSlot[] }>();
-  for (const slot of slots) {
-    if (!resourceIds.includes(slot.resourceId)) continue;
+  for (const slot of data?.ok ? data.slots : []) {
+    if (!slot.available || !resourceIds.includes(slot.resourceId)) continue;
     const group = map.get(slot.resourceId) ?? { name: slot.resourceName, slots: [] };
     group.slots.push(slot);
     map.set(slot.resourceId, group);
@@ -571,7 +573,7 @@ export function ReservationCreatePanel({
   defaultCustomer,
 }: Readonly<ReservationCreatePanelProps>) {
   const { isPrivileged } = useAuth();
-  const { data: settingsData } = useSettings();
+  const { data: settingsData, isPending: settingsPending } = useSettings();
   const { mutate: create, isPending } = useCreateReservation();
 
   // 応答喪失後に同じ内容を再送するときだけ key を保ち、フォーム内容を変えた
@@ -719,10 +721,7 @@ export function ReservationCreatePanel({
     },
   );
 
-  const slotsByResource = groupSlotsByResource(
-    slotsData?.ok ? slotsData.slots : [],
-    sendableResourceIds(target.resources),
-  );
+  const slotsByResource = groupSlotsByResource(slotsData, sendableResourceIds(target.resources));
 
   const handleSlotClick = (slot: { resourceId: string; startAt: string }) => {
     setResourceId(slot.resourceId);
@@ -757,6 +756,11 @@ export function ReservationCreatePanel({
       setError(
         `メニューは最大${MAX_SERVICE_SELECTIONS}件・施術時間の合計${MAX_ADMIN_TOTAL_SERVICE_DURATION_MINUTES}分以内になるように選択を減らしてください`,
       );
+      return;
+    }
+    // 空き枠で選んだ時刻はその枠の空きなので、送る枠が変わったら選び直してもらう。
+    if (timeFromSlot && resourceId !== "" && resourceId !== target.resources.resourceId) {
+      setError("選んだ空き枠が使えなくなりました。空き枠を選び直してください。");
       return;
     }
 
@@ -798,6 +802,12 @@ export function ReservationCreatePanel({
 
   const handleConfirm = () => {
     if (!pendingPayload) return;
+    // 確認の間に、送る枠が今の店舗の送れる枠から外れたら、古い内容のまま送らない。
+    if (pendingPayload.storeId !== target.storeId || !sendableResourceIds(target.resources).includes(pendingPayload.resourceId)) {
+      setPendingPayload(null);
+      setError("店舗の設定が変わりました。内容を確かめてから、もう一度保存してください。");
+      return;
+    }
     create(pendingPayload, {
       onSuccess: () => {
         idempotencyStateRef.current = null;
@@ -891,7 +901,7 @@ export function ReservationCreatePanel({
               <Separator />
               <Field label="空き枠">
                 {renderSlotsField({
-                  fetching: slotsFetching,
+                  fetching: slotsFetching || settingsPending,
                   failed: slotsError || slotsData?.ok === false,
                   slotsByResource,
                   resourceId: target.resources.resourceId,
@@ -970,7 +980,7 @@ export function ReservationCreatePanel({
             storeName={target.storeName ?? target.storeId}
             serviceNames={confirmationServiceNames(selectedServices, serviceIds)}
             totalMinutes={totalMinutes}
-            resourceName={confirmationResourceName(target.resources, pendingPayload?.resourceId)}
+            resourceName={confirmationResourceName(target.resources, pendingPayload?.resourceId, settings?.resources ?? [])}
             date={date}
             time={time}
             onClose={() => setPendingPayload(null)}

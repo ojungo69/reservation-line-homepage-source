@@ -430,6 +430,7 @@ const mutationCases = [
     invalidates: [["settings"]],
     success: "リソースを更新しました",
     error: "リソースの更新に失敗しました",
+    errorOverrides: { has_future_reservations: "将来の予約があるため無効化できません" },
   },
   {
     name: "staff create",
@@ -1101,6 +1102,7 @@ describe("settings mutations", () => {
       expect(mocks.showErrorToast).toHaveBeenCalledWith(
         error,
         testCase.error,
+        ...("errorOverrides" in testCase ? [testCase.errorOverrides] : []),
       );
       if ("invalidatesOnError" in testCase && testCase.invalidatesOnError) {
         expect(invalidate).toHaveBeenCalledWith({ queryKey: ["settings"] });

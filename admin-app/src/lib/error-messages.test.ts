@@ -55,6 +55,14 @@ describe("error message lookup", () => {
     expect(toast.error).toHaveBeenCalledWith(message);
   });
 
+  it("uses a caller's message for one reason and keeps the shared message elsewhere", () => {
+    const error = new ApiError(409, { reason: "has_future_reservations" });
+    showErrorToast(error, "リソースの更新に失敗しました", { has_future_reservations: "将来の予約があるため無効化できません" });
+    expect(toast.error).toHaveBeenLastCalledWith("将来の予約があるため無効化できません");
+    showErrorToast(error, "サービスの削除に失敗しました");
+    expect(toast.error).toHaveBeenLastCalledWith("将来の予約があるため削除できません");
+  });
+
   it.each([
     new ApiError(500, { reason: "future_error" }),
     new ApiError(500, null),
