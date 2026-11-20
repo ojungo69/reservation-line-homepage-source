@@ -1456,5 +1456,8 @@ describe("ScheduleV2Page の表示の保存（T006）", () => {
     await user.click(screen.getByRole("button", { name: /^11月18日（水）の日表示を開く/ }));
     expect(heading()).toBe("11月18日（水）");
     expect(localStorage.getItem("admin-calendar-view")).toBe("week");
+    // Choosing the week again ends the day opened from it.
+    await user.click(screen.getByRole("button", { name: "週" }));
+    expect(screen.getByRole("button", { name: "週" }).getAttribute("aria-pressed")).toBe("true");
   });
 });
