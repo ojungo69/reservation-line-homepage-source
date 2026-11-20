@@ -1,0 +1,77 @@
+admin-app/src/components/calendar-v2/swipe.ts
+  s_d52c2d995f51c6::t_4bf5666db3ca22 1-7,11-31
+  s_d52c2d995f51c6::t_db72a0a10d971e 8-10,32-47
+admin-app/src/components/calendar-v2/swipe.test.ts
+  s_d52c2d995f51c6::t_aa5ad8c2a0979f 1,3-38
+  s_d52c2d995f51c6::t_b71cf5bc190fbd 2,39-54
+admin-app/src/pages/schedule-v2.tsx
+  s_d52c2d995f51c6::t_a5f5e6151bbb89 13
+  s_d52c2d995f51c6::t_3d530cb337157c 203,205,207
+  s_d52c2d995f51c6::t_dbf06d5e492454 87
+  s_d52c2d995f51c6::t_ded0e2d73779ea 256
+  s_d52c2d995f51c6::t_43b60f81dccbd1 244
+  s_d52c2d995f51c6::t_e1cad1632d8380 289-291,294
+  s_d52c2d995f51c6::t_6abfe64624b07a 122-123,125,130,139
+  s_d52c2d995f51c6::t_4e05923c15e70f 126-127,129,134,138
+  s_d52c2d995f51c6::t_5cdac87e3b74fd 12,77,192,201-202,204,206,250-251
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_16bc8a4b2fff5e 255,261
+  s_d52c2d995f51c6::t_cacd162c57bfd8 135
+  s_d52c2d995f51c6::t_cd05eef38b3baf 950-1030,1033,1036-1037,1049-1051,1176-1203,1224-1234
+  s_d52c2d995f51c6::t_797ca01fa405dc 5,1031-1032,1042-1078,1204-1223
+  s_52c3955e48bff4::t_358bea206c2f1f 1034-1035,1038,1079-1088,1090-1092,1094-1098,1100,1102,1174-1175
+  s_d52c2d995f51c6::t_1e5cba3616bd42 1089,1093,1099,1101,1103-1106
+  s_d52c2d995f51c6::t_99b292503bc959 256,1235-1362
+admin-app/src/components/calendar-v2/top-bar.tsx
+  s_d52c2d995f51c6::t_00d0c9125e73ad 182-183
+  s_d52c2d995f51c6::t_b2fa63f856e65b 1-3,7,26-28,33-34,50-51,67,105-127
+admin-app/src/components/calendar-v2/use-period-swipe.ts
+  s_d52c2d995f51c6::t_930259f2ed771a 111,113
+  s_d52c2d995f51c6::t_0524db02767cd3 128,130-131
+  s_d52c2d995f51c6::t_35e4cc85b854ea 97-100
+  s_d52c2d995f51c6::t_7e43e57be03359 19-27
+  s_d52c2d995f51c6::t_2d7a4696030680 59-61,65,69
+  s_d52c2d995f51c6::t_440e0107a9b15e 1-2,4-13,16,18,28,32-49,53-58,62-64,66-68,70-71,73,76-77,79,81-92,94-96,103-104,105,107-110,112,114-118,122-124,132-135,139-141,169,190,202-206
+  s_d52c2d995f51c6::t_94ae2bd6520fd4 72,74-75,78,80,101-102,129,171,191
+  s_d52c2d995f51c6::t_40e4a40d93f77c 93,120-121,172-174,192-194
+  s_d52c2d995f51c6::t_63044dcbe975eb 136-138,170,175,195
+  s_d52c2d995f51c6::t_70d6a7d118edb7 3,14-15,29-31,50-52,147-168,188-189,200-201
+specs/008-admin-calendar-ux/interactions.md
+  s_d52c2d995f51c6::t_e799a535fe9ac7 47,82
+  s_d52c2d995f51c6::t_fc42c4495432e1 31
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_5e6cd38d1b75e4 34
+  s_d52c2d995f51c6::t_dcb68507de0eae 35
+admin-app/src/components/calendar-v2/use-calendar-view.ts
+  s_d52c2d995f51c6::t_0a78fd4d37e823 1-34
+admin-app/src/components/schedule/mini-calendar.test.tsx
+  s_d52c2d995f51c6::t_f82df9bbc09999 71-78
+admin-app/src/components/schedule/mini-calendar.tsx
+  s_d52c2d995f51c6::t_b792cec0fb074a 17-18,25,27-28,92
+admin-app/src/lib/timeline.ts
+  s_d52c2d995f51c6::t_8514fbcb870983 267-271,273
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ac797c36cac7c760e5eb95f77c7812a2d728cd32",
+  "prompts": {},
+  "sessions": {
+    "s_52c3955e48bff4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71325e2b-fe13-4768-9035-42503a99e9fb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    },
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
