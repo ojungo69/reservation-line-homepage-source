@@ -10,8 +10,12 @@ export const DAY_MINUTES = 24 * 60;
 export const MIN_EVENT_PX = 18;
 
 const DAY_MS = 86_400_000;
+export const SLOT_MINUTES = 15;
+export const SLOTS = Array.from({ length: DAY_MINUTES / SLOT_MINUTES }, (_, index) => index * SLOT_MINUTES);
 
 export type Span = Readonly<{ start: number; end: number }>;
+
+const spansOverlap = (a: Span, b: Span) => a.start < b.end && b.start < a.end;
 
 /** The part of a span inside one JST day, as minutes from its midnight; null when it misses the day. */
 export function clipToDay(startAt: string, endAt: string, dayKey: string): Span | null {
@@ -25,18 +29,14 @@ export function clipToDay(startAt: string, endAt: string, dayKey: string): Span 
 
 export type Placed<T> = Readonly<{ item: T; start: number; end: number; lane: number; lanes: number; span: number }>;
 
-type Laned<T> = { item: T; start: number; end: number; drawnEnd: number; lane: number };
-
-function overlaps(a: { start: number; drawnEnd: number }, b: { start: number; drawnEnd: number }): boolean {
-  return a.start < b.drawnEnd && b.start < a.drawnEnd;
-}
+type Laned<T> = { item: T; start: number; end: number; lane: number };
 
 function placeCluster<T>(cluster: ReadonlyArray<Laned<T>>, lanes: number): Placed<T>[] {
   return cluster.map((entry) => {
     let span = 1;
     while (
       entry.lane + span < lanes &&
-      !cluster.some((other) => other.lane === entry.lane + span && overlaps(entry, other))
+      !cluster.some((other) => other.lane === entry.lane + span && spansOverlap(entry, other))
     ) {
       span++;
     }
@@ -45,16 +45,24 @@ function placeCluster<T>(cluster: ReadonlyArray<Laned<T>>, lanes: number): Place
 }
 
 /**
+ * Where a span is drawn: at least minMinutes tall, so a 5-minute booking stays
+ * visible and tappable, and moved up at the day's end rather than cut short.
+ */
+export function drawnSpan(span: Span, minMinutes: number): Span {
+  const length = Math.max(span.end - span.start, minMinutes);
+  const start = Math.min(span.start, DAY_MINUTES - length);
+  return { start, end: start + length };
+}
+
+/**
  * Side-by-side lanes for the items of one column, so overlapping bookings never
  * hide each other (the approved prototype's layout). Each item takes the first
  * free lane; a run of overlapping items shares one lane count; an item widens
- * into free lanes on its right. Overlap uses the drawn end (minMinutes), so a
- * booking floored to the minimum height never covers the next one.
+ * into free lanes on its right. Pass the drawn spans (drawnSpan), so a block
+ * drawn taller than its booking never covers its neighbor.
  */
-export function layoutLanes<T>(items: ReadonlyArray<{ item: T; start: number; end: number }>, minMinutes = 0): Placed<T>[] {
-  const sorted = items
-    .map((entry) => ({ ...entry, drawnEnd: Math.max(entry.end, entry.start + minMinutes) }))
-    .sort((a, b) => a.start - b.start || b.drawnEnd - a.drawnEnd);
+export function layoutLanes<T>(items: ReadonlyArray<{ item: T; start: number; end: number }>): Placed<T>[] {
+  const sorted = [...items].sort((a, b) => a.start - b.start || b.end - a.end);
   const placed: Placed<T>[] = [];
   let cluster: Laned<T>[] = [];
   let laneEnds: number[] = [];
@@ -67,9 +75,9 @@ export function layoutLanes<T>(items: ReadonlyArray<{ item: T; start: number; en
     }
     let lane = laneEnds.findIndex((end) => end <= entry.start);
     if (lane === -1) lane = laneEnds.length;
-    laneEnds[lane] = entry.drawnEnd;
+    laneEnds[lane] = entry.end;
     cluster.push({ ...entry, lane });
-    clusterEnd = cluster.length === 1 ? entry.drawnEnd : Math.max(clusterEnd, entry.drawnEnd);
+    clusterEnd = cluster.length === 1 ? entry.end : Math.max(clusterEnd, entry.end);
   }
   if (cluster.length > 0) placed.push(...placeCluster(cluster, laneEnds.length));
   return placed;
@@ -106,4 +114,29 @@ export function closedRanges(businessHours: readonly BusinessHour[], storeId: st
   }
   if (cursor < DAY_MINUTES) closed.push({ start: cursor, end: DAY_MINUTES });
   return closed;
+}
+
+/**
+ * The slots a booking can start in: inside opening hours, outside closures, and
+ * free on at least one of the store's active resources. The server refuses the
+ * rest (outside_business_hours, store_closed, a taken time), so offering them
+ * would only end in an error after the form is filled. A free 15 minutes says
+ * nothing about a longer menu; the booking form checks that.
+ */
+export function openSlotMinutes({
+  closed,
+  taken,
+  resourceIds,
+}: Readonly<{
+  // Closed hours and closures together.
+  closed: readonly Span[];
+  // What occupies a resource: bookings (with their cleaning time) and blocks.
+  taken: ReadonlyArray<Readonly<{ span: Span; resourceId: string }>>;
+  resourceIds: readonly string[];
+}>): number[] {
+  return SLOTS.filter((minute) => {
+    const slot = { start: minute, end: minute + SLOT_MINUTES };
+    if (closed.some((range) => spansOverlap(range, slot))) return false;
+    return resourceIds.some((id) => !taken.some((entry) => entry.resourceId === id && spansOverlap(entry.span, slot)));
+  });
 }

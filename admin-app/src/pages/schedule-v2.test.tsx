@@ -1,5 +1,5 @@
 import { mocks } from "@/test-utils/hook-mocks";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
@@ -117,6 +117,7 @@ let reservationsByDay: Record<string, Reservation[]>;
 let blocksByDay: Record<string, ExternalBlock[]>;
 let failingDays: Set<string>;
 let settingsFail: boolean;
+let closures: Array<{ id: string; storeId: string; startsAt: string; endsAt: string; reason: string | null; source: string }>;
 let narrow: boolean;
 
 const settings = () => ({
@@ -137,7 +138,7 @@ const settings = () => ({
     closesAt: "19:00",
     active: true,
   })),
-  closures: [],
+  closures,
 });
 
 function respond(url: string) {
@@ -233,10 +234,10 @@ beforeEach(() => {
   };
   failingDays = new Set();
   settingsFail = false;
+  closures = [];
   narrow = false;
   mocks.api.get.mockReset();
   mocks.api.get.mockImplementation(respond);
-  mocks.toast.info.mockReset();
   vi.stubGlobal("matchMedia", (query: string) => ({
     get matches() {
       return query.includes("max-width: 639.98px") ? narrow : false;
@@ -263,8 +264,9 @@ describe("ScheduleV2Page の週表示", () => {
 
   it("同じ時間に重なる予約は横に並べ、取消済みは出さない", async () => {
     renderPage();
-    const first = await eventButton(/^山田 花子、11月20日（金）、10:00から11:00、カット、確定$/);
-    const second = await eventButton(/^佐藤 一郎、11月20日（金）、10:30から11:30、カット、承認待ち$/);
+    // The stored end includes 5 minutes of cleaning; the label gives the treatment's end.
+    const first = await eventButton(/^山田 花子、11月20日（金）、10:00から10:55（枠の解放 11:00）、カット、確定$/);
+    const second = await eventButton(/^佐藤 一郎、11月20日（金）、10:30から11:25（枠の解放 11:30）、カット、承認待ち$/);
     expect(first.style.left).toBe("calc(0% + 2px)");
     expect(second.style.left).toBe("calc(50% + 2px)");
     expect(first.style.width).toBe("calc(50% - 4px)");
@@ -362,8 +364,8 @@ describe("ScheduleV2Page の空き枠からの予約作成", () => {
   it("日表示では押した列の店舗と時刻を引き継ぎ、稼働中のリソースが1つならそれを選ぶ", async () => {
     storeState.selected = null;
     storeState.stores = STORES;
-    await openSlot("11月20日（金） 10:00 本店に予約を追加");
-    expect(captured.create).toMatchObject({ defaultStoreId: "s1", defaultResourceId: "r1", defaultMinutes: 600 });
+    await openSlot("11月20日（金） 15:00 本店に予約を追加");
+    expect(captured.create).toMatchObject({ defaultStoreId: "s1", defaultResourceId: "r1", defaultMinutes: 900 });
     expect(formatJstDate(captured.create?.defaultDate as Date)).toBe("2026-11-20");
   });
 
@@ -374,17 +376,18 @@ describe("ScheduleV2Page の空き枠からの予約作成", () => {
     expect(captured.create).toMatchObject({ defaultStoreId: "s2", defaultResourceId: null, defaultMinutes: 900 });
   });
 
-  it("稼働中のリソースが無い店舗では、作成画面を開かずに案内する", async () => {
+  it("稼働中のリソースが無い店舗には空き枠を出さず、理由を示す", async () => {
     storeState.selected = null;
     storeState.stores = STORES;
-    await openSlot("11月20日（金） 15:00 東口店に予約を追加");
-    expect(captured.create).toBeNull();
-    expect(mocks.toast.info).toHaveBeenCalledWith(expect.stringContaining("東口店"));
+    renderPage();
+    expect(await screen.findByText(/東口店には予約を受ける枠（リソース）がありません。/)).toBeTruthy();
+    await waitFor(() => expect(slotsIn("2026-11-20:s1")).toBeGreaterThan(0));
+    expect(slotsIn("2026-11-20:s3")).toBe(0);
   });
 
   it("週表示では押した日の日付を引き継ぐ", async () => {
-    await openSlot("11月18日（水） 15:00 本店に予約を追加");
-    expect(captured.create).toMatchObject({ defaultStoreId: "s1", defaultResourceId: "r1", defaultMinutes: 900 });
+    await openSlot("11月18日（水） 13:00 本店に予約を追加");
+    expect(captured.create).toMatchObject({ defaultStoreId: "s1", defaultResourceId: "r1", defaultMinutes: 780 });
     expect(formatJstDate(captured.create?.defaultDate as Date)).toBe("2026-11-18");
   });
 });
@@ -397,12 +400,12 @@ describe("ScheduleV2Page の取得失敗と件数の上限 (UX-21)", () => {
     expect(
       await screen.findByText(/11月18日（水）の予約の読み込みに失敗しました。空き状況を表示できません。/),
     ).toBeTruthy();
-    await waitFor(() => expect(slotsIn("2026-11-19:s1")).toBe(96));
+    await waitFor(() => expect(slotsIn("2026-11-19:s1")).toBeGreaterThan(0));
     expect(slotsIn("2026-11-18:s1")).toBe(0);
     const before = mocks.api.get.mock.calls.length;
     failingDays.clear();
     await user.click(screen.getByRole("button", { name: "再読み込み" }));
-    await waitFor(() => expect(slotsIn("2026-11-18:s1")).toBe(96));
+    await waitFor(() => expect(slotsIn("2026-11-18:s1")).toBeGreaterThan(0));
     expect(mocks.api.get.mock.calls.slice(before).some(([url]) => String(url).includes("date=2026-11-18"))).toBe(true);
   });
 
@@ -412,7 +415,9 @@ describe("ScheduleV2Page の取得失敗と件数の上限 (UX-21)", () => {
     );
     renderPage();
     expect(await screen.findByText(/11月19日（木）の予定が表示できる件数を超えています。/)).toBeTruthy();
-    await waitFor(() => expect(slotsIn("2026-11-20:s1")).toBe(96));
+    // The next day keeps its slots: only its first hours could hold the capped
+    // day's bookings, and the store is closed then anyway.
+    await waitFor(() => expect(slotsIn("2026-11-20:s1")).toBeGreaterThan(0));
     expect(slotsIn("2026-11-19:s1")).toBe(0);
   });
 
@@ -561,7 +566,7 @@ describe("ScheduleV2Page のフォーカス (UX-22)", () => {
   it("開いた空き枠が消えていたら、予定表へフォーカスを移す", async () => {
     const user = userEvent.setup();
     renderPage();
-    await user.click(await screen.findByRole("button", { name: "11月18日（水） 15:00 本店に予約を追加" }));
+    await user.click(await screen.findByRole("button", { name: "11月18日（水） 13:00 本店に予約を追加" }));
     // The mocked form leaves the page usable: moving to the next week removes the slot.
     await user.click(screen.getByRole("button", { name: "次の週" }));
     act(() => (captured.create?.onClose as () => void)());
@@ -586,11 +591,11 @@ describe("ScheduleV2Page のフォーカス (UX-22)", () => {
   it("矢印で動いた空き枠が、次に Tab で戻る入口になる", async () => {
     const user = userEvent.setup();
     renderPage();
-    const entry = await screen.findByRole("button", { name: "11月20日（金） 10:00 本店に予約を追加" });
+    const entry = await screen.findByRole("button", { name: "11月19日（木） 10:00 本店に予約を追加" });
     expect(entry.tabIndex).toBe(0);
     entry.focus();
     await user.keyboard("{ArrowDown}");
-    const next = screen.getByRole("button", { name: "11月20日（金） 10:15 本店に予約を追加" });
+    const next = screen.getByRole("button", { name: "11月19日（木） 10:15 本店に予約を追加" });
     expect(document.activeElement).toBe(next);
     expect(next.tabIndex).toBe(0);
     expect(entry.tabIndex).toBe(-1);
@@ -637,5 +642,140 @@ describe("ScheduleV2Page の日付の追従", () => {
     // Give the effect a chance to run before asserting nothing moved.
     await act(async () => Promise.resolve());
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("11月22日（日）");
+  });
+});
+
+describe("ScheduleV2Page の空き枠と占有 (Codex の指摘)", () => {
+  const slotNames = (key: string) =>
+    [...(column(key)?.querySelectorAll<HTMLElement>("[data-slot-minutes]") ?? [])].map((slot) => Number(slot.dataset.slotMinutes));
+
+  it("営業時間外と、予約や清掃で埋まった時間には空き枠を出さない", async () => {
+    renderPage();
+    await waitFor(() => expect(slotNames("2026-11-20:s1").length).toBeGreaterThan(0));
+    const open = slotNames("2026-11-20:s1");
+    // 10:00 to 11:30 is taken (two bookings with their cleaning), 16:00 to 17:00
+    // by the block and 18:00 to 19:00 by the Google event; 19:00 is closing.
+    expect(open).not.toContain(585);
+    expect(open).not.toContain(600);
+    expect(open).not.toContain(675);
+    expect(open).toContain(690);
+    expect(open).not.toContain(960);
+    expect(open).toContain(1020);
+    expect(open).not.toContain(1080);
+    expect(open).not.toContain(1140);
+    expect(open.at(-1)).toBe(1065);
+  });
+
+  it("前日から日をまたぐ予約も翌日の列に描き、その時間を空きにしない", async () => {
+    reservationsByDay["2026-11-19"] = [
+      reservation("res-night", "2026-11-19", "23:30", "23:59", {
+        customerDisplayName: "深夜 太郎",
+        endAt: jst("2026-11-20", "00:45"),
+      }),
+    ];
+    renderPage();
+    expect(await eventButton(/^深夜 太郎、11月20日（金）、23:30から00:40（枠の解放 00:45）/)).toBeTruthy();
+    // The week's first day takes its carry-over from the day before the week.
+    await waitFor(() => expect(mocks.api.get.mock.calls.some(([url]) => String(url).includes("date=2026-11-15"))).toBe(true));
+  });
+
+  it("前日の一覧が欠けているときは、翌日の朝の数時間だけ空き枠を止める", async () => {
+    failingDays.add("2026-11-19");
+    // 駅前店 has no opening hours set, so its whole day is offered otherwise.
+    storeState.selected = "s2";
+    renderPage();
+    await waitFor(() => expect(slotNames("2026-11-20:s2").length).toBeGreaterThan(0));
+    const open = slotNames("2026-11-20:s2");
+    // A booking from the day before reaches 04:00 at most (240 minutes).
+    expect(open).not.toContain(0);
+    expect(open).not.toContain(225);
+    expect(open).toContain(240);
+    expect(slotNames("2026-11-19:s2")).toEqual([]);
+    expect(slotNames("2026-11-18:s2")).toContain(0);
+  });
+
+  it("休業の時間には空き枠を出さず、休業と示す", async () => {
+    closures = [{ id: "cl-1", storeId: "s1", startsAt: jst("2026-11-19", "00:00"), endsAt: jst("2026-11-20", "00:00"), reason: "研修日", source: "admin" }];
+    renderPage();
+    await waitFor(() => expect(slotNames("2026-11-20:s1").length).toBeGreaterThan(0));
+    expect(slotNames("2026-11-19:s1")).toEqual([]);
+    expect(within(column("2026-11-19:s1") as HTMLElement).getByText("休業（研修日）")).toBeTruthy();
+  });
+
+  it("休業の一覧が上限で切れている店舗は、確かめられない日の空き枠を止めて理由を示す", async () => {
+    closures = Array.from({ length: 200 }, (_, index) => ({
+      id: `cl-${index}`,
+      storeId: "s1",
+      startsAt: new Date(Date.parse(jst("2026-12-01", "00:00")) + index * 86_400_000).toISOString(),
+      endsAt: new Date(Date.parse(jst("2026-12-01", "01:00")) + index * 86_400_000).toISOString(),
+      reason: null,
+      source: "google_external_block",
+    }));
+    renderPage();
+    expect(await screen.findByText(/本店の休業の件数が多く、表示中の日の休業を確かめられないため/)).toBeTruthy();
+    expect(document.querySelectorAll("[data-slot-minutes]")).toHaveLength(0);
+  });
+
+  it("来店中と完了は、色だけでなく文字でも示す", async () => {
+    reservationsByDay["2026-11-21"] = [
+      reservation("res-in", "2026-11-21", "13:00", "14:05", { status: "checked_in", customerDisplayName: "来店 花子" }),
+      reservation("res-done", "2026-11-21", "15:00", "16:05", { status: "completed", customerDisplayName: "完了 一郎" }),
+    ];
+    renderPage();
+    expect((await eventButton(/^来店 花子、/)).textContent).toContain("来店中");
+    expect((await eventButton(/^完了 一郎、/)).textContent).toContain("完了");
+  });
+
+  it("清掃の時間を予約の中で別の帯として描く", async () => {
+    renderPage();
+    const booking = await eventButton(/^山田 花子、/);
+    const band = booking.querySelector<HTMLElement>("[data-cleaning]");
+    // 10:00 to 11:00 stored: 55 minutes of treatment, then 5 of cleaning.
+    expect(band?.style.top).toBe("44px");
+    expect(band?.style.height).toBe("4px");
+    // The time shown on the block is the treatment's, not the slot's release.
+    expect(booking.textContent).toContain("10:00–10:55");
+    expect(booking.textContent).not.toContain("11:00");
+  });
+
+  it("上部バーを予定表より先に置き、本文へスキップの後の Tab でバーに入る", async () => {
+    renderPage();
+    await eventButton(/^山田 花子、/);
+    const bar = document.querySelector(".glass-thick") as HTMLElement;
+    const scroller = document.querySelector("[data-calendar-scroll]") as HTMLElement;
+    expect(bar.compareDocumentPosition(scroller) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("お知らせが増えても、高さを抑えてその中でスクロールさせる", async () => {
+    failingDays.add("2026-11-18");
+    renderPage();
+    const alert = await screen.findByText(/11月18日（水）の予約の読み込みに失敗しました/);
+    const strip = alert.closest(".overflow-y-auto") as HTMLElement;
+    expect(strip.classList.contains("max-h-[40dvh]")).toBe(true);
+  });
+});
+
+describe("ScheduleV2Page の一覧 (Codex の指摘)", () => {
+  it("件数の上限に届いた日は、選んだ店舗の予約が無くても「予約はありません」と言わない", async () => {
+    narrow = true;
+    reservationsByDay["2026-11-20"] = Array.from({ length: 200 }, (_, index) =>
+      reservation(`many-${index}`, "2026-11-20", "09:00", "09:05", { storeId: "s2" }),
+    );
+    renderPage();
+    expect(await screen.findByText(/11月20日（金）の予定が表示できる件数を超えています。/)).toBeTruthy();
+    expect(screen.queryByText("この日の予約はありません")).toBeNull();
+  });
+
+  it("フォーカスが移らない押し方でも、詳細を閉じると押した「詳細」へ戻す", async () => {
+    narrow = true;
+    renderPage();
+    const list = await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(within(list).getAllByRole("button", { name: "詳細" }).length).toBeGreaterThan(0));
+    const details = within(list).getAllByRole("button", { name: "詳細" })[0];
+    // Safari does not focus a button on click; fireEvent leaves focus where it was.
+    fireEvent.click(details);
+    screen.getByRole("button", { name: "詳細の中のボタン" }).focus();
+    act(() => captured.detail?.onClose());
+    await waitFor(() => expect(document.activeElement).toBe(details));
   });
 });

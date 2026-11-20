@@ -19,12 +19,17 @@ function lastFetch(updatedAt: number) {
 export function CalendarNotices({
   days,
   dayName,
+  noResourceStores,
+  closuresUnknownStores,
   settings,
   weekNeedsStore,
   onRetried,
 }: Readonly<{
   days: readonly DayData[];
   dayName: (dateKey: string) => string;
+  // Stores whose columns offer no slots, and why (UX-21).
+  noResourceStores: readonly string[];
+  closuresUnknownStores: readonly string[];
   settings: Readonly<{ failed: boolean; hadData: boolean; updatedAt: number; refetch: () => void }>;
   weekNeedsStore: boolean;
   // The retry button goes away once its alert clears, so focus moves elsewhere first.
@@ -35,7 +40,9 @@ export function CalendarNotices({
   const sources = [...new Set(failed.flatMap((day) => day.failed))].join("・");
   const failedUpdatedAt = failed.reduce((oldest, day) => (day.updatedAt > 0 ? Math.min(oldest, day.updatedAt) : oldest), Number.POSITIVE_INFINITY);
   return (
-    <div className="pointer-events-auto bg-cal-surface empty:hidden">
+    // Capped and scrollable: on a short screen several alerts must not cover the
+    // grid or push their own retry buttons out of reach.
+    <div className="pointer-events-auto max-h-[40dvh] overflow-y-auto overscroll-contain bg-cal-surface empty:hidden">
       <ScheduleSyncAttention />
       {weekNeedsStore && (
         <p role="status" className="mx-4 my-2 text-sm">
@@ -78,6 +85,16 @@ export function CalendarNotices({
             再読み込み
           </Button>
         </div>
+      )}
+      {noResourceStores.length > 0 && (
+        <p role="status" className="mx-4 my-2 text-sm">
+          {noResourceStores.join("・")}には予約を受ける枠（リソース）がありません。設定で追加すると、空いた時間から予約を作れます。
+        </p>
+      )}
+      {closuresUnknownStores.length > 0 && (
+        <p role="alert" className={ALERT}>
+          {closuresUnknownStores.join("・")}の休業の件数が多く、表示中の日の休業を確かめられないため、空いた時間を表示していません。
+        </p>
       )}
       {capped.length > 0 && (
         <p role="alert" className={ALERT}>

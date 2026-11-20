@@ -82,6 +82,7 @@ export function CalendarEvent({
   label,
   style,
   selected = false,
+  cleaning = null,
   onSelect,
 }: Readonly<{
   tone: EventTone;
@@ -90,6 +91,9 @@ export function CalendarEvent({
   label: string;
   style: CSSProperties;
   selected?: boolean;
+  // The cleaning time at the end of a booking, in px from the block's top: drawn
+  // as its own band behind a dashed line, so treatment and cleaning read apart.
+  cleaning?: Readonly<{ top: number; height: number }> | null;
   onSelect?: (opener: HTMLElement) => void;
 }>) {
   const className = cn(
@@ -97,6 +101,14 @@ export function CalendarEvent({
     inline ? "flex items-center gap-1.5 py-0" : "flex flex-col py-0.5",
     TONE_CLASSES[tone],
     selected && "z-20 ring-2 ring-cal-primary ring-offset-2 ring-offset-cal-surface",
+  );
+  const band = cleaning && (
+    <span
+      aria-hidden="true"
+      data-cleaning=""
+      className="absolute inset-x-0 border-t border-dashed border-current bg-cal-surface/30"
+      style={{ top: cleaning.top, height: cleaning.height }}
+    />
   );
   const body = lines.map((line) => (
     <span key={line.part} className={cn("min-w-0", line.wrap ? "line-clamp-2 wrap-anywhere" : "truncate", line.strong && "font-semibold")}>
@@ -110,6 +122,7 @@ export function CalendarEvent({
         <span aria-hidden="true" className="contents">
           {body}
         </span>
+        {band}
       </div>
     );
   }
@@ -125,6 +138,7 @@ export function CalendarEvent({
       data-event-tone={tone}
     >
       {body}
+      {band}
     </button>
   );
 }

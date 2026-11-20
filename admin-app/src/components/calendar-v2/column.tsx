@@ -1,10 +1,11 @@
 import { useState, type KeyboardEvent } from "react";
+import { occupancyToTreatment } from "@/components/schedule/reservation-duration-dialog";
 import { displayServiceName } from "@/lib/service-pricing";
 import { formatTime, statusLabel } from "@/lib/timeline";
 import type { ExternalBlock, Reservation } from "@/types/api";
 import type { CalendarColumn } from "./columns";
 import { CalendarEvent, eventLines, type EventTone } from "./event";
-import { DAY_MINUTES, MIN_EVENT_PX, PX_PER_MINUTE, layoutLanes, type Span } from "./geometry";
+import { DAY_MINUTES, MIN_EVENT_PX, PX_PER_MINUTE, clipToDay, drawnSpan, layoutLanes, type Span } from "./geometry";
 
 export type CalendarItem =
   | Readonly<{ kind: "reservation"; span: Span; reservation: Reservation }>
@@ -13,51 +14,73 @@ export type CalendarItem =
 export type ClosureBand = Readonly<{ id: string; span: Span; reason: string | null }>;
 
 const DAY_PX = DAY_MINUTES * PX_PER_MINUTE;
-const SLOT_MINUTES = 15;
-const SLOTS = Array.from({ length: DAY_MINUTES / SLOT_MINUTES }, (_, index) => index * SLOT_MINUTES);
+const MIN_EVENT_MINUTES = MIN_EVENT_PX / PX_PER_MINUTE;
 
 const clock = (minute: number) =>
   `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 
-// Arrow keys walk the slots like the current grid: up and down by 15 minutes,
-// Home and End to the day's ends, left and right to the same time next door.
+// A marker the block always shows, so its state is said in words, not only by its
+// color (DESIGN.md §3): 承認待ち has its own fill, the others share the booking's.
+const STATUS_MARKERS: Partial<Record<string, string>> = {
+  pending_approval: "承認待ち",
+  checked_in: "来店中",
+  completed: "完了",
+};
+
+// Arrow keys walk the column's open slots: up and down to the next one, Home and
+// End to the ends, left and right to the nearest time next door.
 function moveSlotFocus(event: KeyboardEvent<HTMLButtonElement>) {
-  const minute = Number(event.currentTarget.dataset.slotMinutes);
-  const column = event.currentTarget.closest<HTMLElement>("[data-calendar-column]");
+  const slot = event.currentTarget;
+  const column = slot.closest<HTMLElement>("[data-calendar-column]");
   if (!column) return;
-  const siblings = [...(column.parentElement?.querySelectorAll<HTMLElement>("[data-calendar-column]") ?? [])];
-  const at = siblings.indexOf(column);
-  const targets: Record<string, [HTMLElement | undefined, number]> = {
-    ArrowUp: [column, minute - SLOT_MINUTES],
-    ArrowDown: [column, minute + SLOT_MINUTES],
-    Home: [column, 0],
-    End: [column, DAY_MINUTES - SLOT_MINUTES],
-    ArrowLeft: [siblings[at - 1], minute],
-    ArrowRight: [siblings[at + 1], minute],
+  const slotsOf = (scope: Element | undefined) => [...(scope?.querySelectorAll<HTMLElement>("[data-slot-minutes]") ?? [])];
+  const own = slotsOf(column);
+  const at = own.indexOf(slot);
+  const minute = Number(slot.dataset.slotMinutes);
+  const columns = [...(column.parentElement?.querySelectorAll<HTMLElement>("[data-calendar-column]") ?? [])];
+  const nearest = (scope: Element | undefined) =>
+    slotsOf(scope).reduce<HTMLElement | undefined>(
+      (best, next) =>
+        !best || Math.abs(Number(next.dataset.slotMinutes) - minute) < Math.abs(Number(best.dataset.slotMinutes) - minute) ? next : best,
+      undefined,
+    );
+  const targets: Record<string, () => HTMLElement | undefined> = {
+    ArrowUp: () => own[at - 1],
+    ArrowDown: () => own[at + 1],
+    Home: () => own[0],
+    End: () => own.at(-1),
+    ArrowLeft: () => nearest(columns[columns.indexOf(column) - 1]),
+    ArrowRight: () => nearest(columns[columns.indexOf(column) + 1]),
   };
-  const [scope, nextMinute] = targets[event.key] ?? [];
-  const target = scope?.querySelector<HTMLElement>(`[data-slot-minutes="${nextMinute}"]`);
+  const target = targets[event.key]?.();
   if (!target) return;
   event.preventDefault();
   target.focus();
 }
 
-function present(item: CalendarItem, dayLabel: string) {
+function present(item: CalendarItem, dayLabel: string, dateKey: string) {
   if (item.kind === "reservation") {
     const { reservation } = item;
-    const pending = reservation.status === "pending_approval";
+    // The stored end includes 5 minutes of cleaning: the label gives the
+    // treatment's end, and the cleaning is drawn as its own band (DESIGN.md §5).
+    const treatmentEnd = new Date(Date.parse(reservation.startAt) + occupancyToTreatment(reservation.startAt, reservation.endAt) * 60_000);
     const start = formatTime(reservation.startAt);
-    const end = formatTime(reservation.endAt);
+    const finish = formatTime(treatmentEnd.toISOString());
+    const release = formatTime(reservation.endAt);
     const detail = displayServiceName(reservation.serviceName);
+    const cleaning = treatmentEnd.getTime() < Date.parse(reservation.endAt)
+      ? clipToDay(treatmentEnd.toISOString(), reservation.endAt, dateKey)
+      : null;
     return {
       id: reservation.id,
-      tone: (pending ? "pending" : "confirmed") as EventTone,
-      marker: pending ? "承認待ち" : null,
+      tone: (reservation.status === "pending_approval" ? "pending" : "confirmed") as EventTone,
+      marker: STATUS_MARKERS[reservation.status] ?? null,
       title: reservation.customerDisplayName,
       start,
-      range: `${start}–${end}`,
+      range: `${start}–${finish}`,
       detail,
-      label: `${reservation.customerDisplayName}、${dayLabel}、${start}から${end}、${detail}、${statusLabel(reservation.status)}`,
+      cleaning,
+      label: `${reservation.customerDisplayName}、${dayLabel}、${start}から${finish}（枠の解放 ${release}）、${detail}、${statusLabel(reservation.status)}`,
     };
   }
   const { block } = item;
@@ -74,6 +97,7 @@ function present(item: CalendarItem, dayLabel: string) {
     start,
     range: `${start}–${end}`,
     detail: "",
+    cleaning: null,
     label: `${title}、${dayLabel}、${start}から${end}、${manual ? "ブロック" : "Googleカレンダー"}`,
   };
 }
@@ -86,9 +110,9 @@ type ColumnProps = Readonly<{
   closures: readonly ClosureBand[];
   // The slot that takes Tab until the user moves: the opening time, where work starts.
   entryMinute: number;
-  // Off while the day is loading, failed or capped: incomplete data must not
-  // read as free time (UX-21).
-  canCreate: boolean;
+  // The slots a booking can start in; null while the day's data is incomplete,
+  // which must not read as free time (UX-21).
+  slots: readonly number[] | null;
   tint: boolean;
   nowMinute: number | null;
   showNowDot: boolean;
@@ -108,7 +132,7 @@ export function CalendarColumnView({
   closed,
   closures,
   entryMinute,
-  canCreate,
+  slots,
   tint,
   nowMinute,
   showNowDot,
@@ -121,11 +145,10 @@ export function CalendarColumnView({
   // Roving tab stop: the slot last focused keeps Tab, so Shift+Tab leaves the grid
   // instead of jumping back to the opening time.
   const [tabMinute, setTabMinute] = useState<number | null>(null);
-  const tabStop = tabMinute ?? entryMinute;
-  const placed = layoutLanes(
-    items.map((item) => ({ item, start: item.span.start, end: item.span.end })),
-    MIN_EVENT_PX / PX_PER_MINUTE,
-  );
+  const open = slots ?? [];
+  const tabStop =
+    tabMinute !== null && open.includes(tabMinute) ? tabMinute : (open.find((minute) => minute >= entryMinute) ?? open[0]);
+  const placed = layoutLanes(items.map((item) => ({ item, ...drawnSpan(item.span, MIN_EVENT_MINUTES) })));
   return (
     <div data-calendar-column={column.key} className="relative min-w-0 flex-1 border-l border-cal-grid" style={{ height: DAY_PX }}>
       {tint && <div aria-hidden="true" className="absolute inset-0 bg-cal-selected/20" />}
@@ -148,27 +171,24 @@ export function CalendarColumnView({
           休業{closure.reason ? `（${closure.reason}）` : ""}
         </div>
       ))}
-      {canCreate &&
-        SLOTS.map((minute) => (
-          <button
-            key={minute}
-            type="button"
-            tabIndex={minute === tabStop ? 0 : -1}
-            data-slot-minutes={minute}
-            aria-label={`${dayLabel} ${clock(minute)} ${column.storeName}に予約を追加`}
-            onClick={(event) => onSlot(column, minute, event.currentTarget)}
-            onFocus={() => setTabMinute(minute)}
-            onKeyDown={moveSlotFocus}
-            className="absolute inset-x-0 h-3 hover:bg-cal-text/5 focus-visible:z-40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cal-primary"
-            style={{ top: minute * PX_PER_MINUTE }}
-          />
-        ))}
+      {open.map((minute) => (
+        <button
+          key={minute}
+          type="button"
+          tabIndex={minute === tabStop ? 0 : -1}
+          data-slot-minutes={minute}
+          aria-label={`${dayLabel} ${clock(minute)} ${column.storeName}に予約を追加`}
+          onClick={(event) => onSlot(column, minute, event.currentTarget)}
+          onFocus={() => setTabMinute(minute)}
+          onKeyDown={moveSlotFocus}
+          className="absolute inset-x-0 h-3 hover:bg-cal-text/5 focus-visible:z-40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cal-primary"
+          style={{ top: minute * PX_PER_MINUTE }}
+        />
+      ))}
       {placed.map(({ item, start, end, lane, lanes, span }) => {
-        // Keep the minimum height at the day's end too, by drawing a late block
-        // upward rather than cutting it to a sliver.
-        const height = Math.max((end - start) * PX_PER_MINUTE, MIN_EVENT_PX);
-        const top = Math.min(start * PX_PER_MINUTE, DAY_PX - height);
-        const shown = present(item, dayLabel);
+        const top = start * PX_PER_MINUTE;
+        const height = (end - start) * PX_PER_MINUTE;
+        const shown = present(item, dayLabel, column.dateKey);
         const { inline, lines } = eventLines({
           marker: shown.marker,
           heightPx: height,
@@ -178,6 +198,8 @@ export function CalendarColumnView({
           range: shown.range,
           detail: shown.detail,
         });
+        // A block drawn taller than its booking has no true place for the cleaning band.
+        const cleaning = shown.cleaning && item.span.end - item.span.start >= MIN_EVENT_MINUTES ? shown.cleaning : null;
         let onSelect: ((opener: HTMLElement) => void) | undefined;
         if (item.kind === "reservation") onSelect = (opener) => onReservation(item.reservation.id, opener);
         else if (onBlock && item.block.source === "admin_block") onSelect = (opener) => onBlock(item.block, opener);
@@ -190,6 +212,7 @@ export function CalendarColumnView({
             label={shown.label}
             selected={selectedId === shown.id}
             onSelect={onSelect}
+            cleaning={cleaning ? { top: (cleaning.start - start) * PX_PER_MINUTE, height: (cleaning.end - cleaning.start) * PX_PER_MINUTE } : null}
             style={{
               top,
               height,

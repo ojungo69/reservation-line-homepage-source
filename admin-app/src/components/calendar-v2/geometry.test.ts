@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatJstDate } from "@/lib/timeline";
 import type { BusinessHour } from "@/types/api";
-import { clipToDay, closedRanges, layoutLanes, mondayWeek } from "./geometry";
+import { clipToDay, closedRanges, drawnSpan, layoutLanes, mondayWeek, openSlotMinutes } from "./geometry";
 
 const hours = (rows: Array<Partial<BusinessHour>>): BusinessHour[] =>
   rows.map((row, index) => ({
@@ -67,12 +67,19 @@ describe("layoutLanes", () => {
     expect(placed.a.lanes).toBe(2);
   });
 
-  it("treats a floored short item as reaching its drawn end", () => {
-    // A 5-minute booking drawn at the minimum height covers the next booking unless
-    // the lanes use the drawn end.
-    const placed = byId(layoutLanes([item("short", 600, 605), item("next", 610, 660)], 20));
+  it("lays out drawn spans, so a floored short item never covers the next one", () => {
+    // A 5-minute booking drawn at the minimum height would cover the next booking
+    // if the lanes used its booked end.
+    const drawn = (id: string, start: number, end: number) => ({ item: id, ...drawnSpan({ start, end }, 20) });
+    const placed = byId(layoutLanes([drawn("short", 600, 605), drawn("next", 610, 660)]));
     expect(placed.short.lanes).toBe(2);
     expect(placed.next.lane).toBe(1);
+  });
+
+  it("keeps two short items at the day's end apart after moving them up", () => {
+    const drawn = (id: string, start: number, end: number) => ({ item: id, ...drawnSpan({ start, end }, 22.5) });
+    const placed = byId(layoutLanes([drawn("a", 1410, 1430), drawn("b", 1435, 1440)]));
+    expect(placed.a.lane).not.toBe(placed.b.lane);
   });
 });
 
@@ -119,5 +126,44 @@ describe("closedRanges", () => {
 
   it("tints nothing for a store without any configured hours", () => {
     expect(closedRanges(hours([{ storeId: "other" }]), "s1", 1)).toEqual([]);
+  });
+});
+
+describe("drawnSpan", () => {
+  it("keeps a long span as booked", () => {
+    expect(drawnSpan({ start: 600, end: 660 }, 22.5)).toEqual({ start: 600, end: 660 });
+  });
+
+  it("raises a short span to the minimum, and moves it up at the day's end", () => {
+    expect(drawnSpan({ start: 600, end: 605 }, 22.5)).toEqual({ start: 600, end: 622.5 });
+    expect(drawnSpan({ start: 1435, end: 1440 }, 22.5)).toEqual({ start: 1417.5, end: 1440 });
+  });
+});
+
+describe("openSlotMinutes", () => {
+  const span = (start: number, end: number) => ({ start, end });
+
+  it("offers only slots inside opening hours and outside closures", () => {
+    const slots = openSlotMinutes({ closed: [span(0, 600), span(720, 780), span(1140, 1440)], taken: [], resourceIds: ["r1"] });
+    expect(slots[0]).toBe(600);
+    expect(slots).not.toContain(585);
+    expect(slots).not.toContain(720);
+    expect(slots).toContain(780);
+    expect(slots.at(-1)).toBe(1125);
+  });
+
+  it("drops a slot only when every active resource is taken then", () => {
+    const taken = [{ span: span(600, 665), resourceId: "r1" }];
+    const one = openSlotMinutes({ closed: [], taken, resourceIds: ["r1"] });
+    // 10:00 to 11:05 with the cleaning time: 11:00 is still taken, 11:15 is free.
+    expect(one).not.toContain(600);
+    expect(one).not.toContain(660);
+    expect(one).toContain(675);
+    const two = openSlotMinutes({ closed: [], taken, resourceIds: ["r1", "r2"] });
+    expect(two).toContain(600);
+  });
+
+  it("offers nothing to a store without an active resource", () => {
+    expect(openSlotMinutes({ closed: [], taken: [], resourceIds: [] })).toEqual([]);
   });
 });

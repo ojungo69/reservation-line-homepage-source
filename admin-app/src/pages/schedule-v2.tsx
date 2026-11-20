@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { toast } from "sonner";
-import { CalendarColumns, DayHeaderCells, DayList, openingMinute } from "@/components/calendar-v2/body";
+import { CalendarColumns, DayHeaderCells, DayList, columnState, openingMinute, previousDayKey } from "@/components/calendar-v2/body";
 import { buildColumns, effectiveView, slotResource, visibleStoreId, type CalendarColumn, type CalendarView } from "@/components/calendar-v2/columns";
 import { PX_PER_MINUTE, mondayWeek } from "@/components/calendar-v2/geometry";
 import { CalendarGrid } from "@/components/calendar-v2/grid";
@@ -60,7 +59,8 @@ export default function ScheduleV2Page() {
 
   const dayDates = week ? mondayWeek(date) : [date];
   const dayKeys = dayDates.map(formatJstDate);
-  const days = useCalendarDays(dayKeys);
+  // The day before the first one too: its bookings can run past midnight.
+  const days = useCalendarDays([previousDayKey(dayDates[0]), ...dayKeys]);
   const dayByKey = new Map(days.map((day) => [day.dateKey, day]));
   const settingsQuery = useSettings({ live: true });
   const settings = settingsQuery.data?.ok ? settingsQuery.data.settings : null;
@@ -73,6 +73,10 @@ export default function ScheduleV2Page() {
   const [cancelBlock, setCancelBlock] = useState<ExternalBlock | null>(null);
 
   const columns = view === "list" ? [] : buildColumns(view, date, storeId, stores);
+  const settingsUsable = settings !== null && !settingsQuery.isError;
+  const states = columns.map((column) => columnState(column, dayByKey, settings, settingsUsable));
+  const storesWhere = (test: (state: (typeof states)[number]) => boolean) =>
+    [...new Set(states.filter(test).map((state) => state.column.storeName))];
   const { overlayRef, scrollerRef, layout } = useCalendarLayout(columns.length, narrow ? 48 : 56);
 
   // Page move stays shut while a sheet of this page is open (see ShellV2).
@@ -130,11 +134,8 @@ export default function ScheduleV2Page() {
   const onSlot = useCallback(
     (column: CalendarColumn, minutes: number, from: HTMLElement) => {
       if (!settings) return;
+      // A store without an active resource offers no slots (the notice says why).
       const resource = slotResource(column.storeId, settings.resources);
-      if (resource.kind === "none") {
-        toast.info(`${column.storeName}には予約を受ける枠（リソース）がありません。設定で追加してください。`);
-        return;
-      }
       opener.current = from;
       const resourceId = resource.kind === "one" ? resource.resourceId : null;
       setCreateDefaults({ storeId: column.storeId, resourceId, minutes, date: column.date });
@@ -190,7 +191,7 @@ export default function ScheduleV2Page() {
     </DayHeader>
   );
 
-  let body = <DayList day={dayByKey.get(dayKeys[0])} storeId={storeId} onDetails={onReservation} />;
+  let body = <DayList day={dayByKey.get(formatJstDate(date))} storeId={storeId} onDetails={onReservation} />;
   if (view !== "list") {
     body =
       columns.length === 0 ? (
@@ -199,10 +200,8 @@ export default function ScheduleV2Page() {
       ) : (
         <CalendarGrid>
           <CalendarColumns
-            columns={columns}
-            dayByKey={dayByKey}
+            states={states}
             settings={settings}
-            settingsUsable={settings !== null && !settingsQuery.isError}
             week={week}
             todayKey={todayKey}
             nowMinute={nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes()}
@@ -218,17 +217,7 @@ export default function ScheduleV2Page() {
 
   return (
     <div className="relative h-full overflow-hidden bg-cal-surface text-cal-text">
-      <div
-        ref={scrollerRef}
-        data-calendar-scroll=""
-        // Focus falls back here when what opened a sheet is gone.
-        tabIndex={-1}
-        className="h-full overflow-y-auto overscroll-contain outline-hidden"
-        style={{ paddingTop: layout.barPx, scrollPaddingTop: layout.barPx }}
-      >
-        {body}
-      </div>
-
+      {/* First in the DOM, so Tab after 本文へスキップ reaches the bar before the grid. */}
       <div ref={overlayRef} className="pointer-events-none absolute inset-x-0 top-0 z-40">
         <CalendarTopBar
           heading={week ? weekHeading(dayDates) : dayTitle}
@@ -248,7 +237,9 @@ export default function ScheduleV2Page() {
         />
         <CalendarNotices
           days={days}
-          dayName={(dateKey) => dayLabel(dayDates[dayKeys.indexOf(dateKey)] ?? date)}
+          dayName={(dateKey) => dayLabel(new Date(`${dateKey}T00:00:00+09:00`))}
+          noResourceStores={storesWhere((state) => state.noResource)}
+          closuresUnknownStores={storesWhere((state) => state.closuresUnknown)}
           settings={{
             failed: settingsQuery.isError,
             hadData: settings !== null,
@@ -258,6 +249,17 @@ export default function ScheduleV2Page() {
           weekNeedsStore={weekAsked && requested === "week" && !narrow && storeId === null && stores.length > 1}
           onRetried={() => headingRef.current?.focus()}
         />
+      </div>
+
+      <div
+        ref={scrollerRef}
+        data-calendar-scroll=""
+        // Focus falls back here when what opened a sheet is gone.
+        tabIndex={-1}
+        className="h-full overflow-y-auto overscroll-contain outline-hidden"
+        style={{ paddingTop: layout.barPx, scrollPaddingTop: layout.barPx }}
+      >
+        {body}
       </div>
 
       <ReservationDetailPanel

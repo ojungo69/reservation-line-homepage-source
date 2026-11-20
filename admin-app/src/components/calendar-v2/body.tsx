@@ -1,26 +1,44 @@
+import { useRef } from "react";
 import { ReservationListCard } from "@/components/schedule/reservation-list-card";
-import { getInitialScrollMinutes, isScheduleVisibleReservationStatus, jstWeekday } from "@/lib/timeline";
+import { addDays, formatJstDate, getInitialScrollMinutes, isScheduleVisibleReservationStatus, jstWeekday } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import type { ExternalBlock, SettingsResponse } from "@/types/api";
 import { CalendarColumnView, type CalendarItem, type ClosureBand } from "./column";
 import type { CalendarColumn } from "./columns";
-import { clipToDay, closedRanges, DAY_MINUTES } from "./geometry";
+import { clipToDay, closedRanges, DAY_MINUTES, openSlotMinutes, SLOT_MINUTES, type Span } from "./geometry";
 import { dayLabel, dayOfMonth, weekdayOf } from "./labels";
 import type { DayData } from "./use-calendar-days";
 
 export type CalendarSettings = Extract<SettingsResponse, { ok: true }>["settings"];
 
-const SLOT_MINUTES = 15;
+// The settings list keeps each store's 200 closures that start last, with no
+// sign that it cut older ones (src/admin/operations.ts).
+const CLOSURE_ROW_CAP = 200;
+// The longest booking: MAX_TOTAL_SERVICE_DURATION_MINUTES plus the cleaning time
+// (src/reservations/slot-times.ts). A booking from the day before reaches no
+// further into the next day than this.
+const LONGEST_BOOKING_MINUTES = 240;
 
-function columnItems(column: CalendarColumn, day: DayData | undefined): CalendarItem[] {
-  if (!day) return [];
+/** The day before a column's day: bookings that started then can run past midnight into it. */
+export function previousDayKey(date: Date): string {
+  return formatJstDate(addDays(date, -1));
+}
+
+function reservationsComplete(day: DayData | undefined): boolean {
+  return day !== undefined && !day.loading && day.failed.length === 0 && !day.capped;
+}
+
+function columnItems(column: CalendarColumn, day: DayData | undefined, before: DayData | undefined): CalendarItem[] {
   const items: CalendarItem[] = [];
-  for (const reservation of day.reservations) {
+  // The day list holds bookings that start that day, so one that starts the day
+  // before and runs past midnight comes from the previous day's list.
+  for (const reservation of [...(before?.reservations ?? []), ...(day?.reservations ?? [])]) {
     if (reservation.storeId !== column.storeId || !isScheduleVisibleReservationStatus(reservation.status)) continue;
     const span = clipToDay(reservation.startAt, reservation.endAt, column.dateKey);
     if (span) items.push({ kind: "reservation", span, reservation });
   }
-  for (const block of day.blocks) {
+  // Blocks are listed by overlap with the day, so a block across midnight is in both days' lists already.
+  for (const block of day?.blocks ?? []) {
     if (block.storeId !== column.storeId) continue;
     const span = clipToDay(block.startAt, block.endAt, column.dateKey);
     if (span) items.push({ kind: "block", span, block });
@@ -37,9 +55,66 @@ function closureBands(column: CalendarColumn, settings: CalendarSettings | null)
   });
 }
 
+// A capped list is complete only from the oldest start it still holds: a day
+// before that may have closures that were cut off.
+function closuresKnown(column: CalendarColumn, settings: CalendarSettings): boolean {
+  const starts = settings.closures.filter((closure) => closure.storeId === column.storeId).map((closure) => Date.parse(closure.startsAt));
+  if (starts.length < CLOSURE_ROW_CAP) return true;
+  return Date.parse(`${column.dateKey}T00:00:00+09:00`) >= Math.min(...starts);
+}
+
 /** The store's earliest opening that weekday, else 09:00 (the current calendar's rule). */
 export function openingMinute(settings: CalendarSettings | null, column: CalendarColumn): number {
   return getInitialScrollMinutes(settings?.businessHours ?? [], jstWeekday(column.date), column.storeId);
+}
+
+export type ColumnState = Readonly<{
+  column: CalendarColumn;
+  items: CalendarItem[];
+  closed: Span[];
+  closures: ClosureBand[];
+  // Null while the column cannot offer slots: incomplete data must not read as
+  // free time (UX-21).
+  slots: number[] | null;
+  noResource: boolean;
+  closuresUnknown: boolean;
+}>;
+
+/** Everything one column needs, from the day's lists and the store settings. */
+export function columnState(
+  column: CalendarColumn,
+  dayByKey: ReadonlyMap<string, DayData>,
+  settings: CalendarSettings | null,
+  settingsUsable: boolean,
+): ColumnState {
+  const day = dayByKey.get(column.dateKey);
+  const before = dayByKey.get(previousDayKey(column.date));
+  const items = columnItems(column, day, before);
+  const closures = closureBands(column, settings);
+  const closed = settings ? closedRanges(settings.businessHours, column.storeId, jstWeekday(column.date)) : [];
+  const resourceIds = (settings?.resources ?? [])
+    .filter((resource) => resource.storeId === column.storeId && resource.active)
+    .map((resource) => resource.id);
+  const closuresUnknown = settings !== null && !closuresKnown(column, settings);
+  const complete = settingsUsable && reservationsComplete(day) && !closuresUnknown;
+  // Without the day before, its bookings into this morning are unknown: hold
+  // back only the hours they could reach.
+  const unknownMorning = reservationsComplete(before) ? [] : [{ start: 0, end: LONGEST_BOOKING_MINUTES }];
+  const taken = items.map((item) => ({
+    span: item.span,
+    resourceId: item.kind === "reservation" ? item.reservation.resourceId : item.block.resourceId,
+  }));
+  return {
+    column,
+    items,
+    closed,
+    closures,
+    slots: complete
+      ? openSlotMinutes({ closed: [...closed, ...closures.map((band) => band.span), ...unknownMorning], taken, resourceIds })
+      : null,
+    noResource: settings !== null && resourceIds.length === 0,
+    closuresUnknown,
+  };
 }
 
 function dayStatus(day: DayData | undefined): string {
@@ -48,18 +123,10 @@ function dayStatus(day: DayData | undefined): string {
   return day.capped ? "件数超過" : "";
 }
 
-// Slots are offered only on complete data: a loading, failed or capped day, or
-// missing store settings, must not read as free time (UX-21).
-function creatable(day: DayData | undefined, settingsUsable: boolean): boolean {
-  return settingsUsable && day !== undefined && !day.loading && day.failed.length === 0 && !day.capped;
-}
-
 /** The columns of the grid, each with its bookings, closed times and slots. */
 export function CalendarColumns({
-  columns,
-  dayByKey,
+  states,
   settings,
-  settingsUsable,
   week,
   todayKey,
   nowMinute,
@@ -69,10 +136,8 @@ export function CalendarColumns({
   onReservation,
   onBlock,
 }: Readonly<{
-  columns: readonly CalendarColumn[];
-  dayByKey: ReadonlyMap<string, DayData>;
+  states: readonly ColumnState[];
   settings: CalendarSettings | null;
-  settingsUsable: boolean;
   week: boolean;
   todayKey: string;
   nowMinute: number;
@@ -82,9 +147,9 @@ export function CalendarColumns({
   onReservation: (id: string, opener: HTMLElement) => void;
   onBlock?: (block: ExternalBlock, opener: HTMLElement) => void;
 }>) {
-  const firstToday = columns.find((column) => column.dateKey === todayKey)?.key;
-  return columns.map((column) => {
-    const day = dayByKey.get(column.dateKey);
+  const firstToday = states.find((state) => state.column.dateKey === todayKey)?.column.key;
+  return states.map((state) => {
+    const { column } = state;
     const today = column.dateKey === todayKey;
     const entry = Math.floor(openingMinute(settings, column) / SLOT_MINUTES) * SLOT_MINUTES;
     return (
@@ -92,11 +157,11 @@ export function CalendarColumns({
         key={column.key}
         column={column}
         dayLabel={dayLabel(column.date)}
-        items={columnItems(column, day)}
-        closed={settings ? closedRanges(settings.businessHours, column.storeId, jstWeekday(column.date)) : []}
-        closures={closureBands(column, settings)}
+        items={state.items}
+        closed={state.closed}
+        closures={state.closures}
         entryMinute={Math.min(entry, DAY_MINUTES - SLOT_MINUTES)}
-        canCreate={creatable(day, settingsUsable)}
+        slots={state.slots}
         tint={week && today}
         nowMinute={today ? nowMinute : null}
         showNowDot={column.key === firstToday}
@@ -168,26 +233,29 @@ export function DayList({
   storeId,
   onDetails,
 }: Readonly<{ day: DayData | undefined; storeId: string | null; onDetails: (id: string, opener: HTMLElement) => void }>) {
+  // The shared card does not pass on which button was pressed, and Safari does not
+  // focus buttons on click, so the press is caught on its way down.
+  const pressed = useRef<HTMLElement | null>(null);
   const rows = [...(day?.reservations ?? [])]
     .filter((reservation) => isScheduleVisibleReservationStatus(reservation.status) && (!storeId || reservation.storeId === storeId))
     .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
-  const settled = day !== undefined && !day.loading && day.failed.length === 0;
+  // A capped list may be missing this store's bookings: never call it empty (UX-21).
   return (
     <section aria-label="選択日の予約" className="space-y-2 px-4 py-3">
       {(!day || day.loading) && <p className="text-sm">予定を読み込み中…</p>}
-      {settled && rows.length === 0 && (
+      {reservationsComplete(day) && rows.length === 0 && (
         <p className="rounded-md border border-cal-grid p-6 text-center text-sm">この日の予約はありません</p>
       )}
       {rows.length > 0 && (
         <ul className="space-y-2">
           {rows.map((reservation) => (
-            <li key={reservation.id}>
-              <ReservationListCard
-                reservation={reservation}
-                // The card's 詳細 button had focus when pressed (or Safari's click
-                // left it on <body>): give back what is focused, else the list.
-                onDetails={(id) => onDetails(id, document.activeElement instanceof HTMLElement ? document.activeElement : document.body)}
-              />
+            <li
+              key={reservation.id}
+              onClickCapture={(event) => {
+                pressed.current = event.target instanceof Element ? event.target.closest("button") : null;
+              }}
+            >
+              <ReservationListCard reservation={reservation} onDetails={(id) => onDetails(id, pressed.current ?? document.body)} />
             </li>
           ))}
         </ul>
