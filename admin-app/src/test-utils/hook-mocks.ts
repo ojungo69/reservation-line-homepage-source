@@ -19,6 +19,7 @@ export const mocks = {
   },
   toast: {
     success: vi.fn(),
+    info: vi.fn(),
     warning: vi.fn(),
     error: vi.fn(),
   },

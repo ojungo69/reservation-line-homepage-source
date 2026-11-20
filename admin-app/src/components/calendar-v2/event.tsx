@@ -1,0 +1,128 @@
+import type { CSSProperties } from "react";
+import { cn } from "@/lib/utils";
+
+export type EventTone = "confirmed" | "pending" | "external";
+
+// wrap: a narrow block lets the name run onto a second line rather than cut it
+// to one character.
+export type EventLine = Readonly<{ part: "label" | "title" | "time" | "detail"; text: string; strong?: boolean; wrap?: boolean }>;
+
+// Below these heights a block has room for one row, then for a pending label and
+// a name on one line, then for a menu line (the approved prototype's steps).
+const ONE_ROW_PX = 34;
+const TIGHT_PX = 52;
+const DETAIL_LINE_PX = 58;
+// Under this usable width a block keeps only the name, or only 承認待ち.
+const NARROW_PX = 72;
+// A one-row block shows its start time only from this width: below it, the time
+// and the name would both be cut to a character.
+const INLINE_TIME_PX = 100;
+
+/**
+ * What a block can show at its drawn size. 承認待ち is never dropped, since the
+ * fill alone does not tell it apart; the time and the name go first.
+ */
+export function eventLines({
+  tone,
+  heightPx,
+  widthPx,
+  title,
+  start,
+  range,
+  detail,
+}: Readonly<{
+  tone: EventTone;
+  heightPx: number;
+  widthPx: number | null;
+  title: string;
+  start: string;
+  range: string;
+  detail: string;
+}>): { inline: boolean; lines: EventLine[] } {
+  const narrow = widthPx !== null && widthPx < NARROW_PX;
+  const pending = tone === "pending";
+  if (heightPx < ONE_ROW_PX) {
+    const roomy = widthPx === null || widthPx >= INLINE_TIME_PX;
+    const lines: EventLine[] = pending
+      ? [{ part: "label", text: "承認待ち", strong: true }, ...(roomy ? [{ part: "title" as const, text: title }] : [])]
+      : [...(roomy ? [{ part: "time" as const, text: start }] : []), { part: "title", text: title, strong: true }];
+    return { inline: true, lines };
+  }
+  let head: EventLine[] = [{ part: "title", text: title, strong: true, wrap: narrow }];
+  if (pending) {
+    head = heightPx < TIGHT_PX
+      ? [{ part: "title", text: `承認待ち・${title}`, strong: true }]
+      : [{ part: "label", text: "承認待ち" }, ...head];
+  }
+  const time: EventLine[] = pending && narrow ? [] : [{ part: "time", text: narrow ? start : range }];
+  const more: EventLine[] = heightPx >= DETAIL_LINE_PX && !narrow && detail ? [{ part: "detail", text: detail }] : [];
+  return { inline: false, lines: [...head, ...time, ...more] };
+}
+
+const TONE_CLASSES: Record<EventTone, string> = {
+  confirmed: "bg-cal-confirmed text-cal-on-confirmed",
+  // The fill alone is about 1.1:1 on the light work surface, so the block's edge
+  // is drawn in the outline color, which keeps 3:1 on every surface under it
+  // (test/admin-calendar-tokens.test.ts).
+  pending: "border border-cal-outline bg-cal-pending text-cal-on-pending",
+  external: "bg-cal-external text-cal-on-external",
+};
+
+/**
+ * One booking or external event on the time grid. A surface-colored ring keeps
+ * touching blocks apart; the selected one gets a primary ring outside a surface
+ * gap. Only blocks that open something are buttons (onSelect).
+ */
+export function CalendarEvent({
+  tone,
+  lines,
+  inline,
+  label,
+  style,
+  selected = false,
+  onSelect,
+}: Readonly<{
+  tone: EventTone;
+  lines: readonly EventLine[];
+  inline: boolean;
+  label: string;
+  style: CSSProperties;
+  selected?: boolean;
+  onSelect?: () => void;
+}>) {
+  const className = cn(
+    "absolute z-10 overflow-hidden rounded-md px-1.5 text-left text-xs leading-4 ring-1 ring-cal-surface",
+    inline ? "flex items-center gap-1.5 py-0" : "flex flex-col py-0.5",
+    TONE_CLASSES[tone],
+    selected && "z-20 ring-2 ring-cal-primary ring-offset-2 ring-offset-cal-surface",
+  );
+  const body = lines.map((line) => (
+    <span key={line.part} className={cn("min-w-0", line.wrap ? "line-clamp-2 wrap-anywhere" : "truncate", line.strong && "font-semibold")}>
+      {line.text}
+    </span>
+  ));
+  if (!onSelect) {
+    return (
+      <div className={className} style={style} data-event-tone={tone}>
+        <span className="sr-only">{label}</span>
+        <span aria-hidden="true" className="contents">
+          {body}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-haspopup="dialog"
+      aria-expanded={selected}
+      onClick={onSelect}
+      className={cn(className, "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cal-primary")}
+      style={style}
+      data-event-tone={tone}
+    >
+      {body}
+    </button>
+  );
+}

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 // Admin calendar V2 tokens (spec 008 T004, DESIGN.md §3-4, UX-22): the pairs
 // DESIGN.md §3 assigns keep WCAG 2.x contrast in light and dark, including text
 // on the glass that floats over the scrolling grid, whatever block is beneath.
-// T005 adds the now line and block-edge pairs once it decides how they are drawn.
+// T005 adds what touches on the time grid: block edges over the grid's tints.
 
 type Rgba = [number, number, number, number];
 type Theme = "light" | "dark";
@@ -133,6 +133,33 @@ const GLASS: Array<{ part: string; tier: string; colors: Array<[string, number]>
   }
 ];
 
+// T005: what touches on the time grid (tasks.md T005, column.tsx). A block can
+// sit on the plain surface, the closed-hours tint, today's tint in the week, or
+// both tints. Tailwind mixes the tints in oklab; source-over in sRGB is close at
+// these margins.
+const tinted = (theme: Theme, name: string, alpha: number, under: Rgba): Rgba => {
+  const [r, g, b] = color(theme, name);
+  return over([r, g, b, alpha], under);
+};
+const gridBackdrops = (theme: Theme): Array<[string, Rgba]> => {
+  const surface = color(theme, "cal-surface");
+  const today = tinted(theme, "cal-selected", 0.2, surface);
+  // Closed hours: cal-text at 5% in light, the opaque outer color in dark.
+  const closed = (under: Rgba) => (theme === "light" ? tinted(theme, "cal-text", 0.05, under) : color(theme, "cal-outer"));
+  return [
+    ["surface", surface],
+    ["today", today],
+    ["closed hours", closed(surface)],
+    ["closed hours today", closed(today)]
+  ];
+};
+// A block's own edge: the fill of a confirmed or external block, and the
+// outline-colored border of a pending one, whose fill is about 1.1:1 on the light
+// surface. The now line is ringed in the surface color, so it only ever meets
+// that ring (cal-alert on cal-surface, above); without the ring it is about
+// 1.0:1 on a confirmed block in dark.
+const GRID_EDGES = ["cal-confirmed", "cal-external", "cal-outline"];
+
 describe("admin calendar V2 tokens", () => {
   it("measures contrast with the WCAG formula", () => {
     expect(contrast([0, 0, 0, 1], [255, 255, 255, 1])).toBeCloseTo(21, 5);
@@ -148,6 +175,14 @@ describe("admin calendar V2 tokens", () => {
   });
 
   for (const theme of ["light", "dark"] as const) {
+    it(`keeps every block's edge apart from the time grid beneath it (${theme})`, () => {
+      for (const [where, backdrop] of gridBackdrops(theme)) {
+        for (const edge of GRID_EDGES) {
+          expect(contrast(color(theme, edge), backdrop), `${edge} on ${where}`).toBeGreaterThanOrEqual(UI);
+        }
+      }
+    });
+
     it(`keeps every opaque pair readable (${theme})`, () => {
       for (const [fg, bg, min] of OPAQUE_PAIRS) {
         expect(contrast(color(theme, fg), color(theme, bg)), `${fg} on ${bg}`).toBeGreaterThanOrEqual(min);

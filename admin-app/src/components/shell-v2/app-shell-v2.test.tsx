@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, type ReactElement } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
@@ -53,6 +53,7 @@ vi.mock("@/components/command-palette", async () => {
 });
 
 import AppShellV2, { DOCKED_QUERY } from "./app-shell-v2";
+import { useShellV2 } from "./shell-context";
 
 // A matchMedia whose docked breakpoint the test can flip, firing "change" the way
 // a rotation or a window resize does. The real useMediaQuery and useTheme read it.
@@ -88,6 +89,43 @@ const renderShell = (path = "/") =>
           <Route index element={<NavigateFromOutside />} />
           <Route path="customers" element={<p>顧客のページ</p>} />
           <Route path="*" element={<p>見つからないページ</p>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+
+// Stands in for the calendar (T005): it draws its own top bar with the shell's
+// menu button and tells the shell so, the way the calendar's bar does.
+function OwnBarPage({ blockPalette = false }: Readonly<{ blockPalette?: boolean }>) {
+  const shell = useShellV2();
+  const setOwnTopBar = shell?.setOwnTopBar;
+  useLayoutEffect(() => {
+    if (!setOwnTopBar) return;
+    setOwnTopBar(true);
+    return () => setOwnTopBar(false);
+  }, [setOwnTopBar]);
+  useEffect(() => {
+    shell?.setPaletteBlocked(blockPalette);
+    return () => shell?.setPaletteBlocked(false);
+  }, [shell, blockPalette]);
+  return (
+    <div role="toolbar" aria-label="予定表の上部バー">
+      {shell?.showMenuButton && (
+        <button ref={shell.menuButtonRef} type="button" aria-expanded={shell.menuOpen} onClick={shell.openMenu}>
+          メニュー
+        </button>
+      )}
+    </div>
+  );
+}
+
+const renderOwnBar = (page: ReactElement) =>
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <Routes>
+        <Route element={<AppShellV2 />}>
+          <Route index element={page} />
+          <Route path="customers" element={<p>顧客のページ</p>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -464,5 +502,64 @@ describe("AppShellV2 のサイドバーと引き出し", () => {
     const scrollers = [...panel.querySelectorAll("*")].filter(scrolls);
     expect(scrollers.length).toBeGreaterThanOrEqual(2);
     expect(scrollers.flatMap(blurClasses)).toEqual([]);
+  });
+});
+
+describe("AppShellV2 と自分の上部バーを持つ画面 (T005)", () => {
+  it("画面が自分の上部バーを出す間は、外枠のヘッダーを出さず、本文をスクロールさせない", () => {
+    renderOwnBar(<OwnBarPage />);
+    expect(screen.queryByRole("banner")).toBeNull();
+    const main = screen.getByRole("main");
+    // The bar's glass must not sit inside a scroller (DESIGN.md §3).
+    expect(main.classList.contains("overflow-hidden")).toBe(true);
+    expect(main.classList.contains("overflow-auto")).toBe(false);
+    expect(screen.getByRole("toolbar", { name: "予定表の上部バー" })).toBeTruthy();
+  });
+
+  it("上部バーのメニューのボタンで引き出しを開き、閉じるとそのボタンへフォーカスを戻す", async () => {
+    wide = false;
+    const user = userEvent.setup();
+    renderOwnBar(<OwnBarPage />);
+    const button = within(screen.getByRole("toolbar")).getByRole("button", { name: "メニュー" });
+    await user.click(button);
+    expect(drawer()).not.toBeNull();
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(drawer()).toBeNull());
+    expect(document.activeElement).toBe(button);
+  });
+
+  it("常設サイドバーにフォーカスがある時に画面が狭くなったら、上部バーのメニューのボタンへ移す", () => {
+    renderOwnBar(<OwnBarPage />);
+    within(navs()[0]).getByRole("link", { name: "顧客" }).focus();
+    setWide(false);
+    expect(document.activeElement).toBe(within(screen.getByRole("toolbar")).getByRole("button", { name: "メニュー" }));
+  });
+
+  it("上部バーの無い画面へ移ると、外枠のヘッダーと本文のスクロールを戻す", async () => {
+    const user = userEvent.setup();
+    renderOwnBar(<OwnBarPage />);
+    await user.click(within(navs()[0]).getByRole("link", { name: "顧客" }));
+    expect(screen.getByText("顧客のページ")).toBeTruthy();
+    expect(screen.getByRole("banner")).toBeTruthy();
+    expect(screen.getByRole("main").classList.contains("overflow-auto")).toBe(true);
+  });
+
+  it("画面が止めている間は、Cmd/Ctrl+K でもページ移動を開かない", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderOwnBar(<OwnBarPage blockPalette />);
+    await user.keyboard("{Control>}k{/Control}");
+    expect(palette()).toBeNull();
+    rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route element={<AppShellV2 />}>
+            <Route index element={<OwnBarPage />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+    await user.keyboard("{Control>}k{/Control}");
+    expect(palette()).not.toBeNull();
   });
 });
