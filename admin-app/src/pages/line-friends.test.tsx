@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createTestQueryClient, createQueryWrapper } from "@/test-utils/query-client";
 import type { LineFriendListItem, Store } from "@/types/api";
 
 let items: LineFriendListItem[] = [];
@@ -26,6 +27,9 @@ vi.mock("@/hooks/use-stores", () => ({
 }));
 
 import LineFriendsPage from "./line-friends";
+
+// ページが最終ページ補正でキャッシュを無効化するため QueryClient が要る。
+const wrapper = createQueryWrapper(createTestQueryClient());
 
 const store: Store = {
   id: "store-1",
@@ -60,7 +64,7 @@ beforeEach(() => {
 describe("LINE友だち紐付けの操作案内", () => {
   it("複数店舗でも、紐付け先の店舗の欄や案内は無く、紐付けの操作が押せる", () => {
     stores = [store, { ...store, id: "store-2", name: "支店" }];
-    render(<LineFriendsPage />);
+    render(<LineFriendsPage />, { wrapper });
 
     expect(screen.queryByText("紐付け先の店舗")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
@@ -78,7 +82,7 @@ describe("LINE友だち紐付けの操作案内", () => {
     selectedStoreId = selected;
     searchResults = [{ id: "customer-1", displayName: "鈴木 一郎", displayNameKana: null, phoneNormalized: null }];
     const user = userEvent.setup();
-    render(<LineFriendsPage />);
+    render(<LineFriendsPage />, { wrapper });
 
     await user.click(screen.getByRole("button", { name: "既存客に紐付け" }));
     await user.type(screen.getByRole("textbox", { name: "既存のお客様を名前または電話番号で検索" }), "鈴木");
@@ -93,7 +97,7 @@ describe("LINE友だち紐付けの操作案内", () => {
   it("店舗を読み込み中の理由は取得後に消え、紐付け操作を再開できる", () => {
     stores = [];
     isStoresPending = true;
-    const { rerender } = render(<LineFriendsPage />);
+    const { rerender } = render(<LineFriendsPage />, { wrapper });
     expect(screen.getByText("店舗情報を読み込み中のため紐付けできません。")).toBeTruthy();
 
     stores = [store];
@@ -105,7 +109,7 @@ describe("LINE友だち紐付けの操作案内", () => {
 
   it("検索対象を名前から読み取ってLINE友だちの検索語を入力できる", async () => {
     const user = userEvent.setup();
-    render(<LineFriendsPage />);
+    render(<LineFriendsPage />, { wrapper });
 
     const search = screen.getByRole("textbox", { name: "LINE友だちを名前で検索" });
     await user.type(search, "山田");
@@ -113,7 +117,7 @@ describe("LINE友だち紐付けの操作案内", () => {
   });
 
   it("未紐付け・紐付け済み・すべての切り替えは無く、一覧は未紐付けだけを取る", () => {
-    render(<LineFriendsPage />);
+    render(<LineFriendsPage />, { wrapper });
 
     for (const name of ["未紐付け", "紐付け済み", "すべて"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
@@ -144,7 +148,7 @@ describe("LINE友だち紐付けの操作案内", () => {
     items = [{ ...friend, profileStatus }];
     stores = hasStore ? [store] : [];
     const user = userEvent.setup();
-    render(<LineFriendsPage />);
+    render(<LineFriendsPage />, { wrapper });
 
     expect(screen.getByText(reason)).toBeTruthy();
     for (const name of ["既存客に紐付け", "新規登録して紐付け"]) {
@@ -160,7 +164,7 @@ describe("LINE友だち紐付けの操作案内", () => {
 
   it("取得済みの友だちは既存のお客様への紐付け画面を開ける", async () => {
     const user = userEvent.setup();
-    render(<LineFriendsPage />);
+    render(<LineFriendsPage />, { wrapper });
 
     const button = screen.getByRole("button", { name: "既存客に紐付け" });
     expect((button as HTMLButtonElement).disabled).toBe(false);

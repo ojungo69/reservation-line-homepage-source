@@ -346,8 +346,8 @@ describe("ReservationsPage 店舗を選んでいるときの表示", () => {
   it("店舗を選んだ状態で、店舗で並べ替えた保存値を復元すると、同じ店舗の予約が日時の降順に並ぶ", () => {
     authState.selectedStoreId = "store-1";
     reservationState.rows = [
-      { ...reservations[0], id: "reservation-early", customerDisplayName: "早い予約", customerDisplayNameKana: "ハヤイ", startAt: "2026-08-01T01:00:00.000Z" },
-      { ...reservations[0], id: "reservation-late", customerDisplayName: "遅い予約", customerDisplayNameKana: "オソイ", startAt: "2026-08-05T01:00:00.000Z" },
+      { ...reservations[0], id: "reservation-early", customerDisplayName: "早い予約", customerDisplayNameKana: "ハヤイ", startAt: "2026-11-01T01:00:00.000Z", endAt: "2026-11-01T02:00:00.000Z" },
+      { ...reservations[0], id: "reservation-late", customerDisplayName: "遅い予約", customerDisplayNameKana: "オソイ", startAt: "2026-11-05T01:00:00.000Z", endAt: "2026-11-05T02:00:00.000Z" },
     ];
     reservationState.locationState = { reservationSearch: { scope: "undefined:owner:", value: { from: "2026-10-18", to: "2026-11-16", keyword: "", serviceId: "__all__", statusFilter: "__all__", sortKey: "storeName", sortDir: "desc", viewMode: "history" } } };
     render(<ReservationsPage />);

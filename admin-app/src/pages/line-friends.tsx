@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { RefreshCw, UserPlus, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,9 +40,13 @@ export default function LineFriendsPage() {
   // 紐付けで件数が減り現在のページが範囲外になったら、最終ページへ戻して取得し直す。
   const pastLastPage = settled && page > totalPages;
   const loadingResults = isPending || isFetching || q.trim() !== debouncedQ || pastLastPage;
+  const queryClient = useQueryClient();
   useEffect(() => {
-    if (pastLastPage) setPage(totalPages);
-  }, [pastLastPage, totalPages]);
+    if (!pastLastPage) return;
+    // 戻り先のページが 30 秒キャッシュに残っていても、他の画面で紐付け済みの友だちを再表示しないよう取り直す。
+    void queryClient.invalidateQueries({ queryKey: ["line-friends"], refetchType: "none" });
+    setPage(totalPages);
+  }, [pastLastPage, totalPages, queryClient]);
   const sync = useLineFriendSync();
   const { stores, isPending: isStoresPending, selectedStoreId } = useStores();
   const effectiveStoreId = pickLinkStoreId(stores, selectedStoreId);
