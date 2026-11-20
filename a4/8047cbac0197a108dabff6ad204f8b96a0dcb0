@@ -1,0 +1,19 @@
+specs/009-admin-simplification/tasks.md
+  s_d52c2d995f51c6::t_3fc1766e8e5481 40,46-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a48047cbac0197a108dabff6ad204f8b96a0dcb0",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
