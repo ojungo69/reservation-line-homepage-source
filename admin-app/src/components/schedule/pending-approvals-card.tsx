@@ -95,11 +95,15 @@ export function PendingApprovalsCard({
   onSelect,
   fullList = false,
   nameFilter = "",
+  listCapped = false,
 }: Readonly<{
   selectedStoreId: string | null;
   onSelect: (id: string) => void;
   fullList?: boolean;
   nameFilter?: string;
+  // 取得した一覧が上限の200件に届いている(この絞り込みで欠けている可能性がある)。
+  // 新しい予定表だけが渡し、ほかの画面は今の表示のまま。
+  listCapped?: boolean;
 }>) {
   const { data, isPending, isError, refetch } = usePendingReservations();
   const action = useReservationAction();
@@ -278,7 +282,7 @@ export function PendingApprovalsCard({
           {collapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
           承認待ちの予約
           {!isPending && !isError && <Badge variant="secondary" className="bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-50">
-            {pending.length}
+            {pending.length}{listCapped ? "以上" : ""}
           </Badge>}
         </button>
         <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
@@ -365,7 +369,11 @@ export function PendingApprovalsCard({
       )}
 
       {fullList && !isPending && !isError && pending.length === 0 && (
-        <p className="py-6 text-center text-sm text-muted-foreground">この条件に合う承認待ちはありません</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          {listCapped
+            ? "読み込めた範囲に、この条件に合う承認待ちはありません。一覧が上限の200件に届いているため、表示されていない承認待ちがある場合があります"
+            : "この条件に合う承認待ちはありません"}
+        </p>
       )}
       {fullList && <p className="py-2 text-xs text-muted-foreground">予約日による絞り込みはありません。最大200件を承認期限が近い順に表示します。</p>}
 

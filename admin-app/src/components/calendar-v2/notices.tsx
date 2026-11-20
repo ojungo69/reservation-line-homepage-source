@@ -43,7 +43,7 @@ export function CalendarNotices({
   // a first block load on another are not merged into one claim (UX-21).
   const kinds = new Map<string, string[]>();
   for (const day of failed) {
-    const kind = `${day.failed.join("・")}の${day.hadData ? "更新" : "読み込み"}`;
+    const kind = day.failed.join("・");
     kinds.set(kind, [...(kinds.get(kind) ?? []), dayName(day.dateKey)]);
   }
   const failedUpdatedAt = failed.reduce((oldest, day) => (day.updatedAt > 0 ? Math.min(oldest, day.updatedAt) : oldest), Number.POSITIVE_INFINITY);

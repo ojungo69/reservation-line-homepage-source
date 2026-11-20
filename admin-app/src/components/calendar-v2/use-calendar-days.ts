@@ -18,10 +18,9 @@ export type DayData = Readonly<{
   reservations: readonly Reservation[];
   blocks: readonly ExternalBlock[];
   loading: boolean;
-  // 予約・ブロック: the sources whose last fetch failed.
+  // The sources whose last fetch failed, each as a first load (読み込み) or a
+  // refresh of data already shown (更新), e.g. 予約の更新.
   failed: readonly string[];
-  // Both sources were fetched at least once, so a failure is an update failure.
-  hadData: boolean;
   capped: boolean;
   // The older of the two fetch times; 0 before both have one.
   updatedAt: number;
@@ -47,8 +46,10 @@ export function useCalendarDays(dayKeys: readonly string[]): DayData[] {
       reservations: rows,
       blocks: blockRows,
       loading: bookings.isPending || others.isPending,
-      failed: [bookings.isError && "予約", others.isError && "ブロック"].filter((name): name is string => Boolean(name)),
-      hadData: Boolean(bookings.data?.ok && others.data?.ok),
+      failed: [
+        bookings.isError && `予約の${bookings.data ? "更新" : "読み込み"}`,
+        others.isError && `ブロックの${others.data ? "更新" : "読み込み"}`,
+      ].filter((name): name is string => Boolean(name)),
       capped: rows.length >= RESERVATION_ROW_CAP || Boolean(others.data?.ok && others.data.truncated),
       updatedAt: bookings.dataUpdatedAt > 0 && others.dataUpdatedAt > 0 ? Math.min(bookings.dataUpdatedAt, others.dataUpdatedAt) : 0,
       refetch: () => {

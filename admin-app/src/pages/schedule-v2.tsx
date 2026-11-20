@@ -92,8 +92,16 @@ export default function ScheduleV2Page() {
   // The sheets open without a Radix trigger, so Radix has nowhere to return focus
   // when they close. Remember what opened one and go back there, else to the grid.
   const opener = useRef<HTMLElement | null>(null);
+  // Only a sheet that was open and has closed uses it: StrictMode runs effects
+  // twice on mount, before a sheet opened by an effect (次回予約) shows.
+  const sheetWasOpen = useRef(false);
   useEffect(() => {
-    if (sheetOpen || !opener.current) return;
+    if (sheetOpen) {
+      sheetWasOpen.current = true;
+      return;
+    }
+    if (!sheetWasOpen.current || !opener.current) return;
+    sheetWasOpen.current = false;
     const target = opener.current;
     opener.current = null;
     if (target !== document.body && target.isConnected) target.focus();
@@ -303,6 +311,7 @@ export default function ScheduleV2Page() {
             <PendingApprovalsCard
               selectedStoreId={storeId}
               fullList
+              listCapped={pendingCapped}
               onSelect={(id) => {
                 const reservation = pendingList.find((item) => item.id === id);
                 if (reservation) setDate(new Date(reservation.startAt));

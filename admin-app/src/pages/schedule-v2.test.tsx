@@ -1,4 +1,5 @@
 import { mocks } from "@/test-utils/hook-mocks";
+import { StrictMode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -56,8 +57,16 @@ vi.mock("@/components/schedule/reservation-create-panel", () => ({
   },
 }));
 vi.mock("@/components/schedule/pending-approvals-card", () => ({
-  PendingApprovalsCard: ({ onSelect, selectedStoreId }: { onSelect: (id: string) => void; selectedStoreId: string | null }) => (
-    <button type="button" onClick={() => onSelect("res-b")}>
+  PendingApprovalsCard: ({
+    onSelect,
+    selectedStoreId,
+    listCapped,
+  }: {
+    onSelect: (id: string) => void;
+    selectedStoreId: string | null;
+    listCapped?: boolean;
+  }) => (
+    <button type="button" data-list-capped={String(Boolean(listCapped))} onClick={() => onSelect("res-b")}>
       承認待ちの予約（{selectedStoreId ?? "全店舗"}）
     </button>
   ),
@@ -173,7 +182,7 @@ function LocationProbe() {
   return <output aria-label="現在の場所">{`${location.pathname}${location.search}`}</output>;
 }
 
-function renderPage({ shell, state }: { shell?: ShellV2; state?: unknown } = {}) {
+function renderPage({ shell, state, strict = false }: { shell?: ShellV2; state?: unknown; strict?: boolean } = {}) {
   const page = (
     <>
       <ScheduleV2Page />
@@ -181,16 +190,15 @@ function renderPage({ shell, state }: { shell?: ShellV2; state?: unknown } = {})
     </>
   );
   const client = createTestQueryClient();
-  return {
-    client,
-    ...render(
-      <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={[{ pathname: "/", state }]}>
-          {shell ? <ShellV2Context.Provider value={shell}>{page}</ShellV2Context.Provider> : page}
-        </MemoryRouter>
-      </QueryClientProvider>,
-    ),
-  };
+  const tree = (
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[{ pathname: "/", state }]}>
+        {shell ? <ShellV2Context.Provider value={shell}>{page}</ShellV2Context.Provider> : page}
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+  // StrictMode as in main.tsx: effects run twice on mount.
+  return { client, ...render(strict ? <StrictMode>{tree}</StrictMode> : tree) };
 }
 
 const fakeShell = (): ShellV2 & { calls: { ownTopBar: boolean[]; blocked: boolean[] } } => {
@@ -815,8 +823,11 @@ describe("ScheduleV2Page の最終レビュー (Codex の指摘)", () => {
     pendingRows = Array.from({ length: 200 }, (_, index) =>
       reservation(`p-${index}`, "2026-11-21", "12:00", "13:00", { status: "pending_approval", storeId: "s2" }),
     );
+    const user = userEvent.setup();
     renderPage();
-    expect(await screen.findByRole("button", { name: "承認待ち 0件以上" })).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: "承認待ち 0件以上" }));
+    // The shared card is told too, so it does not call the store's list empty.
+    expect(screen.getByRole("button", { name: /^承認待ちの予約（s1）$/ }).dataset.listCapped).toBe("true");
   });
 
   it("営業時間が未設定の店舗には空き枠を出さず、設定と同じく予約を受け付けていないと示す", async () => {
@@ -838,9 +849,11 @@ describe("ScheduleV2Page の最終レビュー (Codex の指摘)", () => {
     expect((document.querySelector("[data-calendar-scroll]") as HTMLElement).scrollTop).toBe(600);
   });
 
-  it("カルテの次回予約から開いた作成画面を閉じると、予定表へフォーカスを移す", async () => {
-    renderPage({ state: { rebook: { id: "c-9", displayName: "鈴木 次回" } } });
+  it("カルテの次回予約から開いた作成画面を閉じると、予定表へフォーカスを移す（StrictMode でも）", async () => {
+    renderPage({ state: { rebook: { id: "c-9", displayName: "鈴木 次回" } }, strict: true });
     await waitFor(() => expect(captured.create).not.toBeNull());
+    // The real form holds focus; leave it on <body> as closing that form would.
+    act(() => (document.activeElement as HTMLElement | null)?.blur());
     act(() => (captured.create?.onClose as () => void)());
     await waitFor(() => expect(document.activeElement).toBe(document.querySelector("[data-calendar-scroll]")));
   });
@@ -857,6 +870,17 @@ describe("ScheduleV2Page の最終レビュー (Codex の指摘)", () => {
     renderPage();
     expect(await screen.findByText("11月16日（月）の予約の読み込みに失敗しました。")).toBeTruthy();
     expect(await screen.findByText("11月17日（火）のブロックの読み込みに失敗しました。")).toBeTruthy();
+  });
+
+  it("同じ日でも、取得元ごとに初回の読み込みと更新を分けて示す", async () => {
+    failingBlockDays.add("2026-11-18");
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText("11月18日（水）のブロックの読み込みに失敗しました。")).toBeTruthy();
+    // The bookings were shown once; now their refresh fails too.
+    failingDays.add("2026-11-18");
+    await user.click(screen.getByRole("button", { name: "再読み込み" }));
+    expect(await screen.findByText("11月18日（水）の予約の更新・ブロックの読み込みに失敗しました。")).toBeTruthy();
   });
 
   it("外部予定の取得に失敗した日と、件数の上限に届いた日だけ空き枠を止める", async () => {
