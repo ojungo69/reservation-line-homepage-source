@@ -721,9 +721,14 @@ describe("ScheduleV2Page の空き枠と予約の描き方 (Codex の指摘)", (
     expect(old.querySelector<HTMLElement>("[data-cleaning]")?.style.top).toBe("0px");
   });
 
-  it("上部バーを予定表より先に置き、本文へスキップの後の Tab でバーに入る", async () => {
+  it("DOM ではバーが予定表より先で、フォーカス中の空き枠は前に出ない（重なりの構造。当たり判定はブラウザで確認）", async () => {
     renderPage();
     await eventButton(/^山田 花子、/);
+    // The slot under a booking keeps its place under it; only the ring is raised,
+    // on a layer clicks pass through, so the booking still takes its clicks.
+    const slot = screen.getByRole("button", { name: "11月20日（金） 10:00 本店に予約を追加" });
+    expect(slot.className).not.toMatch(/(^|\s)focus-visible:z-/);
+    expect(slot.className).toContain("focus-visible:after:pointer-events-none");
     const bar = document.querySelector(".glass-thick") as HTMLElement;
     const scroller = document.querySelector("[data-calendar-scroll]") as HTMLElement;
     expect(bar.compareDocumentPosition(scroller) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

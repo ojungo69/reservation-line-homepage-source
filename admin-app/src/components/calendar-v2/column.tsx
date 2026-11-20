@@ -184,7 +184,9 @@ export function CalendarColumnView({
           onClick={(event) => onSlot(column, minute, event.currentTarget)}
           onFocus={() => setTabMinute(minute)}
           onKeyDown={moveSlotFocus}
-          className="absolute inset-x-0 h-3 hover:bg-cal-text/5 focus-visible:z-40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cal-primary"
+          // The slot stays under the bookings, so a focused one never takes their
+          // clicks; only its ring is drawn above them, on a layer clicks pass through.
+          className="absolute inset-x-0 h-3 hover:bg-cal-text/5 focus-visible:outline-hidden focus-visible:after:pointer-events-none focus-visible:after:absolute focus-visible:after:inset-0 focus-visible:after:z-40 focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-cal-primary"
           style={{ top: minute * PX_PER_MINUTE }}
         />
       ))}

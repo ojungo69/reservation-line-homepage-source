@@ -91,8 +91,9 @@ export function CalendarEvent({
   label: string;
   style: CSSProperties;
   selected?: boolean;
-  // The cleaning time at the end of a booking, in px from the block's top: drawn
-  // as its own band behind a dashed line, so treatment and cleaning read apart.
+  // The cleaning time at the end of a booking, in px from the block's top: marked
+  // by a dashed line drawn behind the text, with no tint, so the text keeps its
+  // contrast where the band crosses it (a short block centers its label).
   cleaning?: Readonly<{ top: number; height: number }> | null;
   onSelect?: (opener: HTMLElement) => void;
 }>) {
@@ -106,7 +107,7 @@ export function CalendarEvent({
     <span
       aria-hidden="true"
       data-cleaning=""
-      className="absolute inset-x-0 border-t border-dashed border-current bg-cal-surface/30"
+      className="absolute inset-x-0 -z-1 border-t border-dashed border-current"
       style={{ top: cleaning.top, height: cleaning.height }}
     />
   );
