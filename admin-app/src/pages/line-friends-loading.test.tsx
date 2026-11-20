@@ -140,14 +140,19 @@ describe("LINE友だち一覧の条件と表示", () => {
       }
       return { ok: true, items: [remaining], total: 50, page: 1, pageSize: 50 };
     });
-    renderPage();
+    const client = createTestQueryClient();
+    render(<LineFriendsPage />, { wrapper: createQueryWrapper(client) });
     await screen.findByText("別の端末で紐付けた友だち");
 
     linked = true;
     fireEvent.click(screen.getByRole("button", { name: "次へ" }));
-    await waitFor(() => expect(onlineManager.isOnline()).toBe(false));
+    await waitFor(() => {
+      const paused = client.getQueryCache().findAll({ queryKey: ["line-friends"] }).some((query) => query.state.fetchStatus === "paused");
+      expect(paused).toBe(true);
+    });
+    // TanStack Query は描画への知らせを setTimeout の後に送るので、それを待ってから見る。
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(screen.getByText("読み込み中...")).toBeTruthy();
     expect(screen.queryByText("別の端末で紐付けた友だち")).toBeNull();
