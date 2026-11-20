@@ -1,0 +1,35 @@
+admin-app/src/components/schedule/reservation-create-panel.test.tsx
+  s_d52c2d995f51c6::t_785c5284006fa6 755-756
+admin-app/src/components/schedule/reservation-create-panel.tsx
+  s_d52c2d995f51c6::t_813aebe8685ef9 727-728,913-914
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_af35e6399c1c05 53
+specs/009-admin-simplification/contracts/ui-fields.md
+  s_d52c2d995f51c6::t_bd011426187832 24
+specs/009-admin-simplification/data-model.md
+  s_d52c2d995f51c6::t_148a8766ada779 21
+specs/009-admin-simplification/quickstart.md
+  s_d52c2d995f51c6::t_8813c8251506c2 64
+specs/009-admin-simplification/research.md
+  s_d52c2d995f51c6::t_34ead8255e8f16 12
+specs/009-admin-simplification/spec.md
+  s_d52c2d995f51c6::t_73423264bf262a 161
+specs/009-admin-simplification/tasks.md
+  s_d52c2d995f51c6::t_e36f9f2ebd228d 97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "85ba38dfe980fa79348db9a4581a746cff96c510",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
