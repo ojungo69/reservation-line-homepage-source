@@ -21,8 +21,8 @@ const VIEWS: Array<{ view: CalendarView; label: string }> = [
  * shell's menu and page move. Text on the glass is body color only; the pending
  * entry and the chosen view are fills with their own text colors, and the
  * chosen view also has a check, so it is not told apart by hue alone. Today,
- * back and forward move by the view's unit here; swipe, wheel and the mini
- * calendar come with T006.
+ * back and forward move by the view's unit, as a swipe on the body does
+ * (usePeriodSwipe); the wheel and the mini calendar come later in T006.
  */
 export function CalendarTopBar({
   heading,
@@ -151,7 +151,8 @@ export function CalendarTopBar({
 /** The row of day or store names under the bar's tools, lined up with the columns. */
 export function DayHeader({ scrollbarPx, children }: Readonly<{ scrollbarPx: number; children: ReactNode }>) {
   return (
-    <div className="flex" style={{ paddingRight: scrollbarPx }}>
+    // Moves with the body during a swipe (usePeriodSwipe).
+    <div data-swipe-pane="" className="flex" style={{ paddingRight: scrollbarPx }}>
       <div className={cn("flex items-end justify-end pb-1 pr-2 text-xs", GUTTER_CLASS)}>JST</div>
       <div className="flex min-w-0 flex-1">{children}</div>
     </div>

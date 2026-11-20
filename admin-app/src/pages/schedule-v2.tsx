@@ -9,6 +9,7 @@ import { CalendarNotices } from "@/components/calendar-v2/notices";
 import { CalendarTopBar, DayHeader } from "@/components/calendar-v2/top-bar";
 import { useCalendarDate, useCalendarDays } from "@/components/calendar-v2/use-calendar-days";
 import { useCalendarLayout } from "@/components/calendar-v2/use-calendar-layout";
+import { usePeriodSwipe } from "@/components/calendar-v2/use-period-swipe";
 import { useReturnFocus } from "@/components/calendar-v2/use-return-focus";
 import { PendingApprovalsCard } from "@/components/schedule/pending-approvals-card";
 import { ReservationCreatePanel } from "@/components/schedule/reservation-create-panel";
@@ -84,6 +85,7 @@ export default function ScheduleV2Page() {
   const navigate = useNavigate();
   const shell = useShellV2();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const dayDates = week ? mondayWeek(date) : [date];
   const dayKeys = dayDates.map(formatJstDate);
@@ -118,15 +120,24 @@ export default function ScheduleV2Page() {
 
   // Open at the store's opening time (DESIGN.md §5) when the shown days, the store
   // or the view change; scrollKey names every input read here, so a refresh does
-  // not move the grid.
+  // not move the grid. A step to the next or previous period keeps the hours in
+  // view, so days compare at the same time (INT-01-05).
   const scrollKey = `${view}|${dayKeys[0]}|${storeId ?? "all"}|${String(settings !== null)}`;
+  const keepHours = useRef(false);
+  // Whether the grid was open at a time, so a step has hours to keep.
+  const gridOpen = useRef(false);
   useLayoutEffect(() => {
+    const keep = keepHours.current && gridOpen.current;
+    keepHours.current = false;
     const scroller = scrollerRef.current;
     if (!scroller) return;
     if (view === "list" || !settings || columns.length === 0) {
+      gridOpen.current = false;
       scroller.scrollTop = 0;
       return;
     }
+    gridOpen.current = true;
+    if (keep) return;
     // A closed day has no opening, so it does not pull the start back to 09:00.
     const opens = columns.map((column) => openingOf(settings, column)).filter((minute) => minute !== null);
     const open = opens.length > 0 ? Math.min(...opens) : FALLBACK_OPENING_MINUTE;
@@ -188,6 +199,12 @@ export default function ScheduleV2Page() {
   const todayKey = formatJstDate(now);
   const nowJst = toJstDate(now);
   const bar = barText(week, narrow, date, dayDates);
+  // The bar's 前/次 and a swipe on the body share this one step (T006).
+  const step = (direction: -1 | 1) => {
+    keepHours.current = true;
+    setDate(addDays(date, direction * bar.stepDays));
+  };
+  usePeriodSwipe(scrollerRef, rootRef, step);
   const dayHeader = (
     <DayHeader scrollbarPx={layout.scrollbarPx}>
       <DayHeaderCells
@@ -224,7 +241,7 @@ export default function ScheduleV2Page() {
   }
 
   return (
-    <div className="relative h-full overflow-hidden bg-cal-surface text-cal-text">
+    <div ref={rootRef} className="relative h-full overflow-hidden bg-cal-surface text-cal-text">
       {/* First in the DOM, so Tab after 本文へスキップ reaches the bar before the grid. */}
       <div ref={overlayRef} className="pointer-events-none absolute inset-x-0 top-0 z-40">
         <CalendarTopBar
@@ -234,7 +251,7 @@ export default function ScheduleV2Page() {
           weekShown={!narrow}
           onView={onView}
           onToday={() => setDate(new Date())}
-          onStep={(direction) => setDate(addDays(date, direction * bar.stepDays))}
+          onStep={step}
           stepUnit={bar.stepUnit}
           pendingCount={pendingCount}
           pendingCapped={pendingCapped}
@@ -267,11 +284,12 @@ export default function ScheduleV2Page() {
         // Focus falls back here when what opened a sheet is gone.
         tabIndex={-1}
         // isolate: the grid's own layers (a focused slot's ring is z-40) stay
-        // under the bar, which comes first in the DOM.
-        className="isolate h-full overflow-y-auto overscroll-contain outline-hidden"
+        // under the bar, which comes first in the DOM. pan-y pinch-zoom: the
+        // browser scrolls and zooms, and sideways touches are the swipe's.
+        className="isolate h-full touch-pan-y touch-pinch-zoom overflow-x-hidden overflow-y-auto overscroll-contain outline-hidden"
         style={{ paddingTop: layout.barPx, scrollPaddingTop: layout.barPx }}
       >
-        {body}
+        <div data-swipe-pane="">{body}</div>
       </div>
 
       <ReservationDetailPanel

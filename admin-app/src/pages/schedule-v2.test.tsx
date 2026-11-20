@@ -2,7 +2,7 @@ import { mocks } from "@/test-utils/hook-mocks";
 import { StrictMode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, notifyManager } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient } from "@/test-utils/query-client";
@@ -132,6 +132,7 @@ let businessHours: Array<{ id: string; storeId: string; weekday: number; opensAt
 let settingsFail: boolean;
 let closures: Array<{ id: string; storeId: string; startsAt: string; endsAt: string; reason: string | null; source: string }>;
 let narrow: boolean;
+let reduceMotion: boolean;
 
 const settings = () => ({
   stores: STORES,
@@ -251,10 +252,12 @@ beforeEach(() => {
   settingsFail = false;
   closures = [];
   narrow = false;
+  reduceMotion = false;
   mocks.api.get.mockReset();
   mocks.api.get.mockImplementation(respond);
   vi.stubGlobal("matchMedia", (query: string) => ({
     get matches() {
+      if (query.includes("prefers-reduced-motion")) return reduceMotion;
       return query.includes("max-width: 639.98px") ? narrow : false;
     },
     addEventListener: () => {},
@@ -941,5 +944,290 @@ describe("ScheduleV2Page の最終レビュー (Codex の指摘)", () => {
     await waitFor(() => expect(slotsIn("2026-11-20:s1")).toBeGreaterThan(0));
     expect(slotsIn("2026-11-18:s1")).toBe(0);
     expect(slotsIn("2026-11-19:s1")).toBe(0);
+  });
+});
+
+type PointerInit = { id?: number; type?: string; primary?: boolean };
+const point = (kind: "pointerDown" | "pointerMove" | "pointerUp", target: Element, x: number, y: number, init: PointerInit = {}) =>
+  fireEvent[kind](target, { pointerId: init.id ?? 1, pointerType: init.type ?? "touch", isPrimary: init.primary ?? true, clientX: x, clientY: y });
+/** One finger from (x, 400) moved by (dx, dy) in two steps, then lifted. */
+const swipe = (target: Element, dx: number, dy = 0, init: PointerInit & { x?: number } = {}) => {
+  const x = init.x ?? 300;
+  point("pointerDown", target, x, 400, init);
+  point("pointerMove", target, x + dx / 2, 400 + dy / 2, init);
+  point("pointerMove", target, x + dx, 400 + dy, init);
+  point("pointerUp", target, x + dx, 400 + dy, init);
+};
+const scroller = () => document.querySelector("[data-calendar-scroll]") as HTMLElement;
+const heading = () => screen.getByRole("heading", { level: 1 }).textContent;
+
+describe("ScheduleV2Page のフリック（T006）", () => {
+  it("日表示で内容を左へ送ると次の日、右へ送ると前の日へ動く", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    swipe(scroller(), -80);
+    expect(heading()).toBe("11月21日（土）");
+    swipe(scroller(), 80);
+    swipe(scroller(), 80);
+    expect(heading()).toBe("11月19日（木）");
+  });
+
+  it("週表示では 1 週ずつ動く", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: "11月16日（月）の日表示を開く" });
+    swipe(scroller(), -80);
+    expect(screen.getByRole("button", { name: /^11月23日（月）の日表示を開く/ })).toBeTruthy();
+    swipe(scroller(), 80);
+    swipe(scroller(), 80);
+    expect(screen.getByRole("button", { name: /^11月9日（月）の日表示を開く/ })).toBeTruthy();
+  });
+
+  it("年をまたいでも JST の日付で 1 日ずつ動く", async () => {
+    // 00:30 on 1 January in JST, still 31 December in UTC.
+    vi.setSystemTime(new Date("2026-12-31T15:30:00Z"));
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    expect(heading()).toBe("1月1日（金）");
+    swipe(scroller(), 80);
+    expect(heading()).toBe("12月31日（木）");
+    swipe(scroller(), -80);
+    swipe(scroller(), -80);
+    expect(heading()).toBe("1月2日（土）");
+  });
+
+  it("短い横の動き、縦や斜めの動きでは日付を変えない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    swipe(scroller(), -50);
+    swipe(scroller(), 30, 80);
+    swipe(scroller(), 0, -120);
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("マウスのドラッグ、画面の端から始めた操作、2本目の指が触れた操作では日付を変えない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    swipe(scroller(), -120, 0, { type: "mouse" });
+    swipe(scroller(), 120, 0, { x: 10 });
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 260, 400);
+    point("pointerDown", scroller(), 500, 400, { id: 2, primary: false });
+    point("pointerMove", scroller(), 200, 400);
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("予約の上で横に動かして離したあとは、その予約を開かない。次に触れたときは開く", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const card = await eventButton(/^山田 花子、/);
+    swipe(card, -30);
+    // The click a touch produces carries its click count.
+    fireEvent.click(card, { detail: 1 });
+    expect(screen.queryByRole("dialog", { name: "予約の詳細" })).toBeNull();
+    // A swipe whose touch produced no click: the next touch clears the guard.
+    swipe(card, -30);
+    point("pointerDown", card, 300, 400);
+    point("pointerUp", card, 300, 400);
+    fireEvent.click(card, { detail: 1 });
+    expect(screen.getByRole("dialog", { name: "予約の詳細" })).toBeTruthy();
+  });
+
+  it("横に動かした直後でも、キーボードでのクリック（Enter）は予約を開く", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const card = await eventButton(/^山田 花子、/);
+    swipe(card, -30);
+    fireEvent.click(card, { detail: 0 });
+    expect(screen.getByRole("dialog", { name: "予約の詳細" })).toBeTruthy();
+  });
+
+  it("本文の外に2本目の指が触れても、そのフリックは止める", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const title = screen.getByRole("heading", { level: 1 });
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    point("pointerDown", title, 100, 40, { id: 2, primary: false });
+    point("pointerUp", title, 100, 40, { id: 2, primary: false });
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("確定は指を離した位置の距離で決める", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 215, 400);
+    point("pointerUp", scroller(), 240, 400);
+    expect(heading()).toBe("11月20日（金）");
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 240, 400);
+    point("pointerUp", scroller(), 215, 400);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("向きが決まる前に指を離しても、離した位置で向きと距離を決める", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 294, 400);
+    point("pointerUp", scroller(), 215, 400);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("掴んでいた予約が描き直しで消えて捕捉を失ったら中止し、元の日のまま戻す（INT-10-02）", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const lost = () => fireEvent(document, new PointerEvent("lostpointercapture", { pointerId: 1, bubbles: true }));
+    const card = await eventButton(/^山田 花子、/);
+    const title = screen.getByRole("heading", { level: 1 });
+    point("pointerDown", card, 300, 400);
+    point("pointerMove", card, 215, 400);
+    card.remove();
+    lost();
+    point("pointerUp", title, 215, 400);
+    expect(heading()).toBe("11月20日（金）");
+    expect([...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")].map((pane) => pane.style.transform)).toEqual(["", ""]);
+    // After a normal lift the browser also releases the capture: nothing more happens.
+    swipe(scroller(), -80);
+    lost();
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("画面の大きさが変わる・ウィンドウを離れる・画面が隠れると中止し、遅れて指を離しても動かさない（INT-10-04・05）", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const panes = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")].map((pane) => pane.style.transform);
+    const interruptions: Array<[string, () => void]> = [
+      ["resize", () => fireEvent(window, new Event("resize"))],
+      ["blur", () => fireEvent(window, new Event("blur"))],
+      [
+        "hidden",
+        () => {
+          vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+          fireEvent(document, new Event("visibilitychange"));
+        },
+      ],
+    ];
+    for (const [name, interrupt] of interruptions) {
+      point("pointerDown", scroller(), 300, 400);
+      point("pointerMove", scroller(), 200, 400);
+      interrupt();
+      expect(panes(), name).toEqual(["", ""]);
+      point("pointerUp", scroller(), 200, 400);
+      expect(heading(), name).toBe("11月20日（金）");
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("フリックの途中で本文の大きさが変わったら中止し、指を離しても動かさない（INT-10-04）", async () => {
+    const resized: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resized.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const panes = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")].map((pane) => pane.style.transform);
+    // Seen while the finger is held still: the swipe ends at once.
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    act(() => {
+      for (const callback of resized) callback([], {} as ResizeObserver);
+    });
+    expect(panes()).toEqual(["", ""]);
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月20日（金）");
+    // A width that differs where the finger lifts, before any observer has run.
+    let width = 375;
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => width });
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    width = 360;
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月20日（金）");
+    // The same width moves as usual.
+    width = 375;
+    swipe(scroller(), -100);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("狭い画面の一覧でもフリックで日を送る", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    expect(heading()).toBe("11/20（金）");
+    swipe(scroller(), -80);
+    expect(heading()).toBe("11/21（土）");
+  });
+
+  it("指に合わせて中身と日付の行が動き、離すと戻る。動きを減らす設定では動かさない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const panes = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")];
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 260, 400);
+    expect(panes().map((pane) => pane.style.transform)).toEqual(["translateX(-40px)", "translateX(-40px)"]);
+    point("pointerUp", scroller(), 260, 400);
+    expect(panes().map((pane) => pane.style.transform)).toEqual(["", ""]);
+
+    reduceMotion = true;
+    point("pointerDown", scroller(), 300, 400, { id: 3 });
+    point("pointerMove", scroller(), 200, 400, { id: 3 });
+    expect(panes().map((pane) => pane.style.transform)).toEqual(["", ""]);
+    point("pointerUp", scroller(), 200, 400, { id: 3 });
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("設定が届くのと同じ描画で週を送っても、営業開始の位置で開く", async () => {
+    // The settings never arrive by fetch here; they land in the cache in the
+    // same render as the step, which is the order that once skipped the opening.
+    mocks.api.get.mockImplementation((url: string) => (url.startsWith("/api/admin/settings") ? new Promise(() => {}) : respond(url)));
+    const { client } = renderPage();
+    await screen.findByRole("button", { name: "次の週" });
+    notifyManager.setScheduler((callback) => callback());
+    try {
+      act(() => {
+        client.setQueryData(["settings"], { ok: true, settings: settings() });
+        fireEvent.click(screen.getByRole("button", { name: "次の週" }));
+      });
+    } finally {
+      notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+    }
+    await screen.findByRole("button", { name: /^11月23日（月）の日表示を開く/ });
+    // 10:00 opening less 30 minutes, at 48px an hour.
+    expect(scroller().scrollTop).toBe(456);
+  });
+
+  it("前後のボタンやフリックで期間を移っても、見ていた時間帯の位置を保つ（INT-01-05）", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await eventButton(/^山田 花子、/);
+    scroller().scrollTop = 700;
+    await user.click(screen.getByRole("button", { name: "次の週" }));
+    expect(scroller().scrollTop).toBe(700);
+    swipe(scroller(), -80);
+    expect(scroller().scrollTop).toBe(700);
   });
 });
