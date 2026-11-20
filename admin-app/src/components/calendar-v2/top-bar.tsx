@@ -34,6 +34,7 @@ export function CalendarTopBar({
   onStep,
   stepUnit,
   pendingCount,
+  pendingCapped,
   onOpenPending,
   dayHeader,
 }: Readonly<{
@@ -49,6 +50,8 @@ export function CalendarTopBar({
   onStep: (direction: -1 | 1) => void;
   stepUnit: "日" | "週";
   pendingCount: number | null;
+  // The pending list hit its row limit, so the count is a floor.
+  pendingCapped: boolean;
   onOpenPending: (opener: HTMLElement) => void;
   dayHeader: ReactNode;
 }>) {
@@ -112,7 +115,7 @@ export function CalendarTopBar({
           onClick={(event) => onOpenPending(event.currentTarget)}
           className={cn("min-h-11 rounded-full bg-cal-pending px-4 text-sm font-medium text-cal-on-pending max-sm:px-3", PRESSABLE)}
         >
-          承認待ち{pendingCount === null ? "" : ` ${pendingCount}件`}
+          承認待ち{pendingCount === null ? "" : ` ${pendingCount}件${pendingCapped ? "以上" : ""}`}
         </button>
         <fieldset className="flex rounded-full bg-cal-detail p-0.5">
           <legend className="sr-only">表示</legend>

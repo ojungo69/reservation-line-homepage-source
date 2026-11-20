@@ -1,4 +1,4 @@
-import { WEEKDAYS, toJstDate } from "@/lib/timeline";
+import { WEEKDAYS, formatJstDate, formatTime, toJstDate } from "@/lib/timeline";
 
 function parts(date: Date) {
   const jst = toJstDate(date);
@@ -9,6 +9,17 @@ function parts(date: Date) {
 export function dayLabel(date: Date): string {
   const { month, day, weekday } = parts(date);
   return `${month}月${day}日（${weekday}）`;
+}
+
+/**
+ * An event's real time in words: "11月20日（金）、16:00から17:00", naming the end's
+ * day too when it is another one ("11月19日（木）、22:00から11月20日（金）02:00").
+ */
+export function spanLabel(startAt: string, endAt: string): string {
+  const start = new Date(startAt);
+  const end = new Date(endAt);
+  const endDay = formatJstDate(end) === formatJstDate(start) ? "" : dayLabel(end);
+  return `${dayLabel(start)}、${formatTime(startAt)}から${endDay}${formatTime(endAt)}`;
 }
 
 /** 11/20（金）, for the phone's bar. */

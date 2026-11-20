@@ -20,6 +20,7 @@ export function CalendarNotices({
   days,
   dayName,
   noResourceStores,
+  noHoursStores,
   closuresUnknownStores,
   settings,
   weekNeedsStore,
@@ -29,6 +30,7 @@ export function CalendarNotices({
   dayName: (dateKey: string) => string;
   // Stores whose columns offer no slots, and why (UX-21).
   noResourceStores: readonly string[];
+  noHoursStores: readonly string[];
   closuresUnknownStores: readonly string[];
   settings: Readonly<{ failed: boolean; hadData: boolean; updatedAt: number; refetch: () => void }>;
   weekNeedsStore: boolean;
@@ -37,7 +39,13 @@ export function CalendarNotices({
 }>) {
   const failed = days.filter((day) => day.failed.length > 0);
   const capped = days.filter((day) => day.capped && day.failed.length === 0);
-  const sources = [...new Set(failed.flatMap((day) => day.failed))].join("・");
+  // One sentence per kind of failure, so a booking refresh failing on one day and
+  // a first block load on another are not merged into one claim (UX-21).
+  const kinds = new Map<string, string[]>();
+  for (const day of failed) {
+    const kind = `${day.failed.join("・")}の${day.hadData ? "更新" : "読み込み"}`;
+    kinds.set(kind, [...(kinds.get(kind) ?? []), dayName(day.dateKey)]);
+  }
   const failedUpdatedAt = failed.reduce((oldest, day) => (day.updatedAt > 0 ? Math.min(oldest, day.updatedAt) : oldest), Number.POSITIVE_INFINITY);
   return (
     // Capped and scrollable: on a short screen several alerts must not cover the
@@ -70,8 +78,12 @@ export function CalendarNotices({
       {failed.length > 0 && (
         <div role="alert" className={ALERT}>
           <span>
-            {failed.map((day) => dayName(day.dateKey)).join("・")}の{sources}の
-            {failed.every((day) => day.hadData) ? "更新" : "読み込み"}に失敗しました。空き状況を表示できません。
+            {[...kinds].map(([kind, names]) => (
+              <span key={kind} className="block">
+                {names.join("・")}の{kind}に失敗しました。
+              </span>
+            ))}
+            空き状況を表示できません。
             {lastFetch(Number.isFinite(failedUpdatedAt) ? failedUpdatedAt : 0)}
           </span>
           <Button
@@ -89,6 +101,11 @@ export function CalendarNotices({
       {noResourceStores.length > 0 && (
         <p role="status" className="mx-4 my-2 text-sm">
           {noResourceStores.join("・")}には予約を受ける枠（リソース）がありません。設定で追加すると、空いた時間から予約を作れます。
+        </p>
+      )}
+      {noHoursStores.length > 0 && (
+        <p role="status" className="mx-4 my-2 text-sm">
+          {noHoursStores.join("・")}は営業時間が未設定のため、予約を受け付けていません。店舗設定で営業する曜日と時間を保存してください。
         </p>
       )}
       {closuresUnknownStores.length > 0 && (

@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { ReservationListCard } from "@/components/schedule/reservation-list-card";
-import { getInitialScrollMinutes, isScheduleVisibleReservationStatus, jstWeekday } from "@/lib/timeline";
+import { isScheduleVisibleReservationStatus, jstWeekday, parseHHMM } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import type { ExternalBlock, SettingsResponse } from "@/types/api";
 import { CalendarColumnView, type CalendarItem, type ClosureBand } from "./column";
@@ -49,9 +49,17 @@ function closureBands(column: CalendarColumn, settings: CalendarSettings | null)
 }
 
 
-/** The store's earliest opening that weekday, else 09:00 (the current calendar's rule). */
-export function openingMinute(settings: CalendarSettings | null, column: CalendarColumn): number {
-  return getInitialScrollMinutes(settings?.businessHours ?? [], jstWeekday(column.date), column.storeId);
+// Where a column starts when its store has no opening that day (the current
+// calendar's fallback).
+export const FALLBACK_OPENING_MINUTE = 9 * 60;
+
+/** The store's earliest opening that weekday; null when it does not open then. */
+export function openingOf(settings: CalendarSettings | null, column: CalendarColumn): number | null {
+  const weekday = jstWeekday(column.date);
+  const opens = (settings?.businessHours ?? [])
+    .filter((row) => row.active && row.storeId === column.storeId && row.weekday === weekday)
+    .map((row) => parseHHMM(row.opensAt));
+  return opens.length > 0 ? Math.min(...opens) : null;
 }
 
 export type ColumnState = Readonly<{
@@ -65,6 +73,8 @@ export type ColumnState = Readonly<{
   // time) or the store has no active resource to book.
   slots: number[];
   noResource: boolean;
+  // No opening hours saved at all: the settings call the store 未設定・予約受付不可.
+  noHours: boolean;
   closuresUnknown: boolean;
 }>;
 
@@ -80,17 +90,20 @@ export function columnState(
   const closures = closureBands(column, settings);
   const closed = settings ? closedRanges(settings.businessHours, column.storeId, jstWeekday(column.date)) : [];
   const noResource = settings !== null && activeResourceIds(column.storeId, settings.resources).length === 0;
+  // Any row, open or closed, counts as set, as in the settings (src/admin/settings-business-hours.ts).
+  const noHours = settings !== null && !settings.businessHours.some((row) => row.storeId === column.storeId);
   const closuresUnknown =
     settings !== null && settings.closures.filter((closure) => closure.storeId === column.storeId).length >= CLOSURE_ROW_CAP;
-  const offers = settingsUsable && reservationsComplete(day) && !closuresUnknown && !noResource;
+  const offers = settingsUsable && reservationsComplete(day) && !closuresUnknown && !noResource && !noHours;
   return {
     column,
     items,
     closed,
     closures,
-    entryMinute: Math.floor(openingMinute(settings, column) / SLOT_MINUTES) * SLOT_MINUTES,
+    entryMinute: Math.floor((openingOf(settings, column) ?? FALLBACK_OPENING_MINUTE) / SLOT_MINUTES) * SLOT_MINUTES,
     slots: offers ? openSlotMinutes([...closed, ...closures.map((band) => band.span)]) : [],
     noResource,
+    noHours,
     closuresUnknown,
   };
 }

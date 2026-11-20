@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { CalendarColumns, DayHeaderCells, DayList, columnState, openingMinute } from "@/components/calendar-v2/body";
+import { CalendarColumns, DayHeaderCells, DayList, FALLBACK_OPENING_MINUTE, columnState, openingOf } from "@/components/calendar-v2/body";
 import { activeResourceIds, buildColumns, effectiveView, visibleStoreId, type CalendarColumn, type CalendarView } from "@/components/calendar-v2/columns";
 import { PX_PER_MINUTE, mondayWeek } from "@/components/calendar-v2/geometry";
 import { CalendarGrid } from "@/components/calendar-v2/grid";
-import { dayLabel, shortDayLabel, weekHeading } from "@/components/calendar-v2/labels";
+import { dayLabel, shortDayLabel, spanLabel, weekHeading } from "@/components/calendar-v2/labels";
 import { CalendarNotices } from "@/components/calendar-v2/notices";
 import { CalendarTopBar, DayHeader } from "@/components/calendar-v2/top-bar";
 import { useCalendarDate, useCalendarDays } from "@/components/calendar-v2/use-calendar-days";
@@ -21,8 +21,11 @@ import { NARROW_QUERY, useMediaQuery } from "@/hooks/use-media-query";
 import { usePendingReservations } from "@/hooks/use-reservations";
 import { useSettings } from "@/hooks/use-settings";
 import { useStores } from "@/hooks/use-stores";
-import { addDays, formatJstDate, formatTime, toJstDate } from "@/lib/timeline";
+import { addDays, formatJstDate, toJstDate } from "@/lib/timeline";
 import type { ExternalBlock } from "@/types/api";
+
+// The pending list's row limit (listPendingReservations in src/admin/reservations.ts).
+const PENDING_ROW_CAP = 200;
 
 type CreateDefaults = Readonly<{
   storeId: string | null;
@@ -94,7 +97,8 @@ export default function ScheduleV2Page() {
     const target = opener.current;
     opener.current = null;
     if (target !== document.body && target.isConnected) target.focus();
-    if (document.activeElement !== target) scrollerRef.current?.focus();
+    // <body> stands for "nothing to go back to": the grid takes focus then.
+    if (target === document.body || document.activeElement !== target) scrollerRef.current?.focus();
   }, [sheetOpen, scrollerRef]);
 
   // Open at the store's opening time (DESIGN.md §5) when the shown days, the store
@@ -108,7 +112,9 @@ export default function ScheduleV2Page() {
       scroller.scrollTop = 0;
       return;
     }
-    const open = Math.min(...columns.map((column) => openingMinute(settings, column)));
+    // A closed day has no opening, so it does not pull the start back to 09:00.
+    const opens = columns.map((column) => openingOf(settings, column)).filter((minute) => minute !== null);
+    const open = opens.length > 0 ? Math.min(...opens) : FALLBACK_OPENING_MINUTE;
     scroller.scrollTop = Math.max(0, (open - 30) * PX_PER_MINUTE);
   }, [scrollKey]);
 
@@ -123,6 +129,8 @@ export default function ScheduleV2Page() {
     }
     if (rebookConsumed.current) return;
     rebookConsumed.current = true;
+    // Nothing on this page opened the form: closing it goes to the grid.
+    opener.current = document.body;
     setCreateDefaults({ ...NO_DEFAULTS, customer: rebook });
     navigate(".", { replace: true, state: null });
   }, [location.state, navigate]);
@@ -163,6 +171,9 @@ export default function ScheduleV2Page() {
   const pendingList = pendingQuery.data?.ok ? pendingQuery.data.reservations : [];
   const pendingReady = !pendingQuery.isPending && !pendingQuery.isError;
   const pendingCount = pendingReady ? pendingList.filter((item) => !storeId || item.storeId === storeId).length : null;
+  // The list holds the 200 with the nearest deadlines across the stores you can
+  // see (the shared card says so), so a full one may miss this store's.
+  const pendingCapped = pendingList.length >= PENDING_ROW_CAP;
 
   const todayKey = formatJstDate(now);
   const nowJst = toJstDate(now);
@@ -217,6 +228,7 @@ export default function ScheduleV2Page() {
           onStep={(direction) => setDate(addDays(date, direction * (week ? 7 : 1)))}
           stepUnit={week ? "週" : "日"}
           pendingCount={pendingCount}
+          pendingCapped={pendingCapped}
           onOpenPending={(from) => {
             opener.current = from;
             setPendingOpen(true);
@@ -227,6 +239,7 @@ export default function ScheduleV2Page() {
           days={days}
           dayName={(dateKey) => dayLabel(new Date(`${dateKey}T00:00:00+09:00`))}
           noResourceStores={storesWhere((state) => state.noResource)}
+          noHoursStores={storesWhere((state) => state.noHours)}
           closuresUnknownStores={storesWhere((state) => state.closuresUnknown)}
           settings={{
             failed: settingsQuery.isError,
@@ -286,7 +299,6 @@ export default function ScheduleV2Page() {
       <Sheet open={pendingOpen} onOpenChange={setPendingOpen}>
         <SheetContent side="right" className="w-full sm:max-w-md" aria-describedby={undefined}>
           <SheetTitle>承認待ち</SheetTitle>
-          {pendingCount === 0 && <p className="mt-4 text-sm">承認待ちの予約はありません。</p>}
           <div className="mt-4">
             <PendingApprovalsCard
               selectedStoreId={storeId}
@@ -307,7 +319,7 @@ export default function ScheduleV2Page() {
         title="ブロックを取消しますか?"
         description={
           cancelBlock
-            ? `${cancelBlock.titleSnapshot ?? "ブロック"}（${formatTime(cancelBlock.startAt)}–${formatTime(cancelBlock.endAt)}）を取消します。この操作は元に戻せません。`
+            ? `${cancelBlock.titleSnapshot ?? "ブロック"}（${spanLabel(cancelBlock.startAt, cancelBlock.endAt)}）を取消します。この操作は元に戻せません。`
             : ""
         }
         confirmLabel="ブロックを取消す"

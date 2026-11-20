@@ -4,7 +4,8 @@ import { formatTime, statusLabel } from "@/lib/timeline";
 import type { ExternalBlock, Reservation } from "@/types/api";
 import type { CalendarColumn } from "./columns";
 import { CalendarEvent, eventLines, type EventTone } from "./event";
-import { DAY_MINUTES, MIN_EVENT_PX, PX_PER_MINUTE, clipToDay, drawnSpan, layoutLanes, type Span } from "./geometry";
+import { DAY_MINUTES, MIN_EVENT_PX, PX_PER_MINUTE, SLOT_MINUTES, clipToDay, drawnSpan, layoutLanes, type Span } from "./geometry";
+import { spanLabel } from "./labels";
 
 export type CalendarItem =
   | Readonly<{ kind: "reservation"; span: Span; reservation: Reservation }>
@@ -19,7 +20,7 @@ const MIN_EVENT_MINUTES = MIN_EVENT_PX / PX_PER_MINUTE;
 const CLEANING_MINUTES = 5;
 
 const clock = (minute: number) =>
-  `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+  `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(Math.floor(minute % 60)).padStart(2, "0")}`;
 
 // A marker the block always shows, so its state is said in words, not only by its
 // color (DESIGN.md §3): 承認待ち has its own fill, the others share the booking's.
@@ -88,8 +89,10 @@ function present(item: CalendarItem, dayLabel: string, dateKey: string) {
     };
   }
   const { block } = item;
-  const start = formatTime(block.startAt);
-  const end = formatTime(block.endAt);
+  // A block can run past midnight (a Google event), so the block shows the part
+  // drawn in this day's column, and the label says its real days and times.
+  const start = clock(item.span.start);
+  const end = clock(item.span.end);
   const title = block.titleSnapshot ?? "外部予定";
   const manual = block.source === "admin_block";
   return {
@@ -102,7 +105,7 @@ function present(item: CalendarItem, dayLabel: string, dateKey: string) {
     range: `${start}–${end}`,
     detail: "",
     cleaning: null,
-    label: `${title}、${dayLabel}、${start}から${end}、${manual ? "ブロック" : "Googleカレンダー"}`,
+    label: `${title}、${spanLabel(block.startAt, block.endAt)}、${manual ? "ブロック" : "Googleカレンダー"}`,
   };
 }
 
@@ -186,8 +189,10 @@ export function CalendarColumnView({
           onKeyDown={moveSlotFocus}
           // The slot stays under the bookings, so a focused one never takes their
           // clicks; only its ring is drawn above them, on a layer clicks pass through.
-          className="absolute inset-x-0 h-3 hover:bg-cal-text/5 focus-visible:outline-hidden focus-visible:after:pointer-events-none focus-visible:after:absolute focus-visible:after:inset-0 focus-visible:after:z-40 focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-cal-primary"
-          style={{ top: minute * PX_PER_MINUTE }}
+          className="absolute inset-x-0 hover:bg-cal-text/5 focus-visible:outline-hidden focus-visible:after:pointer-events-none focus-visible:after:absolute focus-visible:after:inset-0 focus-visible:after:z-40 focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-cal-primary"
+          // In px like its position: a rem height grows with the browser's text
+          // size and would reach into the next slot or a closed band.
+          style={{ top: minute * PX_PER_MINUTE, height: SLOT_MINUTES * PX_PER_MINUTE }}
         />
       ))}
       {placed.map(({ item, start, end, lane, lanes, span }) => {

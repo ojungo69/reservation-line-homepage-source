@@ -116,6 +116,10 @@ const STORES = [
 let reservationsByDay: Record<string, Reservation[]>;
 let blocksByDay: Record<string, ExternalBlock[]>;
 let failingDays: Set<string>;
+let failingBlockDays: Set<string>;
+let truncatedBlockDays: Set<string>;
+let pendingRows: Reservation[] | null;
+let businessHours: Array<{ id: string; storeId: string; weekday: number; opensAt: string; closesAt: string; active: boolean }>;
 let settingsFail: boolean;
 let closures: Array<{ id: string; storeId: string; startsAt: string; endsAt: string; reason: string | null; source: string }>;
 let narrow: boolean;
@@ -130,16 +134,12 @@ const settings = () => ({
     { id: "r3", storeId: "s3", name: "席", resourceType: "chair", active: false },
   ],
   services: [],
-  businessHours: Array.from({ length: 7 }, (_, weekday) => ({
-    id: `bh-${weekday}`,
-    storeId: "s1",
-    weekday,
-    opensAt: "10:00",
-    closesAt: "19:00",
-    active: true,
-  })),
+  businessHours,
   closures,
 });
+
+const weekOfHours = (storeId: string, opensAt: string, closesAt: string) =>
+  Array.from({ length: 7 }, (_, weekday) => ({ id: `bh-${storeId}-${weekday}`, storeId, weekday, opensAt, closesAt, active: true }));
 
 function respond(url: string) {
   const parsed = new URL(url, "http://admin.test");
@@ -149,7 +149,9 @@ function respond(url: string) {
     return Promise.resolve({ ok: true, range: "date", startAt: "", endAt: "", reservations: reservationsByDay[day] ?? [] });
   }
   if (parsed.pathname === "/api/admin/external-blocks") {
-    return Promise.resolve({ ok: true, externalBlocks: blocksByDay[parsed.searchParams.get("from") ?? ""] ?? [], truncated: false });
+    const day = parsed.searchParams.get("from") ?? "";
+    if (failingBlockDays.has(day)) return Promise.reject(new Error("network"));
+    return Promise.resolve({ ok: true, externalBlocks: blocksByDay[day] ?? [], truncated: truncatedBlockDays.has(day) });
   }
   if (parsed.pathname === "/api/admin/settings") {
     return settingsFail ? Promise.reject(new Error("network")) : Promise.resolve({ ok: true, settings: settings() });
@@ -157,7 +159,7 @@ function respond(url: string) {
   if (parsed.pathname === "/api/admin/reservations/pending") {
     return Promise.resolve({
       ok: true,
-      reservations: [
+      reservations: pendingRows ?? [
         reservation("res-b", "2026-11-18", "10:30", "11:30", { status: "pending_approval" }),
         reservation("res-p2", "2026-11-21", "12:00", "13:00", { status: "pending_approval", storeId: "s2" }),
       ],
@@ -233,6 +235,11 @@ beforeEach(() => {
     ],
   };
   failingDays = new Set();
+  failingBlockDays = new Set();
+  truncatedBlockDays = new Set();
+  pendingRows = null;
+  // 駅前店 opens later than 本店, so the earliest opening stays 本店's 10:00.
+  businessHours = [...weekOfHours("s1", "10:00", "19:00"), ...weekOfHours("s2", "11:00", "20:00")];
   settingsFail = false;
   closures = [];
   narrow = false;
@@ -398,7 +405,7 @@ describe("ScheduleV2Page の取得失敗と件数の上限 (UX-21)", () => {
     const user = userEvent.setup();
     renderPage();
     expect(
-      await screen.findByText(/11月18日（水）の予約の読み込みに失敗しました。空き状況を表示できません。/),
+      await screen.findByText(/11月18日（水）の予約の読み込みに失敗しました。/),
     ).toBeTruthy();
     await waitFor(() => expect(slotsIn("2026-11-19:s1")).toBeGreaterThan(0));
     expect(slotsIn("2026-11-18:s1")).toBe(0);
@@ -768,5 +775,97 @@ describe("ScheduleV2Page の一覧 (Codex の指摘)", () => {
     screen.getByRole("button", { name: "詳細の中のボタン" }).focus();
     act(() => captured.detail?.onClose());
     await waitFor(() => expect(document.activeElement).toBe(details));
+  });
+});
+
+describe("ScheduleV2Page の最終レビュー (Codex の指摘)", () => {
+  const nightBlock = (id: string, extra: Partial<ExternalBlock>) => {
+    const row = block(id, { startAt: jst("2026-11-19", "22:00"), endAt: jst("2026-11-20", "02:00"), ...extra });
+    // Listed by overlap, so the block comes with both days.
+    blocksByDay["2026-11-19"] = [row];
+    blocksByDay["2026-11-20"] = [...blocksByDay["2026-11-20"], row];
+  };
+
+  it("日をまたぐ外部予定は、各列で描いた区間を示し、読み上げは本当の日付と時刻で伝える", async () => {
+    nightBlock("blk-night", { source: "google_calendar", titleSnapshot: "夜間" });
+    renderPage();
+    const label = "夜間、11月19日（木）、22:00から11月20日（金）02:00、Googleカレンダー";
+    const friday = await waitFor(() => within(column("2026-11-20:s1") as HTMLElement).getByText(label).parentElement as HTMLElement);
+    expect(friday.textContent).toContain("00:00–02:00");
+    const thursday = within(column("2026-11-19:s1") as HTMLElement).getByText(label).parentElement as HTMLElement;
+    expect(thursday.textContent).toContain("22:00–24:00");
+  });
+
+  it("日をまたぐブロックの取消の確認は、本当の日付と時刻を示す", async () => {
+    nightBlock("blk-late", { titleSnapshot: "棚卸し", endAt: jst("2026-11-20", "01:00") });
+    const user = userEvent.setup();
+    renderPage();
+    const buttons = await waitFor(() => {
+      const found = within(column("2026-11-20:s1") as HTMLElement).getAllByRole("button", { name: /^棚卸し、/ });
+      expect(found).toHaveLength(1);
+      return found;
+    });
+    await user.click(buttons[0]);
+    expect(screen.getByRole("alertdialog", { name: "ブロックを取消しますか?" }).textContent).toContain(
+      "棚卸し（11月19日（木）、22:00から11月20日（金）01:00）を取消します。",
+    );
+  });
+
+  it("承認待ちの一覧が上限に届いたら、店舗の件数を「以上」として示す", async () => {
+    pendingRows = Array.from({ length: 200 }, (_, index) =>
+      reservation(`p-${index}`, "2026-11-21", "12:00", "13:00", { status: "pending_approval", storeId: "s2" }),
+    );
+    renderPage();
+    expect(await screen.findByRole("button", { name: "承認待ち 0件以上" })).toBeTruthy();
+  });
+
+  it("営業時間が未設定の店舗には空き枠を出さず、設定と同じく予約を受け付けていないと示す", async () => {
+    storeState.selected = null;
+    storeState.stores = STORES;
+    businessHours = weekOfHours("s1", "10:00", "19:00");
+    renderPage();
+    // 東口店 has no hours in the fixture either.
+    expect(await screen.findByText(/駅前店・東口店は営業時間が未設定のため、予約を受け付けていません。/)).toBeTruthy();
+    await waitFor(() => expect(slotsIn("2026-11-20:s1")).toBeGreaterThan(0));
+    expect(slotsIn("2026-11-20:s2")).toBe(0);
+  });
+
+  it("終日休みの日があっても、開く位置は営業する日の開店に合わせる", async () => {
+    businessHours = weekOfHours("s1", "13:00", "19:00").map((row) => (row.weekday === 0 ? { ...row, active: false } : row));
+    renderPage();
+    await eventButton(/^山田 花子、/);
+    // 13:00 opening less 30 minutes, at 48px an hour; Sunday's closed day does not pull it to 09:00.
+    expect((document.querySelector("[data-calendar-scroll]") as HTMLElement).scrollTop).toBe(600);
+  });
+
+  it("カルテの次回予約から開いた作成画面を閉じると、予定表へフォーカスを移す", async () => {
+    renderPage({ state: { rebook: { id: "c-9", displayName: "鈴木 次回" } } });
+    await waitFor(() => expect(captured.create).not.toBeNull());
+    act(() => (captured.create?.onClose as () => void)());
+    await waitFor(() => expect(document.activeElement).toBe(document.querySelector("[data-calendar-scroll]")));
+  });
+
+  it("空き枠の高さは位置と同じく px で決め、文字の大きさで隣へはみ出さない", async () => {
+    renderPage();
+    const slot = await screen.findByRole("button", { name: "11月19日（木） 10:00 本店に予約を追加" });
+    expect(slot.style.height).toBe("12px");
+  });
+
+  it("日と取得元が違う失敗は、別々の文で示す", async () => {
+    failingDays.add("2026-11-16");
+    failingBlockDays.add("2026-11-17");
+    renderPage();
+    expect(await screen.findByText("11月16日（月）の予約の読み込みに失敗しました。")).toBeTruthy();
+    expect(await screen.findByText("11月17日（火）のブロックの読み込みに失敗しました。")).toBeTruthy();
+  });
+
+  it("外部予定の取得に失敗した日と、件数の上限に届いた日だけ空き枠を止める", async () => {
+    failingBlockDays.add("2026-11-18");
+    truncatedBlockDays.add("2026-11-19");
+    renderPage();
+    expect(await screen.findByText(/11月19日（木）の予定が表示できる件数を超えています。/)).toBeTruthy();
+    await waitFor(() => expect(slotsIn("2026-11-20:s1")).toBeGreaterThan(0));
+    expect(slotsIn("2026-11-18:s1")).toBe(0);
+    expect(slotsIn("2026-11-19:s1")).toBe(0);
   });
 });
