@@ -2,7 +2,7 @@ import { mocks } from "@/test-utils/hook-mocks";
 import { StrictMode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, notifyManager } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient } from "@/test-utils/query-client";
@@ -1027,12 +1027,50 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     await user.click(await screen.findByRole("button", { name: "日" }));
     const card = await eventButton(/^山田 花子、/);
     swipe(card, -30);
-    fireEvent.click(card);
+    // The click a touch produces carries its click count.
+    fireEvent.click(card, { detail: 1 });
     expect(screen.queryByRole("dialog", { name: "予約の詳細" })).toBeNull();
     point("pointerDown", card, 300, 400);
     point("pointerUp", card, 300, 400);
     fireEvent.click(card);
     expect(screen.getByRole("dialog", { name: "予約の詳細" })).toBeTruthy();
+  });
+
+  it("横に動かした直後でも、キーボードでのクリック（Enter）は予約を開く", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const card = await eventButton(/^山田 花子、/);
+    swipe(card, -30);
+    fireEvent.click(card, { detail: 0 });
+    expect(screen.getByRole("dialog", { name: "予約の詳細" })).toBeTruthy();
+  });
+
+  it("本文の外に2本目の指が触れても、そのフリックは止める", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const title = screen.getByRole("heading", { level: 1 });
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    point("pointerDown", title, 100, 40, { id: 2, primary: false });
+    point("pointerUp", title, 100, 40, { id: 2, primary: false });
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("確定は指を離した位置の距離で決める", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 215, 400);
+    point("pointerUp", scroller(), 240, 400);
+    expect(heading()).toBe("11月20日（金）");
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 240, 400);
+    point("pointerUp", scroller(), 215, 400);
+    expect(heading()).toBe("11月21日（土）");
   });
 
   it("狭い画面の一覧でもフリックで日を送る", async () => {
@@ -1061,6 +1099,26 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(panes().map((pane) => pane.style.transform)).toEqual(["", ""]);
     point("pointerUp", scroller(), 200, 400, { id: 3 });
     expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("設定が届くのと同じ描画で週を送っても、営業開始の位置で開く", async () => {
+    // The settings never arrive by fetch here; they land in the cache in the
+    // same render as the step, which is the order that once skipped the opening.
+    mocks.api.get.mockImplementation((url: string) => (url.startsWith("/api/admin/settings") ? new Promise(() => {}) : respond(url)));
+    const { client } = renderPage();
+    await screen.findByRole("button", { name: "次の週" });
+    notifyManager.setScheduler((callback) => callback());
+    try {
+      act(() => {
+        client.setQueryData(["settings"], { ok: true, settings: settings() });
+        fireEvent.click(screen.getByRole("button", { name: "次の週" }));
+      });
+    } finally {
+      notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+    }
+    await screen.findByRole("button", { name: /^11月23日（月）の日表示を開く/ });
+    // 10:00 opening less 30 minutes, at 48px an hour.
+    expect(scroller().scrollTop).toBe(456);
   });
 
   it("前後のボタンやフリックで期間を移っても、見ていた時間帯の位置を保つ（INT-01-05）", async () => {

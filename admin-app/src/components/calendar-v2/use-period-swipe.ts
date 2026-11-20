@@ -63,12 +63,15 @@ export function usePeriodSwipe(
       play(from, { transform: "translateX(0)", opacity: 1 });
     };
     // A sideways touch is a swipe, not a press of the slot or booking under it.
+    // Keyboard and assistive technology clicks carry no click count and pass.
     const blockClick = () => {
-      const swallow = (event: Event) => {
+      const swallow = (event: MouseEvent) => {
+        if (event.detail === 0) return;
         event.stopPropagation();
         event.preventDefault();
+        unblock?.();
       };
-      scroller.addEventListener("click", swallow, { capture: true, once: true });
+      scroller.addEventListener("click", swallow, { capture: true });
       const timer = window.setTimeout(() => unblock?.(), CLICK_GRACE_MS);
       unblock = () => {
         scroller.removeEventListener("click", swallow, { capture: true });
@@ -81,6 +84,7 @@ export function usePeriodSwipe(
       gesture = null;
     };
 
+    // Listens on the whole page, so a second finger outside the body is seen too.
     const onDown = (event: PointerEvent) => {
       unblock?.();
       // INT-04-07: a second finger ends the swipe and leaves the pinch to the browser.
@@ -88,9 +92,10 @@ export function usePeriodSwipe(
         stop();
         return;
       }
+      const target = event.target;
+      if (!(target instanceof Element) || !scroller.contains(target) || target.closest(FIELDS)) return;
       if (event.pointerType !== "touch" || !event.isPrimary) return;
       if (event.clientX < EDGE_PX || event.clientX > window.innerWidth - EDGE_PX) return;
-      if (event.target instanceof Element && event.target.closest(FIELDS)) return;
       for (const pane of panes()) for (const animation of pane.getAnimations?.() ?? []) animation.cancel();
       gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, axis: null, dx: 0 };
     };
@@ -105,13 +110,14 @@ export function usePeriodSwipe(
     };
     const onUp = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
-      const { axis, dx } = gesture;
+      const { axis, x, dx: shown } = gesture;
       gesture = null;
       if (axis !== "x") return;
       blockClick();
-      const direction = swipeStep(dx, scroller.clientWidth);
+      // INT-04-04: the distance where the finger lifts decides.
+      const direction = swipeStep(event.clientX - x, scroller.clientWidth);
       if (direction === 0) {
-        settle(dx);
+        settle(shown);
         return;
       }
       place(0);
@@ -123,12 +129,12 @@ export function usePeriodSwipe(
       if (event.pointerId === gesture?.id) stop();
     };
 
-    scroller.addEventListener("pointerdown", onDown);
+    document.addEventListener("pointerdown", onDown, true);
     scroller.addEventListener("pointermove", onMove);
     scroller.addEventListener("pointerup", onUp);
     scroller.addEventListener("pointercancel", onCancel);
     return () => {
-      scroller.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("pointerdown", onDown, true);
       scroller.removeEventListener("pointermove", onMove);
       scroller.removeEventListener("pointerup", onUp);
       scroller.removeEventListener("pointercancel", onCancel);

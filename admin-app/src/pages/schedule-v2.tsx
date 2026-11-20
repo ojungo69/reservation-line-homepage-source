@@ -124,15 +124,19 @@ export default function ScheduleV2Page() {
   // view, so days compare at the same time (INT-01-05).
   const scrollKey = `${view}|${dayKeys[0]}|${storeId ?? "all"}|${String(settings !== null)}`;
   const keepHours = useRef(false);
+  // Whether the grid was open at a time, so a step has hours to keep.
+  const gridOpen = useRef(false);
   useLayoutEffect(() => {
-    const keep = keepHours.current;
+    const keep = keepHours.current && gridOpen.current;
     keepHours.current = false;
     const scroller = scrollerRef.current;
     if (!scroller) return;
     if (view === "list" || !settings || columns.length === 0) {
+      gridOpen.current = false;
       scroller.scrollTop = 0;
       return;
     }
+    gridOpen.current = true;
     if (keep) return;
     // A closed day has no opening, so it does not pull the start back to 09:00.
     const opens = columns.map((column) => openingOf(settings, column)).filter((minute) => minute !== null);
