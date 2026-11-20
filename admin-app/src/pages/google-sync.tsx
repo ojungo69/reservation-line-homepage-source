@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useSettings } from "@/hooks/use-settings";
-import { buildGoogleSyncViewModel } from "@/lib/google-sync-view-model";
+import { buildGoogleSyncViewModel, storeLabel } from "@/lib/google-sync-view-model";
 import {
   useSyncStatus,
   useSyncJobRetry,
@@ -453,7 +453,7 @@ export default function GoogleSyncPage() {
             </p>
             {syncStatus.conflictAggregate.perStore.map((ps) => (
               <p key={ps.storeId} className="text-xs text-muted-foreground">
-                店舗 {ps.storeId.slice(0, 8)}… — 合計 {ps.total}件 / 要対応 {ps.actionRequired}件
+                店舗 {storeLabel(settingsStores, ps.storeId)} — 合計 {ps.total}件 / 要対応 {ps.actionRequired}件
               </p>
             ))}
           </Card>

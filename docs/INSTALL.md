@@ -58,7 +58,7 @@ set -eu
 | `GOOGLE_SYNC_QUEUE`、`LINE_NOTIFICATION_QUEUE` と両 DLQ | 予約後の同期・通知と失敗処理 | 実予約前に自分の4 queue と consumer を確認 |
 | `LINE_RATE_LIMITER` / Durable Object | LINE 通知の送信速度制御 | コードでは任意。使う場合は既存クラスと migration の binding を保持 |
 | `CACHE` / KV | 公開カタログの cache | コードでは任意。テンプレートのゼロ ID は実 ID に変更 |
-| `STORAGE` / R2 | `CSV_ARCHIVE_ENABLED=true` 時の CSV 保管 | 任意。使う場合のみ自分の bucket と保管方針を用意 |
+| `STORAGE` / R2 | デプロイ設定が宣言する binding。`CSV_ARCHIVE_ENABLED` も残っているが、アプリは現在 CSV の控えを書き込まない | 配備設定に合わせて bucket を用意する（アプリからの書き込みはなし） |
 | `METRICS` / Analytics Engine | 計測 | コードでは任意。使う場合は自分の dataset |
 | `RESERVATION_WORKFLOW` | `WORKFLOW_ENABLED=true` 時の予約確認 | 任意。binding を残す場合はクラス・名前を一致させる |
 | `EMAIL` / Email Service | owner 宛通知 | コードでは任意。実予約前は送信元ドメインと許可・確認済み宛先を検証 |

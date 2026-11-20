@@ -15,7 +15,7 @@ const reservation = {
 };
 
 describe("ReservationListCard", () => {
-  it("深夜を跨ぐ予約の終了日と担当・状態を読み、詳細を開ける", () => {
+  it("深夜を跨ぐ予約の終了日と店舗・状態を読み、詳細を開ける", () => {
     const onDetails = vi.fn();
     render(<ReservationListCard reservation={reservation} onDetails={onDetails} />);
 
@@ -23,7 +23,9 @@ describe("ReservationListCard", () => {
     expect(card.textContent).toContain("23:45–翌日 00:30");
     expect(card.textContent).toContain("山田 花子");
     expect(card.textContent).toContain("カット / カラー");
-    expect(card.textContent).toContain("渋谷店 · 担当 佐藤");
+    expect(card.textContent).toContain("渋谷店");
+    expect(card.textContent).not.toContain("担当 佐藤");
+    expect(card.textContent).not.toContain(" · ");
     expect(card.textContent).toContain("確定");
     expect(card.textContent).toContain("キャンセル料未納");
     fireEvent.click(screen.getByRole("button", { name: "詳細" }));
@@ -48,5 +50,20 @@ describe("ReservationListCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "承認" }));
     expect(onCustomerClick).toHaveBeenCalledOnce();
     expect(onApprove).toHaveBeenCalledOnce();
+  });
+
+  it("showStoreName を false にすると、店舗名もリソース名も出ず、店舗の行そのものが無い", () => {
+    const { container } = render(<ReservationListCard reservation={reservation} showStoreName={false} onDetails={() => {}} />);
+
+    const card = screen.getByRole("article");
+    expect(card.textContent).not.toContain("渋谷店");
+    expect(card.textContent).not.toContain("担当 佐藤");
+    expect(container.querySelectorAll("p")).toHaveLength(3);
+  });
+
+  it("showStoreName を渡さないときは店舗名が出る", () => {
+    render(<ReservationListCard reservation={reservation} onDetails={() => {}} />);
+
+    expect(screen.getByText("渋谷店")).toBeTruthy();
   });
 });

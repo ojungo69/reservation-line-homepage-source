@@ -1,5 +1,10 @@
 import type { Store, SyncStatusSystemAdmin } from "@/types/api";
 
+export function storeLabel(stores: Pick<Store, "id" | "name">[], storeId: string) {
+  const name = stores.find((store) => store.id === storeId)?.name;
+  return name?.trim() ? name : `${storeId.slice(0, 8)}…`;
+}
+
 export function buildGoogleSyncViewModel(
   syncStatus: SyncStatusSystemAdmin,
   settingsStores: Store[],
@@ -24,7 +29,7 @@ export function buildGoogleSyncViewModel(
     if (storeId != null && !seen.has(storeId)) extra.add(storeId);
   }
   for (const id of extra) {
-    storeOptions.push({ id, label: `${id.slice(0, 8)}…` });
+    storeOptions.push({ id, label: storeLabel(settingsStores, id) });
   }
 
   if (!selectedStoreId) {

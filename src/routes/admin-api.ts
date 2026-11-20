@@ -191,7 +191,6 @@ import {
   PAGED_ROWS_PER_PAGE,
   PAGED_MAX_PAGES
 } from "../admin/csv";
-import { archiveCsvToR2 } from "../storage/r2-helpers";
 import { safeCaptureException } from "../sentry-helpers";
 import { expandRrule } from "../google/rrule-expander";
 import { JST_OFFSET_MS } from "../time-utils";
@@ -989,25 +988,8 @@ adminApiRoutes.get("/reservations/export.csv", async (c) => {
     maxPages: PAGED_MAX_PAGES
   });
 
-  let responseStream: ReadableStream = rawStream;
-  if (c.env.STORAGE && c.env.CSV_ARCHIVE_ENABLED === "true" && c.executionCtx?.waitUntil) {
-    try {
-      const { clientStream, archivePromise } = archiveCsvToR2(
-        c.env,
-        rawStream,
-        filter.storeId,
-        filter.from,
-        filter.to
-      );
-      responseStream = clientStream;
-      c.executionCtx.waitUntil(archivePromise);
-    } catch {
-      // R2 archive failure must not break CSV download
-    }
-  }
-
   const filename = reservationsCsvFilename(filter.from, filter.to, Math.floor(Date.now() / 1000));
-  return new Response(responseStream, {
+  return new Response(rawStream, {
     status: 200,
     headers: {
       ...ADMIN_PRIVATE_HEADERS,

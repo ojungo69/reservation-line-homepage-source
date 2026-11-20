@@ -804,6 +804,35 @@ describe("GET /api/admin/reservations/export.csv", () => {
     }
   });
 
+  it("ignores a leftover archive setting: nothing is written and the response is unchanged", async () => {
+    const db = createMigratedSqliteD1();
+    try {
+      seedFixtures(db);
+      const access = createAccessJwtFixture();
+      vi.stubGlobal("fetch", createFetchMock(access.jwk));
+      const put = vi.fn().mockResolvedValue(undefined);
+      const waitUntil = vi.fn();
+      const response = await createApp().request(
+        "/api/admin/reservations/export.csv?from=2026-06-01&to=2026-06-30",
+        { headers: { "Cf-Access-Jwt-Assertion": access.token, Accept: "text/csv" } },
+        { ...baseEnv(db), STORAGE: { put }, CSV_ARCHIVE_ENABLED: "true" },
+        { waitUntil, passThroughOnException: vi.fn(), props: {} }
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("text/csv; charset=utf-8");
+      expect(response.headers.get("Content-Disposition")).toMatch(
+        /^attachment; filename="reservations_2026-06-01_2026-06-30_\d+\.csv"$/
+      );
+      const lines = (await response.text()).replace(/^﻿/, "").split("\n").filter((l) => l.length > 0);
+      expect(lines).toHaveLength(3);
+      expect(lines[0]).toBe("予約ID,開始,終了,店舗,メニュー,顧客名,カナ,電話末尾,状態,LINE,予約経路,Googleイベント連携ID");
+      expect(put).not.toHaveBeenCalled();
+      expect(waitUntil).not.toHaveBeenCalled();
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
   it("denies staff without an assigned store with 403", async () => {
     const db = createMigratedSqliteD1();
     try {

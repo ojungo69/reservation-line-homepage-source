@@ -1202,7 +1202,6 @@ const ADMIN_COLORED_UTILITY_ALLOWLIST: Record<string, Record<string, number>> = 
   "admin-app/src/components/settings/line-quota-card.tsx": {
     "bg-amber-500": 1, "bg-green-500": 1, "bg-red-500": 1, "text-amber-600": 1, "text-red-600": 1
   },
-  "admin-app/src/pages/line-friends.tsx": { "text-emerald-400": 1, "text-emerald-700": 1 },
   // Warning notes and badges (amber/orange semantic caution).
   "admin-app/src/pages/activity.tsx": { "text-amber-400": 1, "text-amber-600": 1 },
   "admin-app/src/pages/cancellation-fees.tsx": {

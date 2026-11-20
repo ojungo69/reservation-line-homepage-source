@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useNavigate, useLocation } from "react-router";
 import { useMutationState } from "@tanstack/react-query";
@@ -39,6 +39,8 @@ import { StoreSelect } from "@/components/ui/store-select";
 import { ReservationDetailPanel } from "@/components/schedule/reservation-detail-panel";
 import { PendingApprovalsCard } from "@/components/schedule/pending-approvals-card";
 import {
+  ALL_SENTINEL,
+  RESERVATION_STATUSES,
   reservationPresetRange,
   readReservationSearchState,
   type ReservationSearchState,
@@ -51,7 +53,6 @@ import { useStores } from "@/hooks/use-stores";
 import { useAuth } from "@/hooks/use-auth";
 import {
   useReservationSearch,
-  buildCsvExportUrl,
   type ReservationSearchFilter,
 } from "@/hooks/use-reservation-search";
 import { useReservationAction } from "@/hooks/use-reservations";
@@ -71,19 +72,6 @@ import {
   RESERVATION_ACTION_MUTATION_KEY,
 } from "@/lib/pending-mutation-ids";
 
-const ALL_STATUSES = [
-  "pending_approval",
-  "confirmed",
-  "checked_in",
-  "completed",
-  "cancelled_by_admin",
-  "cancelled_by_customer",
-  "rejected",
-  "no_show",
-  "expired",
-] as const;
-
-const ALL_SENTINEL = "__all__";
 const MAX_SEARCH_DAYS = 92;
 
 type SortKey = ReservationSortKey;
@@ -125,6 +113,11 @@ const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
   { value: "status", label: "ステータス" },
 ];
 
+// 店舗が 1 つに決まっているとき、店舗で並べても意味が無いので、店舗の並べ替えは日時として扱う。
+function effectiveSortKey(sortKey: SortKey, showStore: boolean): SortKey {
+  return !showStore && sortKey === "storeName" ? "startAt" : sortKey;
+}
+
 function reservationSearchCopy(viewMode: ReservationViewMode) {
   if (viewMode === "pending") {
     return {
@@ -144,21 +137,11 @@ function reservationSearchCopy(viewMode: ReservationViewMode) {
   };
 }
 
-function ReservationExportToolbar({ data, onDownload, disabled, isDownloading }: Readonly<{
-  data: ReservationSearchResponse | undefined;
-  onDownload: () => void;
-  disabled: boolean;
-  isDownloading: boolean;
-}>) {
+function ReservationResultCount({ data }: Readonly<{ data: ReservationSearchResponse | undefined }>) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-sm text-muted-foreground">
-        {data?.ok && !data.truncated && data.totalCount !== null ? `${data.totalCount}件` : "予約の検索結果"}
-      </p>
-      <Button variant="outline" size="sm" onClick={onDownload} disabled={disabled}>
-        {isDownloading ? "出力中..." : "CSV"}
-      </Button>
-    </div>
+    <p className="text-sm text-muted-foreground">
+      {data?.ok && !data.truncated && data.totalCount !== null ? `${data.totalCount}件` : "予約の検索結果"}
+    </p>
   );
 }
 
@@ -178,16 +161,17 @@ export default function ReservationsPage() {
   const [from, setFrom] = useState(restored?.from ?? defaultRange.from);
   const [to, setTo] = useState(restored?.to ?? defaultRange.to);
   const { selectedStoreId: storeId, selectStore: setStoreId, isStoreFixed } = useStores();
+  // 店舗スタッフと、店舗を選んでいるオーナーでは、表示する店舗が 1 つに決まる。
+  const showStore = storeId === null;
   const [serviceId, setServiceId] = useState(restored?.serviceId ?? ALL_SENTINEL);
   const [statusFilter, setStatusFilter] = useState(restored?.statusFilter ?? ALL_SENTINEL);
   const [keyword, setKeyword] = useState(restored?.keyword ?? "");
   const [debouncedKeyword, setDebouncedKeyword] = useDebouncedValue(keyword);
   const isDebouncing = keyword.trim() !== debouncedKeyword;
   const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>(restored?.sortKey ?? "startAt");
+  const [rawSortKey, setRawSortKey] = useState<SortKey>(restored?.sortKey ?? "startAt");
+  const sortKey = effectiveSortKey(rawSortKey, showStore);
   const [sortDir, setSortDir] = useState<SortDir>(restored?.sortDir ?? "asc");
-  const [csvError, setCsvError] = useState<string | null>(null);
-  const [isDownloading, setIsDownloading] = useState(false);
   const [approveTarget, setApproveTarget] = useState<ReservationSearchItem | null>(null);
   const [rejectTarget, setRejectTarget] = useState<ReservationSearchItem | null>(null);
   const rowAction = useReservationAction();
@@ -223,7 +207,7 @@ export default function ReservationsPage() {
       setDebouncedKeyword("");
       setServiceId(ALL_SENTINEL);
       setStatusFilter(ALL_SENTINEL);
-      setSortKey("startAt");
+      setRawSortKey("startAt");
       setSortDir("asc");
       return;
     }
@@ -243,7 +227,7 @@ export default function ReservationsPage() {
       const range = reservationPresetRange(mode);
       setFrom(range.from);
       setTo(range.to);
-      setSortKey("startAt");
+      setRawSortKey("startAt");
       setSortDir(mode === "history" ? "desc" : "asc");
     }
   };
@@ -252,7 +236,6 @@ export default function ReservationsPage() {
     setDebouncedKeyword("");
     setServiceId(ALL_SENTINEL);
     setStatusFilter(ALL_SENTINEL);
-    setCsvError(null);
   };
 
   const dateValidationMessage = useMemo(() => {
@@ -311,11 +294,16 @@ export default function ReservationsPage() {
     return items;
   }, [data, sortKey, sortDir]);
 
+  // 隠れた店舗の並べ替えが全店舗へ戻したときに復活しないよう、表示中の並べ替えキーを state にも入れる。
+  const flipSortDir = () => {
+    setRawSortKey(sortKey);
+    setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+  };
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      flipSortDir();
     } else {
-      setSortKey(key);
+      setRawSortKey(key);
       setSortDir("asc");
     }
   };
@@ -330,43 +318,6 @@ export default function ReservationsPage() {
     serviceId !== ALL_SENTINEL ||
     statusFilter !== ALL_SENTINEL ||
     debouncedKeyword !== "";
-
-  const handleCsvDownload = useCallback(async () => {
-    if (!filter || isDownloading) return;
-    setCsvError(null);
-    setIsDownloading(true);
-    try {
-      const res = await fetch(buildCsvExportUrl(filter), { credentials: "same-origin" });
-      const contentType = res.headers.get("content-type") ?? "";
-      if (!res.ok || !contentType.includes("text/csv")) {
-        const body = await res.json().catch(() => null);
-        const reasonCode = body && typeof body === "object" && "reason" in body
-          ? String((body as { reason: string }).reason)
-          : null;
-        // errorMessage は未登録コードを素通しするため、訳が無い場合は生コードや
-        // "HTTP {status}" を露出させず汎用日本語にフォールバックする。
-        const reasonText = reasonCode ? errorMessage(reasonCode) : null;
-        setCsvError(reasonText && reasonText !== reasonCode
-          ? `CSV出力に失敗しました: ${reasonText}`
-          : "CSV出力に失敗しました。時間をおいて再度お試しください。");
-        return;
-      }
-      const blob = await res.blob();
-      const disposition = res.headers.get("content-disposition") ?? "";
-      const filenameMatch = /filename="?([^"]+)"?/.exec(disposition);
-      const filename = filenameMatch?.[1] ?? "reservations.csv";
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch {
-      setCsvError("CSV出力に失敗しました。ネットワークを確認してください。");
-    } finally {
-      setIsDownloading(false);
-    }
-  }, [filter, isDownloading]);
 
   return (
     <div ref={pageRef} className="space-y-4 p-4 sm:p-6">
@@ -487,7 +438,7 @@ export default function ReservationsPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value={ALL_SENTINEL}>全ステータス</SelectItem>
-                        {ALL_STATUSES.map((status) => (
+                        {RESERVATION_STATUSES.map((status) => (
                           <SelectItem key={status} value={status}>{statusLabel(status)}</SelectItem>
                         ))}
                       </SelectContent>
@@ -529,16 +480,7 @@ export default function ReservationsPage() {
           nameFilter={keyword}
         />
       ) : (
-        <ReservationExportToolbar
-          data={data}
-          onDownload={handleCsvDownload}
-          disabled={!filter || isDebouncing || isDownloading}
-          isDownloading={isDownloading}
-        />
-      )}
-
-      {csvError && (
-        <p role="alert" className="text-sm text-destructive">{csvError}</p>
+        <ReservationResultCount data={data} />
       )}
 
       {data?.ok && data.truncated && (
@@ -584,12 +526,12 @@ export default function ReservationsPage() {
             <Label htmlFor="mobile-sort-key" className="shrink-0 text-xs text-muted-foreground">
               並べ替え
             </Label>
-            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+            <Select value={sortKey} onValueChange={(v) => setRawSortKey(v as SortKey)}>
               <SelectTrigger id="mobile-sort-key" className="w-36">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SORT_OPTIONS.map((opt) => (
+                {SORT_OPTIONS.filter((opt) => showStore || opt.value !== "storeName").map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>
@@ -599,7 +541,7 @@ export default function ReservationsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+              onClick={flipSortDir}
             >
               {sortDir === "asc" ? "昇順 ↑" : "降順 ↓"}
             </Button>
@@ -614,6 +556,7 @@ export default function ReservationsPage() {
               key={r.id}
               reservation={r}
               showDate
+              showStoreName={showStore}
               onDetails={setSelectedReservationId}
               onCustomerClick={() => {
                 // 不透明な顧客IDのみ URL に載せる (名前・電話は入れない)。
@@ -661,9 +604,11 @@ export default function ReservationsPage() {
                 <SortableHead sortKeyName="serviceName" activeKey={sortKey} sortDir={sortDir} onToggle={toggleSort}>
                   メニュー
                 </SortableHead>
-                <SortableHead sortKeyName="storeName" activeKey={sortKey} sortDir={sortDir} onToggle={toggleSort}>
-                  店舗
-                </SortableHead>
+                {showStore && (
+                  <SortableHead sortKeyName="storeName" activeKey={sortKey} sortDir={sortDir} onToggle={toggleSort}>
+                    店舗
+                  </SortableHead>
+                )}
                 <SortableHead sortKeyName="status" activeKey={sortKey} sortDir={sortDir} onToggle={toggleSort}>
                   ステータス
                 </SortableHead>
@@ -675,7 +620,7 @@ export default function ReservationsPage() {
             <TableBody>
               {reservations.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6}>
+                  <TableCell colSpan={5 + Number(showStore)}>
                     <ReservationsEmptyState hasActiveFilters={hasActiveFilters} />
                   </TableCell>
                 </TableRow>
@@ -717,7 +662,7 @@ export default function ReservationsPage() {
                     </button>
                   </TableCell>
                   <TableCell className="text-sm">{displayServiceName(r.serviceName)}</TableCell>
-                  <TableCell className="text-sm">{r.storeName}</TableCell>
+                  {showStore && <TableCell className="text-sm">{r.storeName}</TableCell>}
                   <TableCell>
                     <div className="flex flex-wrap items-center gap-1">
                       <Badge className={statusColor(r.status)} variant="outline">

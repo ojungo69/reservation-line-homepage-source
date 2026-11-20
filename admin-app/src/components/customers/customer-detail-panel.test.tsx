@@ -1238,3 +1238,26 @@ it("追加取得した過去の予約にも登録日時と受付経路を表示�
   expect(screen.getByText("LINE予約")).toBeTruthy();
   expect(screen.getAllByText("来店予定")).toHaveLength(2);
 });
+
+it("予約履歴のカードには店舗名だけを出し、リソース名は出さない", async () => {
+  customer = { ...customer, reservations: [{ ...provenanceReservation, resourceName: "枠A" }], reservationsNextOffset: null };
+  render(<CustomerDetailPanel customerId="customer-1" onClose={() => {}} />);
+  await userEvent.setup().click(screen.getByRole("tab", { name: "予約履歴" }));
+  const card = screen.getByRole("button", { name: "予約詳細を見る →" }).closest("div") as HTMLElement;
+  expect(within(card).getByText("新宿店")).toBeTruthy();
+  expect(within(card).queryByText(/枠A/)).toBeNull();
+});
+
+it("基本情報にアレルギーの行は出さず、注意事項と生年月日・性別・紹介者は出す", () => {
+  customer = { ...customer, allergyNotes: "ナッツ類", birthDate: "1990-05-04", gender: "female", referrerName: "紹介 太郎" };
+  render(<CustomerDetailPanel customerId="customer-1" onClose={() => {}} />);
+  expect(screen.queryByText("アレルギー")).toBeNull();
+  const notes = screen.getByRole("heading", { name: "注意事項" }).parentElement as HTMLElement;
+  expect(within(notes).getByText("ナッツ類")).toBeTruthy();
+  expect(screen.getAllByText("ナッツ類")).toHaveLength(1);
+  expect(screen.getByText("生年月日")).toBeTruthy();
+  expect(screen.getByText("1990-05-04")).toBeTruthy();
+  expect(screen.getByText("性別")).toBeTruthy();
+  expect(screen.getByText("女性")).toBeTruthy();
+  expect(screen.getByText("紹介 太郎")).toBeTruthy();
+});

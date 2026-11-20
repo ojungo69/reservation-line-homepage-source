@@ -36,7 +36,3 @@ export function useReservationSearch(filter: ReservationSearchFilter | null) {
     placeholderData: (prev) => prev,
   });
 }
-
-export function buildCsvExportUrl(filter: ReservationSearchFilter): string {
-  return `/api/admin/reservations/export.csv?${buildSearchParams(filter)}`;
-}

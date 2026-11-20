@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ReservationsPage from "./reservations";
 import { useReservationSearch } from "@/hooks/use-reservation-search";
@@ -15,6 +16,7 @@ const reservationState = vi.hoisted(() => ({
   mutate: vi.fn(),
   rejectReason: "",
   locationState: null as unknown,
+  rows: null as unknown[] | null,
 }));
 
 const reservations = [
@@ -85,20 +87,31 @@ vi.mock("@/hooks/use-stores", () => ({
 vi.mock("@/hooks/use-reservation-search", () => ({
   useReservationSearch: vi.fn((filter) => {
     const pendingOnly = filter?.statuses?.length === 1 && filter.statuses[0] === "pending_approval";
+    const rows = reservationState.rows ?? reservations;
     return {
       data: {
         ok: true,
         from: filter?.from ?? "",
         to: filter?.to ?? "",
-        reservations: pendingOnly ? [] : reservations,
+        reservations: pendingOnly ? [] : rows,
         truncated: false,
-        totalCount: pendingOnly ? 0 : reservations.length,
+        totalCount: pendingOnly ? 0 : rows.length,
       },
       isPending: false,
       isError: false,
     };
   }),
-  buildCsvExportUrl: vi.fn(() => "/api/admin/reservations/export"),
+}));
+
+// Radix の Select は閉じていると選択肢が DOM に無いため、選択肢を読める素の option に置き換える。
+vi.mock("@/components/ui/select", () => ({
+  Select: ({ value, onValueChange, children }: { value: string; onValueChange: (v: string) => void; children: ReactNode }) => (
+    <select value={value} onChange={(event) => onValueChange(event.target.value)}>{children}</select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children: ReactNode }) => <option value={value}>{children}</option>,
 }));
 
 vi.mock("@/hooks/use-reservations", () => ({
@@ -154,6 +167,7 @@ afterEach(() => {
   reservationState.mutate.mockClear();
   reservationState.rejectReason = "";
   reservationState.locationState = null;
+  reservationState.rows = null;
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.mocked(useReservationSearch).mockClear();
@@ -284,5 +298,118 @@ describe("ReservationsPage user flows", () => {
       reason: "同時間帯に別のご予約が重なったため",
     });
     expect(screen.queryByRole("heading", { name: "予約を却下しますか?" })).toBeNull();
+  });
+});
+
+describe("ReservationsPage 店舗を選んでいるときの表示", () => {
+  it("店舗を選んでいると、表の店舗の列が無い", () => {
+    authState.selectedStoreId = "store-1";
+    render(<ReservationsPage />);
+
+    expect(screen.queryByRole("columnheader", { name: "店舗" })).toBeNull();
+    expect(screen.getAllByRole("columnheader")).toHaveLength(5);
+    const rows = screen.getAllByRole("row");
+    expect(rows[1]?.textContent).toContain("山田 花子");
+    expect(rows[1]?.textContent).not.toContain("渋谷店");
+  });
+
+  it("全店舗なら、表の店舗の列と店舗名が出る", () => {
+    authState.selectedStoreId = null;
+    render(<ReservationsPage />);
+
+    expect(screen.getByRole("columnheader", { name: "店舗" })).toBeTruthy();
+    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
+    expect(screen.getAllByRole("row")[1]?.textContent).toContain("渋谷店");
+  });
+
+  it("店舗を選んでいると、カード表示の並べ替えに店舗が無く、カードに店舗名が出ない", () => {
+    reservationState.isNarrow = true;
+    authState.selectedStoreId = "store-1";
+    render(<ReservationsPage />);
+
+    expect(screen.queryByRole("option", { name: "店舗" })).toBeNull();
+    expect(screen.getByRole("option", { name: "日時" })).toBeTruthy();
+    const cards = screen.getAllByRole("article");
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.textContent).not.toContain("渋谷店");
+  });
+
+  it("全店舗なら、カード表示の並べ替えに店舗があり、カードに店舗名が出る", () => {
+    reservationState.isNarrow = true;
+    authState.selectedStoreId = null;
+    render(<ReservationsPage />);
+
+    expect(screen.getByRole("option", { name: "店舗" })).toBeTruthy();
+    expect(screen.getAllByRole("article")[0]?.textContent).toContain("渋谷店");
+  });
+
+  it("店舗を選んだ状態で、店舗で並べ替えた保存値を復元すると、同じ店舗の予約が日時の降順に並ぶ", () => {
+    authState.selectedStoreId = "store-1";
+    reservationState.rows = [
+      { ...reservations[0], id: "reservation-early", customerDisplayName: "早い予約", customerDisplayNameKana: "ハヤイ", startAt: "2026-11-01T01:00:00.000Z", endAt: "2026-11-01T02:00:00.000Z" },
+      { ...reservations[0], id: "reservation-late", customerDisplayName: "遅い予約", customerDisplayNameKana: "オソイ", startAt: "2026-11-05T01:00:00.000Z", endAt: "2026-11-05T02:00:00.000Z" },
+    ];
+    reservationState.locationState = { reservationSearch: { scope: "undefined:owner:", value: { from: "2026-10-18", to: "2026-11-16", keyword: "", serviceId: "__all__", statusFilter: "__all__", sortKey: "storeName", sortDir: "desc", viewMode: "history" } } };
+    render(<ReservationsPage />);
+
+    expect(screen.getByRole("columnheader", { name: "日時" }).getAttribute("aria-sort")).toBe("descending");
+    const rows = screen.getAllByRole("row");
+    expect(rows[1]?.textContent).toContain("遅い予約");
+    expect(rows[2]?.textContent).toContain("早い予約");
+  });
+
+  it("店舗の並べ替えを隠している間に日時の向きを変えても、全店舗へ戻したとき店舗の並べ替えが復活しない", () => {
+    authState.selectedStoreId = null;
+    const { rerender } = render(<ReservationsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "店舗" }));
+    expect(screen.getByRole("columnheader", { name: "店舗" }).getAttribute("aria-sort")).toBe("ascending");
+
+    authState.selectedStoreId = "store-1";
+    rerender(<ReservationsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "日時" }));
+    expect(screen.getByRole("columnheader", { name: "日時" }).getAttribute("aria-sort")).toBe("descending");
+
+    authState.selectedStoreId = null;
+    rerender(<ReservationsPage />);
+    expect(screen.getByRole("columnheader", { name: "日時" }).getAttribute("aria-sort")).toBe("descending");
+    expect(screen.getByRole("columnheader", { name: "店舗" }).getAttribute("aria-sort")).toBe("none");
+    const rows = screen.getAllByRole("row");
+    expect(rows[1]?.textContent).toContain("佐藤 太郎");
+    expect(rows[2]?.textContent).toContain("山田 花子");
+  });
+
+  it("カード表示でも、店舗の並べ替えを隠している間に向きを変えたあと、全店舗へ戻して店舗の並べ替えが復活しない", () => {
+    reservationState.isNarrow = true;
+    authState.selectedStoreId = null;
+    const { rerender } = render(<ReservationsPage />);
+    fireEvent.change(screen.getByDisplayValue("日時"), { target: { value: "storeName" } });
+
+    authState.selectedStoreId = "store-1";
+    rerender(<ReservationsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "昇順 ↑" }));
+    expect(screen.getByRole("button", { name: "降順 ↓" })).toBeTruthy();
+
+    authState.selectedStoreId = null;
+    rerender(<ReservationsPage />);
+    expect(screen.getByDisplayValue("日時")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "降順 ↓" })).toBeTruthy();
+  });
+});
+
+describe("ReservationsPage 状態の選択肢", () => {
+  it("状態の選択肢に「来店中」が無い", () => {
+    render(<ReservationsPage />);
+
+    expect(screen.getByRole("option", { name: "全ステータス" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "確定" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "来店中" })).toBeNull();
+  });
+
+  it("来店中の保存値で開くと、既定の絞り込みになる", () => {
+    reservationState.locationState = { reservationSearch: { scope: "undefined:owner:", value: { from: "2026-10-18", to: "2026-11-16", keyword: "山田", serviceId: "__all__", statusFilter: "checked_in", sortKey: "startAt", sortDir: "desc", viewMode: "history" } } };
+    render(<ReservationsPage />);
+
+    expect(screen.getByLabelText("顧客名・カナ・電話番号")).toHaveProperty("value", "");
+    expect(useReservationSearch).toHaveBeenLastCalledWith(expect.objectContaining({ statuses: undefined, keyword: undefined }));
   });
 });

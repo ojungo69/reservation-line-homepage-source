@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLineFriends, useLineFriendLink } from "@/hooks/use-line-friends";
 import { useStores } from "@/hooks/use-stores";
+import { pickLinkStoreId } from "@/lib/link-store-id";
 import type { LineFriendListItem } from "@/types/api";
 
 type Props = {
@@ -31,14 +32,12 @@ function getFriendRowLabel(isLinkingThisFriend: boolean, friend: LineFriendListI
 // linkLineFriend(mode='existing') で紐付ける。候補は未紐付け(filter='unlinked')の友だちのみ。
 export function LinkLineFromCardDialog({ customer, onClose }: Readonly<Props>) {
   const link = useLineFriendLink();
-  const { stores } = useStores();
+  const { stores, selectedStoreId } = useStores();
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useDebouncedValue(q);
-  // 複数店舗時のみ店舗選択が必要(seed visit の store_id 用)。単一店舗は自動選択。
-  const [storeId, setStoreId] = useState("");
 
   const open = customer !== null;
-  const effectiveStoreId = storeId || (stores.length === 1 ? stores[0].id : "");
+  const effectiveStoreId = pickLinkStoreId(stores, selectedStoreId);
 
   // 検索語が空のときは一覧取得しない(空文字 = 全件取得を避ける)。enabled で
   // ダイアログを開いただけ・検索語が空の間は GET /line-friends を発行しない。
@@ -82,26 +81,6 @@ export function LinkLineFromCardDialog({ customer, onClose }: Readonly<Props>) {
           </DialogDescription>
         </DialogHeader>
 
-        {stores.length > 1 && (
-          <label className="block text-sm">
-            紐付け先の店舗
-            {/* ラベル文と select の間に空白を入れない（Sonar S6772: 意図の明示） */}
-            <select
-              className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
-              value={effectiveStoreId}
-              onChange={(e) => setStoreId(e.target.value)}
-              disabled={link.isPending}
-            >
-              <option value="">店舗を選択してください</option>
-              {stores.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
         <Input
           aria-label="LINE友だちを名前で検索"
           placeholder="LINE友だちの名前で検索"
@@ -110,10 +89,6 @@ export function LinkLineFromCardDialog({ customer, onClose }: Readonly<Props>) {
           disabled={link.isPending}
           autoFocus
         />
-
-        {effectiveStoreId === "" && stores.length > 1 && (
-          <p className="text-sm text-destructive">紐付け先の店舗を選択してください。</p>
-        )}
 
         <div className="mt-2 max-h-72 space-y-1 overflow-y-auto">
           {showResults && loadingResults && <p className="text-sm text-muted-foreground">検索中...</p>}

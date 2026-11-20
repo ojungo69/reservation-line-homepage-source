@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Store, SyncStatusSystemAdmin } from "@/types/api";
-import { buildGoogleSyncViewModel } from "./google-sync-view-model";
+import { buildGoogleSyncViewModel, storeLabel } from "./google-sync-view-model";
 
 const settingsStores = [
   {
@@ -93,5 +93,20 @@ describe("buildGoogleSyncViewModel", () => {
       "write-unmapped",
     ]);
     expect(result.conflicts.map(({ id }) => id)).toEqual(["conflict-selected"]);
+  });
+});
+
+describe("storeLabel", () => {
+  it("returns the store name when settings know the store", () => {
+    expect(storeLabel(settingsStores, "selected-store")).toBe("選択店舗");
+  });
+
+  it("falls back to the first 8 characters and an ellipsis when the name is unknown", () => {
+    expect(storeLabel(settingsStores, "dlq-extra-store")).toBe("dlq-extr…");
+    expect(storeLabel([], "selected-store")).toBe("selected…");
+  });
+
+  it.each([["空文字", ""], ["半角空白", " "], ["全角空白", "\u3000"]])("名前が%sの店舗は不明として扱う", (_label, name) => {
+    expect(storeLabel([{ id: "blank-name-store", name }], "blank-name-store")).toBe("blank-na…");
   });
 });

@@ -497,7 +497,8 @@ describe("SchedulePage", () => {
     expect(cards).toHaveLength(2);
     expect(cards[0].textContent).toContain("02:00");
     expect(cards[0].textContent).toContain("完了");
-    expect(cards[0].textContent).toContain("担当 佐藤");
+    expect(cards[0].textContent).toContain("渋谷店");
+    expect(cards[0].textContent).not.toContain("担当 佐藤");
     expect(cards[1].textContent).toContain("23:45–翌日 00:30");
     expect(screen.queryByText("取消した人")).toBeNull();
     expect(screen.queryByText("他店の人")).toBeNull();
