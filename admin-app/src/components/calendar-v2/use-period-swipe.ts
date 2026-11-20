@@ -12,7 +12,7 @@ const ENTER_PX = 80;
 // The click a swiped touch may still produce comes right after it lifts.
 const CLICK_GRACE_MS = 400;
 
-type Gesture = { id: number; x: number; y: number; axis: "x" | "y" | null; dx: number };
+type Gesture = { id: number; x: number; y: number; width: number; axis: "x" | "y" | null; dx: number };
 
 // The motion tokens of public/glass-tokens.css, read because animate() takes no var().
 function motion() {
@@ -97,7 +97,7 @@ export function usePeriodSwipe(
       if (event.pointerType !== "touch" || !event.isPrimary) return;
       if (event.clientX < EDGE_PX || event.clientX > window.innerWidth - EDGE_PX) return;
       for (const pane of panes()) for (const animation of pane.getAnimations?.() ?? []) animation.cancel();
-      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, axis: null, dx: 0 };
+      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, width: scroller.clientWidth, axis: null, dx: 0 };
     };
     const onMove = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
@@ -110,14 +110,15 @@ export function usePeriodSwipe(
     };
     const onUp = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
-      const { x, dx: shown } = gesture;
+      const { x, width, dx: shown } = gesture;
       // A fast flick may lift before a move has decided the axis.
       const axis = gesture.axis ?? swipeAxis(event.clientX - x, event.clientY - gesture.y);
       gesture = null;
       if (axis !== "x") return;
       blockClick();
-      // INT-04-04: the distance where the finger lifts decides.
-      const direction = swipeStep(event.clientX - x, scroller.clientWidth);
+      // INT-04-04: the distance where the finger lifts decides. INT-10-04: a body
+      // that changed width under the swipe (a rotation, a layout change) ends it.
+      const direction = scroller.clientWidth === width ? swipeStep(event.clientX - x, width) : 0;
       if (direction === 0) {
         settle(shown);
         return;

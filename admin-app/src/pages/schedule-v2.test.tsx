@@ -1132,6 +1132,22 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     }
   });
 
+  it("フリックの途中で本文の幅が変わったら、確定せずに戻す（INT-10-04）", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    let width = 375;
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => width });
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    width = 360;
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月20日（金）");
+    // The same width at the lift still moves.
+    swipe(scroller(), -100);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
   it("狭い画面の一覧でもフリックで日を送る", async () => {
     narrow = true;
     renderPage();
