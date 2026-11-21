@@ -1654,6 +1654,46 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
   });
 
+  it("すべりを掴んだ押下は、その間に画面の大きさが変わって操作が終わっても、離したあと何も押さない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    swipe(scroller(), -40);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    const slot = within(shownBody()).getAllByRole("button", { name: /に予約を追加$/ })[0];
+    point("pointerDown", slot, 300, 400);
+    fireEvent(window, new Event("resize"));
+    point("pointerUp", slot, 300, 400);
+    fireEvent.click(slot, { detail: 1 });
+    expect(captured.create).toBeNull();
+  });
+
+  it("すべっている途中でウィンドウを離れるか画面が隠れたら、すぐに着地させる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    const leaves: Array<[string, () => void]> = [
+      ["blur", () => fireEvent(window, new Event("blur"))],
+      [
+        "hidden",
+        () => {
+          vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+          fireEvent(document, new Event("visibilitychange"));
+        },
+      ],
+    ];
+    for (const [index, [name, leave]] of leaves.entries()) {
+      flick(-100, 80);
+      leave();
+      vi.restoreAllMocks();
+      expect(flights(), name).toHaveLength(0);
+      expect(paneTransforms(), name).toEqual(["", ""]);
+      expect(heading(), name).toBe(index === 0 ? "11月21日（土）" : "11月22日（日）");
+    }
+  });
+
   it("すべっている途中に前後のボタンや今日で期間が変わると、そのすべりの分は動かさない", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -1734,6 +1774,30 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     point("pointerUp", scroller(), 300, 400);
     act(() => flights()[0].finish());
     expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
+  });
+
+  it("スクロールした一覧ですべりを掴むと、まだ見えている元の日はそのスクロールのまま描き、戻して着いたらそのスクロールに戻す", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    flick(-100, 80);
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 100, 400);
+    // The next day is shown from its top; the day leaving is drawn where it was.
+    expect(heading()).toBe("11/21（土）");
+    expect(scroller().scrollTop).toBe(0);
+    const contents = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents().map((content) => content.style.transform)).toEqual(["translateY(-300px)", "", ""]);
+    // Dragged back and let go: the day it lands on is at the scroll it was drawn at.
+    point("pointerMove", scroller(), 300, 400);
+    point("pointerUp", scroller(), 300, 400);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(375);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11/20（金）");
+    expect(scroller().scrollTop).toBe(300);
+    expect(contents().map((content) => content.style.transform)).toEqual(["", "", ""]);
   });
 
   it("前後の日は先に 1 回だけ読み、繰り返し取りに行かない（INT-11-06）", async () => {

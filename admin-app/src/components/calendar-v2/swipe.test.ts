@@ -65,6 +65,11 @@ describe("releaseVelocity", () => {
     expect(releaseVelocity([{ x: 300, t: 0 }, { x: 300, t: 50 }, { x: 276, t: 70 }], 75)).toBe(-1.2);
   });
 
+  it("止まって動きの届かない間を挟んで戻した指は、戻し始めてからの速さとし、遅れて届いた速い動きは止まりと見ない", () => {
+    expect(releaseVelocity([{ x: 300, t: 0 }, { x: 200, t: 80 }, { x: 202, t: 150 }, { x: 205, t: 160 }], 160)).toBe(0.3);
+    expect(releaseVelocity([{ x: 300, t: 0 }, { x: 290, t: 16 }, { x: 250, t: 66 }], 70)).toBe(-50 / 66);
+  });
+
   it("折り返した所で止まってから戻した指は、戻し始めてからの速さとする", () => {
     const track = [{ x: 300, t: 0 }, { x: 220, t: 70 }, { x: 200, t: 80 }, { x: 200, t: 140 }, { x: 205, t: 150 }];
     expect(releaseVelocity(track, 160)).toBe(0.5);

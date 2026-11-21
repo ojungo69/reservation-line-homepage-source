@@ -56,7 +56,9 @@ export function swipeStep(dx: number, width: number, velocity = 0): -1 | 0 | 1 {
  * the lift (it had stopped, even if it drifted up or down since). The lift only
  * ends the track: it often comes a frame or two after the last move, which is
  * no sign of the finger slowing down. A turn or a still hold within those
- * 100ms counts from where the finger set off again.
+ * 100ms counts from where the finger set off again. A still finger sends no
+ * moves, so a gap of more than 40ms crossed at under 0.1px/ms is a hold too;
+ * a faster one is a late frame of a moving finger.
  */
 export function releaseVelocity(samples: readonly Sample[], liftAt: number): number {
   let moved = samples.length - 1;
@@ -68,7 +70,9 @@ export function releaseVelocity(samples: readonly Sample[], liftAt: number): num
     const sample = samples[index];
     const way = Math.sign(end.x - first.x);
     const turned = way !== 0 && Math.sign(first.x - sample.x) === -way;
-    if (end.t - sample.t > VELOCITY_WINDOW_MS || sample.x === first.x || turned) break;
+    const gap = first.t - sample.t;
+    const held = sample.x === first.x || (gap > STOPPED_MS && Math.abs(first.x - sample.x) < BACK_PX_PER_MS * gap);
+    if (end.t - sample.t > VELOCITY_WINDOW_MS || held || turned) break;
     first = sample;
   }
   return end.t > first.t ? (end.x - first.x) / (end.t - first.t) : 0;

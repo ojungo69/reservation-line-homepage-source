@@ -55,7 +55,8 @@ export function useCalendarDays(dayKeys: readonly string[], { preview = false } 
   const reservations = useQueries({ queries: dayKeys.map((dateKey) => ({ ...reservationsQuery(dateKey), ...poll(dateKey) })) });
   const blocks = useQueries({ queries: dayKeys.map((dateKey) => ({ ...externalBlocksQuery(dateKey), ...poll(dateKey) })) });
   // Each day is read ahead once when it comes next door, and not again while it
-  // stays there; a failed read waits for the day to be shown.
+  // stays there. The read keeps the usual retry: the day may be shown while it
+  // is still on its way, and then it is the shown day's read.
   const keys = dayKeys.join(" ");
   const readAhead = useRef(new Set<string>());
   useEffect(() => {
@@ -63,8 +64,8 @@ export function useCalendarDays(dayKeys: readonly string[], { preview = false } 
     const near = keys ? keys.split(" ") : [];
     for (const dateKey of near) {
       if (readAhead.current.has(dateKey)) continue;
-      void client.prefetchQuery({ ...reservationsQuery(dateKey), staleTime: OTHER_DAY_POLL_MS, retry: false });
-      void client.prefetchQuery({ ...externalBlocksQuery(dateKey), staleTime: OTHER_DAY_POLL_MS, retry: false });
+      void client.prefetchQuery({ ...reservationsQuery(dateKey), staleTime: OTHER_DAY_POLL_MS });
+      void client.prefetchQuery({ ...externalBlocksQuery(dateKey), staleTime: OTHER_DAY_POLL_MS });
     }
     readAhead.current = new Set(near);
   }, [client, keys, preview]);

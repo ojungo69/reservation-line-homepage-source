@@ -23,7 +23,6 @@ type Gesture = {
   width: number;
   // Where the strip was when the finger came down: off rest when it caught a glide.
   base: number;
-  caught: boolean;
   axis: "x" | "y" | null;
   offset: number;
   track: Sample[];
@@ -77,6 +76,8 @@ export function usePeriodSwipe(
     let gesture: Gesture | null = null;
     let flight: Flight | null = null;
     let unblock: (() => void) | null = null;
+    // A finger that caught a glide: its press opens nothing, however its swipe ends.
+    let caughtId: number | null = null;
     let wheelAxis: "x" | "y" | null = null;
     let wheelSum = 0;
     let wheelDone = false;
@@ -87,6 +88,14 @@ export function usePeriodSwipe(
     // them (the page opens a list at its top): their content moves down inside
     // the clipped pane, so the scroll height stays.
     const listContents = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *") ?? [])];
+    // A list day in view keeps the scroll it is drawn at: the shift each is drawn
+    // with, and the scroll that makes.
+    const shifted = new WeakMap<HTMLElement, number>();
+    const shift = (content: HTMLElement, by: number) => {
+      content.style.transform = by ? `translateY(${by}px)` : "";
+      shifted.set(content, by);
+    };
+    const drawnAt = (content: HTMLElement) => scroller.scrollTop - (shifted.get(content) ?? 0);
     const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     // The strip never shows past its neighbours; an unmeasured body (0) sets no limit.
     const within = (x: number, width: number) => (width > 0 ? Math.max(-width, Math.min(width, x)) : x);
@@ -98,7 +107,7 @@ export function usePeriodSwipe(
     const rest = () => {
       place(0);
       for (const pane of panes()) pane.style.willChange = "";
-      for (const content of listContents()) content.style.transform = "";
+      for (const content of listContents()) shift(content, 0);
     };
     const play = (from: Keyframe, to: Keyframe) => {
       const options = motion();
@@ -108,12 +117,18 @@ export function usePeriodSwipe(
       const from = reduced() ? { opacity: 0.4 } : { transform: `translateX(${direction * ENTER_PX}px)`, opacity: 0 };
       play(from, { transform: "translateX(0)", opacity: 1 });
     };
-    // The glide reached its period: the step shows it in the frame the strip rests.
+    // The glide reached its period: the step shows it in the frame the strip rests,
+    // and a list day that came in keeps the scroll it was drawn at.
     const land = () => {
       const done = flight;
       flight = null;
       if (!done) return;
-      if (done.direction !== 0) step(done.direction);
+      if (done.direction !== 0) {
+        const incoming = listContents().find((content) => content.parentElement?.dataset.periodSide === String(done.direction));
+        const keep = incoming ? drawnAt(incoming) : 0;
+        step(done.direction);
+        if (keep > 0) scroller.scrollTop = keep;
+      }
       rest();
       for (const animation of done.animations) animation.cancel();
     };
@@ -151,11 +166,11 @@ export function usePeriodSwipe(
       let offset = frameAt(done.frames, Number(done.animations[0]?.currentTime ?? 0));
       for (const animation of done.animations) animation.cancel();
       if (done.direction !== 0 && offset * done.direction < 0) {
+        const drawn = new Map(listContents().map((content) => [content, drawnAt(content)]));
         step(done.direction);
         offset += done.direction * done.width;
-        // shortcut: a scrolled list's day that is leaving shows from its top while
-        // held; give each day its own scroll if that is noticed.
-        for (const content of listContents()) content.style.transform = "";
+        // Each list day stays drawn where it was; a new one shows its top.
+        for (const content of listContents()) shift(content, scroller.scrollTop - (drawn.get(content) ?? 0));
       }
       place(offset);
       return offset;
@@ -171,6 +186,7 @@ export function usePeriodSwipe(
     // A sideways touch is a swipe, not a press of the slot or booking under it.
     // Keyboard and assistive technology clicks carry no click count and pass.
     const blockClick = () => {
+      unblock?.();
       const swallow = (event: MouseEvent) => {
         if (event.detail === 0) return;
         event.stopPropagation();
@@ -200,7 +216,7 @@ export function usePeriodSwipe(
     const prime = () => {
       for (const pane of panes()) pane.style.willChange = "transform";
       const top = scroller.scrollTop;
-      if (top > 0) for (const content of listContents()) if (content.parentElement?.dataset.periodSide !== "0") content.style.transform = `translateY(${top}px)`;
+      if (top > 0) for (const content of listContents()) if (content.parentElement?.dataset.periodSide !== "0") shift(content, top);
     };
 
     // A second finger outside the body is seen too: the listener is on the document.
@@ -215,7 +231,7 @@ export function usePeriodSwipe(
       if (!(target instanceof Element) || !scroller.contains(target) || target.closest(FIELDS)) return;
       if (event.pointerType !== "touch" || !event.isPrimary) return;
       if (event.clientX < EDGE_PX || event.clientX > window.innerWidth - EDGE_PX) return;
-      const caught = flight !== null;
+      if (flight) caughtId = event.pointerId;
       const base = seize();
       for (const pane of panes()) for (const animation of pane.getAnimations?.() ?? []) animation.cancel();
       gesture = {
@@ -224,7 +240,6 @@ export function usePeriodSwipe(
         y: event.clientY,
         width: scroller.clientWidth,
         base,
-        caught,
         axis: null,
         offset: base,
         track: [{ x: event.clientX, t: event.timeStamp }],
@@ -248,15 +263,18 @@ export function usePeriodSwipe(
       place(gesture.offset);
     };
     const onUp = (event: PointerEvent) => {
+      if (event.pointerId === caughtId) {
+        caughtId = null;
+        blockClick();
+      }
       if (event.pointerId !== gesture?.id) return;
-      const { x, width, base, caught, offset, axis: was } = gesture;
+      const { x, width, base, offset, axis: was } = gesture;
       // A fast flick may lift before a move has decided the axis.
       const axis = gesture.axis ?? swipeAxis(event.clientX - x, event.clientY - gesture.y);
       // A lift away from the last move adds the distance it saw.
       const track = gesture.track.at(-1)?.x === event.clientX ? gesture.track : [...gesture.track, { x: event.clientX, t: event.timeStamp }];
       gesture = null;
-      // A touch that caught a glide stops it and presses nothing.
-      if (caught || axis === "x") blockClick();
+      if (axis === "x") blockClick();
       if (axis !== "x") {
         settle(offset);
         return;
@@ -285,14 +303,17 @@ export function usePeriodSwipe(
     // or its target was redrawn away mid-swipe. A capture released after a
     // normal lift finds no gesture left.
     const onCancel = (event: PointerEvent) => {
+      if (event.pointerId === caughtId) caughtId = null;
       if (event.pointerId === gesture?.id) stop();
     };
     // INT-10-04・05: a rotation or resize, and leaving the window or the app, end
-    // the swipe; a finger lifted afterwards finds no gesture. Leaving also drops a
-    // wheel gesture's uncommitted amount: the rest of it, momentum included, is
-    // ignored until a 250ms gap starts the next one.
+    // the swipe; a finger lifted afterwards finds no gesture. A glide lands at
+    // once, its step made: a hidden page would hold the landing until it shows.
+    // Leaving also drops a wheel gesture's uncommitted amount: the rest of it,
+    // momentum included, is ignored until a 250ms gap starts the next one.
     const onLeave = () => {
       stop();
+      land();
       if (wheelAxis !== null) wheelDone = true;
     };
     const onHidden = () => {
