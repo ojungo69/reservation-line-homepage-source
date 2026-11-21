@@ -54,12 +54,19 @@ export function swipeStep(dx: number, width: number, velocity = 0): -1 | 0 | 1 {
  * The finger's speed (px/ms) over the last 100ms of its track, as it lifted at
  * liftAt: 0 when its last move was more than 40ms before that (it had stopped).
  * The lift itself only ends the track: it often comes a frame or two after the
- * last move, which is no sign of the finger slowing down.
+ * last move, which is no sign of the finger slowing down. A turn within those
+ * 100ms counts from where the finger turned.
  */
 export function releaseVelocity(samples: readonly Sample[], liftAt: number): number {
   const last = samples.at(-1);
   if (!last || liftAt - last.t > STOPPED_MS) return 0;
-  const first = samples.find((sample) => last.t - sample.t <= VELOCITY_WINDOW_MS) ?? last;
+  let first = last;
+  for (let index = samples.length - 2; index >= 0; index--) {
+    const sample = samples[index];
+    const way = Math.sign(last.x - first.x);
+    if (last.t - sample.t > VELOCITY_WINDOW_MS || (way !== 0 && Math.sign(first.x - sample.x) === -way)) break;
+    first = sample;
+  }
   return last.t > first.t ? (last.x - first.x) / (last.t - first.t) : 0;
 }
 
@@ -72,6 +79,8 @@ export function releaseVelocity(samples: readonly Sample[], liftAt: number): num
 export function springFrames(from: number, to: number, velocity: number): number[] {
   const omega = (2 * Math.PI) / SPRING_RESPONSE_MS;
   const x0 = from - to;
+  // Already there: any speed would only carry it past.
+  if (x0 === 0) return [from, to];
   const v0 = Math.sign(velocity) === -Math.sign(x0) ? Math.sign(velocity) * Math.min(Math.abs(velocity), omega * Math.abs(x0)) : velocity;
   const frames = [from];
   for (let t = FRAME_MS; t < SPRING_MAX_MS; t += FRAME_MS) {

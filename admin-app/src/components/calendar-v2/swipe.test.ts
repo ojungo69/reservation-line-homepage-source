@@ -56,6 +56,10 @@ describe("releaseVelocity", () => {
     expect(releaseVelocity([{ x: 0, t: 0 }, { x: 100, t: 150 }, { x: 120, t: 200 }], 200)).toBe(0.4);
   });
 
+  it("100ms の中で折り返した指は、折り返した所からの速さとする", () => {
+    expect(releaseVelocity([{ x: 300, t: 0 }, { x: 180, t: 80 }, { x: 190, t: 100 }], 100)).toBe(0.5);
+  });
+
   it("最後の動きから 40ms 以内に離した指は、動いたままの速さとする", () => {
     expect(releaseVelocity([{ x: 300, t: 0 }, { x: 255, t: 83 }], 123)).toBeCloseTo(-45 / 83);
   });
@@ -84,8 +88,9 @@ describe("springFrames（DESIGN.md §8）", () => {
     }
   });
 
-  it("行き先のすぐ手前で速く離しても、その先の期間へはみ出さない", () => {
+  it("行き先のすぐ手前で速く離しても、行き先ちょうどで離しても、その先の期間へはみ出さない", () => {
     expect(Math.min(...springFrames(-370, -375, -4))).toBe(-375);
+    expect(springFrames(-375, -375, -1)).toEqual([-375, -375]);
   });
 
   it("行き先と逆へ動いていた指は、その向きに少し進んでから戻る", () => {

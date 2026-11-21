@@ -63,12 +63,12 @@ export function usePeriodSwipe(
 ) {
   // flushSync: the next period is on screen before the strip is put back.
   const step = useEffectEvent((direction: -1 | 1) => flushSync(() => onStep(direction)));
-  const dropFlight = useRef(() => {});
-  // 前/次, the date picker or a store moved the period under a glide, which was
-  // bringing in a period that is no longer next door. A glide's own step has
-  // ended its flight before the period changes, so this finds none then.
+  const endSwipe = useRef(() => {});
+  // 前/次, the date picker or a store moved the period under a held swipe or a
+  // glide: what they would bring in is no longer next door, so both end without
+  // a step. A swipe's own step has ended it before the period changes.
   useLayoutEffect(() => {
-    dropFlight.current();
+    endSwipe.current();
   }, [periodKey]);
 
   useEffect(() => {
@@ -84,8 +84,9 @@ export function usePeriodSwipe(
 
     const panes = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-pane]") ?? [])];
     // A scrolled list's neighbours are drawn from their own top, as a step shows
-    // them (the page opens a list at its top).
-    const listPanes = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side]") ?? [])];
+    // them (the page opens a list at its top): their content moves down inside
+    // the clipped pane, so the scroll height stays.
+    const listContents = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *") ?? [])];
     const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     // Without Web Animations (jsdom) or with reduced motion, steps are made at once.
     const glides = () => !reduced() && typeof scroller.animate === "function";
@@ -95,7 +96,7 @@ export function usePeriodSwipe(
     const rest = () => {
       place(0);
       for (const pane of panes()) pane.style.willChange = "";
-      for (const pane of listPanes()) pane.style.transform = "";
+      for (const content of listContents()) content.style.transform = "";
     };
     const play = (from: Keyframe, to: Keyframe) => {
       const options = motion();
@@ -150,15 +151,16 @@ export function usePeriodSwipe(
       }
       // shortcut: a scrolled list's day that is leaving shows from its top while
       // held; give each day its own scroll if that is noticed.
-      for (const pane of listPanes()) pane.style.transform = "";
+      for (const content of listContents()) content.style.transform = "";
       place(offset);
       return offset;
     };
-    dropFlight.current = () => {
+    endSwipe.current = () => {
       const done = flight;
+      if (!done && !gesture) return;
       flight = null;
-      if (!done) return;
-      for (const animation of done.animations) animation.cancel();
+      gesture = null;
+      for (const animation of done?.animations ?? []) animation.cancel();
       rest();
     };
     // A sideways touch is a swipe, not a press of the slot or booking under it.
@@ -178,10 +180,15 @@ export function usePeriodSwipe(
         unblock = null;
       };
     };
-    // A strip moved off rest goes back; a glide in progress is left to land.
+    // A held swipe goes back to rest; a glide in progress is left to land.
     const stop = () => {
-      if (gesture?.offset) settle(gesture.offset);
+      if (gesture) settle(gesture.offset);
       gesture = null;
+    };
+    // A rotation or resize lands a glide at once: its distance was the old width.
+    const onResize = () => {
+      stop();
+      land();
     };
 
     // A second finger outside the body is seen too: the listener is on the document.
@@ -227,7 +234,7 @@ export function usePeriodSwipe(
       if (was !== "x") {
         for (const pane of panes()) pane.style.willChange = "transform";
         const top = scroller.scrollTop;
-        if (top > 0) for (const pane of listPanes()) if (pane.dataset.periodSide !== "0") pane.style.transform = `translateY(${top}px)`;
+        if (top > 0) for (const content of listContents()) if (content.parentElement?.dataset.periodSide !== "0") content.style.transform = `translateY(${top}px)`;
       }
       gesture.offset = gesture.base + dx;
       place(gesture.offset);
@@ -246,11 +253,13 @@ export function usePeriodSwipe(
         settle(offset);
         return;
       }
-      const shown = base + event.clientX - x;
+      const travel = event.clientX - x;
+      const shown = base + travel;
       const velocity = releaseVelocity(track, event.timeStamp);
-      // INT-04-04: where and how fast the finger lifts decides. INT-10-04: a body
+      // INT-04-04: how far and how fast this finger moved decides; a caught
+      // glide's offset only sets where the strip glides from. INT-10-04: a body
       // whose width changed before the size observer reported it ends the swipe.
-      const direction = scroller.clientWidth === width ? swipeStep(shown, width, velocity) : 0;
+      const direction = scroller.clientWidth === width ? swipeStep(travel, width, velocity) : 0;
       if (direction === 0) {
         settle(shown, velocity);
         return;
@@ -313,7 +322,7 @@ export function usePeriodSwipe(
     document.addEventListener("pointerup", onUp);
     document.addEventListener("pointercancel", onCancel);
     document.addEventListener("lostpointercapture", onCancel, true);
-    window.addEventListener("resize", stop);
+    window.addEventListener("resize", onResize);
     window.addEventListener("blur", onLeave);
     document.addEventListener("visibilitychange", onHidden);
     // INT-10-04: the body changing width under a swipe (a layout change without a
@@ -334,14 +343,14 @@ export function usePeriodSwipe(
       document.removeEventListener("pointerup", onUp);
       document.removeEventListener("pointercancel", onCancel);
       document.removeEventListener("lostpointercapture", onCancel, true);
-      window.removeEventListener("resize", stop);
+      window.removeEventListener("resize", onResize);
       window.removeEventListener("blur", onLeave);
       document.removeEventListener("visibilitychange", onHidden);
       sizes?.disconnect();
       scroller.removeEventListener("wheel", onWheel);
       window.clearTimeout(wheelTimer);
-      dropFlight.current();
-      dropFlight.current = () => {};
+      endSwipe.current();
+      endSwipe.current = () => {};
       unblock?.();
       rest();
     };
