@@ -504,6 +504,19 @@ describe("ScheduleV2Page の予約と外部予定", () => {
     await waitFor(() => expect(shell.calls.blocked.at(-1)).toBe(false));
   });
 
+  it("止めた枠に残る予約も店の列に出し、押すと詳細を開く（UX-16）", async () => {
+    reservationsByDay["2026-11-20"] = [
+      ...reservationsByDay["2026-11-20"],
+      reservation("res-off", "2026-11-20", "15:00", "16:00", { resourceId: "r1-off", resourceName: "旧席", customerDisplayName: "旧席 花子" }),
+    ];
+    const user = userEvent.setup();
+    renderPage();
+    const event = await eventButton(/^旧席 花子、/);
+    expect(column("2026-11-20:s1")?.contains(event)).toBe(true);
+    await user.click(event);
+    expect(captured.detail?.reservationId).toBe("res-off");
+  });
+
   it("サイドバーを常に出す広い画面では、押した予約の隣に小窓で開く", async () => {
     const user = userEvent.setup();
     renderPage();
