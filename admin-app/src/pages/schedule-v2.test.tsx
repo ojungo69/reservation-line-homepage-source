@@ -646,7 +646,7 @@ describe("ScheduleV2Page の表示する予定", () => {
     // The band itself is a plain box at the event's time, which takes the presses;
     // its look is inside and takes none. The edge is the outline color, which
     // test/admin-calendar-tokens.test.ts keeps 3:1 on the surface.
-    expect(bands[0]?.className).toBe("absolute inset-x-0 z-10");
+    expect(bands[0]?.className).toBe("absolute inset-x-0 z-10 overflow-hidden");
     const look = bands[0]?.firstElementChild;
     expect(["pointer-events-none", "border-cal-outline"].map((name) => look?.classList.contains(name))).toEqual([true, true]);
     // The band is not read out: the slots it covers say so, and only those.

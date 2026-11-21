@@ -212,11 +212,12 @@ export function CalendarColumnView({
         return (
           // This plain box takes the presses, at exactly that time; the look inside it
           // takes none, so its edge, padding and corners cannot move where presses go.
+          // It also clips the look, which large text can make taller than a short time.
           <div
             key={`hidden-${index}-${span.start}`}
             aria-hidden="true"
             data-hidden-item=""
-            className="absolute inset-x-0 z-10"
+            className="absolute inset-x-0 z-10 overflow-hidden"
             style={{ top: span.start * PX_PER_MINUTE, height }}
           >
             {/* The fill is about 1.1:1 on the surface, so the edge is drawn in the outline
