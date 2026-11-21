@@ -1098,6 +1098,19 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(heading()).toBe("11月21日（土）");
   });
 
+  it("最後の動きから離れた位置で指を離したときは、その分も速さに入れる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 50);
+    point("pointerMove", scroller(), 295, 400);
+    vi.setSystemTime(Date.now() + 10);
+    // 45px in 60ms: a flick, though the last move alone was slow.
+    point("pointerUp", scroller(), 255, 400);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
   it("掴んでいた予約が描き直しで消えて捕捉を失ったら中止し、元の日のまま戻す（INT-10-02）", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -1397,6 +1410,28 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(captured.create).toBeNull();
     act(() => flights()[0].finish());
     expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("すべっている途中で掴んだ指が縦に動くか、ブラウザに引き取られたら、掴んだ日のまま帯を戻す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    const interruptions: Array<[string, () => void]> = [
+      ["vertical", () => point("pointerMove", scroller(), 200, 440)],
+      ["cancel", () => fireEvent.pointerCancel(scroller(), { pointerId: 1 })],
+    ];
+    for (const [index, [name, interrupt]] of interruptions.entries()) {
+      flick(-100, 80);
+      flights()[0].currentTime = FRAME_MS * 3;
+      point("pointerDown", scroller(), 200, 400);
+      interrupt();
+      expect(xOf(flights()[0]?.keyframes.at(-1)), name).toBe(0);
+      act(() => flights()[0].finish());
+      point("pointerUp", scroller(), 200, 440);
+      expect(paneTransforms(), name).toEqual(["", ""]);
+      expect(heading(), name).toBe(index === 0 ? "11月21日（土）" : "11月22日（日）");
+    }
   });
 
   it("すべっている途中に前後のボタンや今日で期間が変わると、そのすべりの分は動かさない", async () => {

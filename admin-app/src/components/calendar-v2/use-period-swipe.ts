@@ -29,8 +29,8 @@ type Gesture = {
   track: Sample[];
 };
 // A released strip gliding to the next or previous period (direction ±1) or
-// back to the shown one (0), with the period it was released over.
-type Flight = { animations: Animation[]; frames: number[]; direction: -1 | 0 | 1; width: number; key: string };
+// back to the shown one (0).
+type Flight = { animations: Animation[]; frames: number[]; direction: -1 | 0 | 1; width: number };
 
 // The motion tokens of public/glass-tokens.css, read because animate() takes no var().
 function motion() {
@@ -63,13 +63,11 @@ export function usePeriodSwipe(
 ) {
   // flushSync: the next period is on screen before the strip is put back.
   const step = useEffectEvent((direction: -1 | 1) => flushSync(() => onStep(direction)));
-  const shownKey = useRef(periodKey);
   const dropFlight = useRef(() => {});
+  // 前/次, the date picker or a store moved the period under a glide, which was
+  // bringing in a period that is no longer next door. A glide's own step has
+  // ended its flight before the period changes, so this finds none then.
   useLayoutEffect(() => {
-    if (shownKey.current === periodKey) return;
-    shownKey.current = periodKey;
-    // 前/次, the date picker or a store moved the period under a glide, which
-    // was bringing in a period that is no longer next door.
     dropFlight.current();
   }, [periodKey]);
 
@@ -89,6 +87,8 @@ export function usePeriodSwipe(
     // them (the page opens a list at its top).
     const listPanes = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side]") ?? [])];
     const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Without Web Animations (jsdom) or with reduced motion, steps are made at once.
+    const glides = () => !reduced() && typeof scroller.animate === "function";
     const place = (dx: number) => {
       for (const pane of panes()) pane.style.transform = dx ? `translateX(${dx}px)` : "";
     };
@@ -110,7 +110,7 @@ export function usePeriodSwipe(
       const done = flight;
       flight = null;
       if (!done) return;
-      if (done.direction !== 0 && done.key === shownKey.current) step(done.direction);
+      if (done.direction !== 0) step(done.direction);
       rest();
       for (const animation of done.animations) animation.cancel();
     };
@@ -122,7 +122,7 @@ export function usePeriodSwipe(
       const keyframes = frames.map((x) => ({ transform: `translateX(${x}px)` }));
       const options: KeyframeAnimationOptions = { duration: (frames.length - 1) * FRAME_MS, fill: "forwards" };
       const animations = panes().map((pane) => pane.animate(keyframes, options));
-      const current: Flight = { animations, frames, direction, width, key: shownKey.current };
+      const current: Flight = { animations, frames, direction, width };
       flight = current;
       if (animations.length === 0) {
         land();
@@ -133,7 +133,7 @@ export function usePeriodSwipe(
       };
     };
     const settle = (from: number, velocity = 0) => {
-      if (from === 0 || reduced() || typeof scroller.animate !== "function") rest();
+      if (from === 0 || !glides()) rest();
       else fly(from, 0, velocity, 0, scroller.clientWidth);
     };
     // A touch caught the glide: the period it was bringing in is shown now, and
@@ -144,7 +144,7 @@ export function usePeriodSwipe(
       if (!done) return 0;
       let offset = frameAt(done.frames, Number(done.animations[0]?.currentTime ?? 0));
       for (const animation of done.animations) animation.cancel();
-      if (done.direction !== 0 && done.key === shownKey.current) {
+      if (done.direction !== 0) {
         step(done.direction);
         offset += done.direction * done.width;
       }
@@ -252,10 +252,10 @@ export function usePeriodSwipe(
       // whose width changed before the size observer reported it ends the swipe.
       const direction = scroller.clientWidth === width ? swipeStep(shown, width, velocity) : 0;
       if (direction === 0) {
-        settle(reduced() ? 0 : shown, velocity);
+        settle(shown, velocity);
         return;
       }
-      if (reduced() || typeof scroller.animate !== "function") {
+      if (!glides()) {
         rest();
         step(direction);
         enter(direction);
