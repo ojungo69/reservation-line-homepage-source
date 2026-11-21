@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
@@ -52,7 +53,8 @@ vi.mock("@/components/command-palette", async () => {
   };
 });
 
-import AppShellV2, { DOCKED_QUERY } from "./app-shell-v2";
+import { DOCKED_QUERY } from "@/hooks/use-media-query";
+import AppShellV2 from "./app-shell-v2";
 import { useShellV2 } from "./shell-context";
 
 // A matchMedia whose docked breakpoint the test can flip, firing "change" the way
@@ -578,5 +580,45 @@ describe("AppShellV2 と自分の上部バーを持つ画面 (T005)", () => {
     );
     await user.keyboard("{Control>}k{/Control}");
     expect(palette()).not.toBeNull();
+  });
+});
+
+// Stands in for the calendar's sidebar parts (T005): drawn into the shell's sidebar
+// before and after the page links.
+function SlotPage() {
+  const shell = useShellV2();
+  const slots = shell?.sidebarSlots;
+  return (
+    <>
+      <OwnBarPage />
+      {slots?.top && createPortal(<button type="button" onClick={() => shell?.closeMenu()}>ページの作成ボタン</button>, slots.top)}
+      {slots?.end && createPortal(<p>ページの表示する予定</p>, slots.end)}
+    </>
+  );
+}
+
+const follows = (first: Node, second: Node) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+describe("AppShellV2 のページの差し込み口", () => {
+  it("常に出すサイドバーでは、ページの部品をページ移動の前と後ろに描く", () => {
+    renderOwnBar(<SlotPage />);
+    const nav = screen.getByRole("navigation", { name: "メインナビゲーション" });
+    const create = screen.getByRole("button", { name: "ページの作成ボタン" });
+    const layers = screen.getByText("ページの表示する予定");
+    expect(nav.closest("aside")?.contains(create)).toBe(true);
+    expect(follows(create, nav)).toBe(true);
+    expect(follows(nav, layers)).toBe(true);
+  });
+
+  it("引き出しでも同じ口に描き、ページから閉じられる", async () => {
+    wide = false;
+    const user = userEvent.setup();
+    renderOwnBar(<SlotPage />);
+    expect(screen.queryByRole("button", { name: "ページの作成ボタン" })).toBeNull();
+    await openDrawer(user);
+    const panel = drawer() as HTMLElement;
+    expect(within(panel).getByText("ページの表示する予定")).toBeTruthy();
+    await user.click(within(panel).getByRole("button", { name: "ページの作成ボタン" }));
+    await waitFor(() => expect(drawer()).toBeNull());
   });
 });

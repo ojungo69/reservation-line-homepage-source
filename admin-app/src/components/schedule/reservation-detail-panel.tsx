@@ -1,5 +1,8 @@
 import { ChartConflictNotice } from "@/components/customers/chart-conflict-notice";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { X } from "lucide-react";
+import { Popover, PopoverAnchor, PopoverClose, PopoverContent } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,12 +35,87 @@ import { DetailRow as Row } from "@/components/ui/detail-row";
 import { PendingConfirmDialog } from "@/components/ui/pending-confirm-dialog";
 import { ApiError } from "@/lib/api-client";
 
+type DetailLayout = "side" | "bottom" | "popover";
+type DetailAnchor = ComponentProps<typeof PopoverAnchor>["virtualRef"];
+
+// INT-12-11: the Escape that ends an IME conversion is the memo's, not the new
+// calendar's close. isComposing is false when the conversion ended just before
+// that keydown, where keyCode is still 229 (MDN, Element: keydown event).
+const keepConversionEscape = (event: KeyboardEvent) => {
+  if (event.isComposing || event.keyCode === 229) event.preventDefault();
+};
+
 type ReservationDetailPanelProps = {
   reservationId: string | null;
   onClose: () => void;
   onOpenChart?: (customerId: string, reservationId: string) => void;
   onRebook?: (info: { customerId?: string | null; customerName: string; customerKana?: string | null; phone?: string | null; serviceIds: string[]; resourceId?: string; storeId?: string }) => void;
+  // The new calendar's containers (spec 008 T005); everything else keeps the right sheet.
+  layout?: DetailLayout;
+  // What the popover opens beside: the pressed booking or button.
+  anchor?: DetailAnchor;
 };
+
+/**
+ * The detail's container only: the right sheet, the sheet from the bottom of a
+ * narrow screen, or the popover beside the pressed booking (DESIGN.md §5).
+ * Escape, an outside press and the close button all reach onOpenChange, which
+ * guards unsaved notes. The popover is modal like the sheets, so the calendar
+ * under it cannot open a second booking and drop that draft unasked.
+ */
+function DetailFrame({
+  layout,
+  anchor,
+  open,
+  onOpenChange,
+  children,
+}: Readonly<{ layout: DetailLayout; anchor?: DetailAnchor; open: boolean; onOpenChange: (open: boolean) => void; children: ReactNode }>) {
+  if (layout === "popover") {
+    return (
+      <Popover open={open} onOpenChange={onOpenChange} modal>
+        {/* The modal sets pointer-events: none on <body>, which the calendar's bar
+            turns back on for its buttons. This clear layer takes those presses,
+            and Radix reads them as an outside press, so they reach onOpenChange. */}
+        {open && createPortal(<div aria-hidden="true" data-detail-backdrop="" className="pointer-events-auto fixed inset-0 z-50" />, document.body)}
+        <PopoverAnchor virtualRef={anchor} />
+        <PopoverContent
+          material="modal"
+          side="right"
+          align="start"
+          sideOffset={8}
+          collisionPadding={16}
+          // On screen even when a refresh moves the booking out of view.
+          sticky="always"
+          onEscapeKeyDown={keepConversionEscape}
+          aria-label="予約詳細"
+          className="flex max-h-(--radix-popover-content-available-height) w-[min(28rem,calc(100vw-2rem))] origin-(--radix-popover-content-transform-origin) flex-col rounded-[20px]"
+        >
+          {/* As in the sheet: the glass stays still and this inner part scrolls (DESIGN.md §3). */}
+          <div className="min-h-0 flex-1 overflow-y-auto p-6">{children}</div>
+          <PopoverClose className="absolute right-2 top-2 flex size-11 items-center justify-center rounded-full opacity-70 hover:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">
+            <X className="size-4" aria-hidden="true" />
+            <span className="sr-only">閉じる</span>
+          </PopoverClose>
+        </PopoverContent>
+      </Popover>
+    );
+  }
+  const bottom = layout === "bottom";
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side={bottom ? "bottom" : "right"}
+        className={bottom ? "max-h-[85dvh] rounded-t-[20px] pb-[max(1.5rem,env(safe-area-inset-bottom))]" : "w-full sm:max-w-md"}
+        // The right sheet of the other screens keeps its Escape as it was.
+        onEscapeKeyDown={bottom ? keepConversionEscape : undefined}
+        aria-describedby={undefined}
+      >
+        <SheetTitle className="sr-only">予約詳細</SheetTitle>
+        {children}
+      </SheetContent>
+    </Sheet>
+  );
+}
 
 type ConfirmState = (typeof ACTION_CONFIG)[number] | null;
 
@@ -167,6 +245,8 @@ export function ReservationDetailPanel({
   onClose,
   onRebook,
   onOpenChart,
+  layout = "side",
+  anchor,
 }: Readonly<ReservationDetailPanelProps>) {
   const reservationQuery = useReservationDetail(reservationId);
   const { data, isPending, isFetching } = reservationQuery;
@@ -344,7 +424,9 @@ export function ReservationDetailPanel({
 
   return (
     <>
-      <Sheet
+      <DetailFrame
+        layout={layout}
+        anchor={anchor}
         open={!!reservationId}
         onOpenChange={(open) => {
           if (open) return;
@@ -355,306 +437,303 @@ export function ReservationDetailPanel({
           closePanel();
         }}
       >
-        <SheetContent side="right" className="w-full sm:max-w-md" aria-describedby={undefined}>
-          <SheetTitle className="sr-only">予約詳細</SheetTitle>
-          {isPending && <DetailSkeleton />}
-          {!isPending && !reservation && (
-            <p className="p-4 text-sm text-destructive" role="alert">予約情報の取得に失敗しました。時間をおいて再度お試しください。</p>
-          )}
-          {reservation && (
-            <div className="space-y-4 pt-4">
-              {/* pr-8: 44px Close (右端 52px 占有) に折返した Badge が潜らないため。 */}
-              <div className="flex flex-wrap items-center gap-2 pr-8">
-                <Badge className={statusColor(reservation.status)} variant="outline">
-                  {statusLabel(reservation.status)}
-                </Badge>
-                {reservation.cancellationFeeUnpaidAt && (
-                  <Badge variant="destructive">キャンセル料未納</Badge>
-                )}
-                {reservation.duplicateConsent && (
-                  <Badge variant={reservation.duplicateConsent.stage === "hard" ? "destructive" : "outline"}>
-                    既存予約あり・同意済み
-                  </Badge>
-                )}
-                <span className="text-xs text-muted-foreground">{reservationSourceLabel(reservation.source)}</span>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold">{reservation.customerDisplayName}</h3>
-                {reservation.customerDisplayNameKana && (
-                  <p className="text-sm text-muted-foreground">{reservation.customerDisplayNameKana}</p>
-                )}
-              </div>
-
-              <Separator />
-
-              <Section title="予約情報">
-                <Row label="メニュー" value={displayServiceName(reservation.serviceName)} />
-                {showResourceRow && <Row label="リソース" value={reservation.resourceName} />}
-                <Row label="日時" value={`${formatDateDisplay(new Date(reservation.startAt))} ${formatTime(reservation.startAt)}–${formatTime(reservation.endAt)}`} />
-                <Row label="店舗" value={reservation.storeName} />
-                {reservationOriginLabel(reservation.reservationOrigin) && (
-                  <Row label="予約経路" value={reservationOriginLabel(reservation.reservationOrigin)!} />
-                )}
-              </Section>
-
-              <Separator />
-
-              <Section title="顧客情報">
-                {onOpenChart && <Button variant="outline" className="w-full" onClick={() => {
-                  if (hasUnsavedNotes) setDiscardDraftNext("chart"); else openChart();
-                }}>カルテを開く</Button>}
-                {reservation.phoneNormalized && (
-                  <Row label="電話" value={reservation.phoneNormalized} />
-                )}
-                <Row label="LINE" value={lineFriendStatusLabel(reservation.lineFriendStatus)} />
-                {/* 顧客単位メモ（表示専用・編集は顧客タブ）。改行保持のため Row ではなく
-                    customer-detail-panel と同じ whitespace-pre-wrap ブロックで出す。
-                    空でも見出しごと消さない — 消すと「メモが無い」と「機能が壊れている」を
-                    現場が区別できず、実際にバグとして報告された。 */}
-                <div className="pt-1">
-                  <p className="text-xs text-muted-foreground">顧客メモ</p>
-                  <p className="whitespace-pre-wrap text-sm">{reservation.customerMemo || "メモなし"}</p>
-                </div>
-                {reservation.customerAllergyNotes && (
-                  <div className="pt-1">
-                    <p className="text-xs text-muted-foreground">アレルギー・注意事項</p>
-                    <p className="whitespace-pre-wrap text-sm">{reservation.customerAllergyNotes}</p>
-                  </div>
-                )}
-              </Section>
-
+        {isPending && <DetailSkeleton />}
+        {!isPending && !reservation && (
+          <p className="p-4 text-sm text-destructive" role="alert">予約情報の取得に失敗しました。時間をおいて再度お試しください。</p>
+        )}
+        {reservation && (
+          <div className="space-y-4 pt-4">
+            {/* pr-8: 44px Close (右端 52px 占有) に折返した Badge が潜らないため。 */}
+            <div className="flex flex-wrap items-center gap-2 pr-8">
+              <Badge className={statusColor(reservation.status)} variant="outline">
+                {statusLabel(reservation.status)}
+              </Badge>
+              {reservation.cancellationFeeUnpaidAt && (
+                <Badge variant="destructive">キャンセル料未納</Badge>
+              )}
               {reservation.duplicateConsent && (
-                <>
-                  <Separator />
-                  <Section title="重複予約の同意">
-                    <p className="text-sm text-muted-foreground">
-                      予約時に他のご予約があることを案内し、お客様が
-                      {reservation.duplicateConsent.stage === "hard"
-                        ? "「変更・キャンセル不可」の警告"
-                        : "警告"}
-                      に同意済みです。
-                    </p>
-                    <Row
-                      label="同意日時"
-                      value={`${formatDateDisplay(new Date(reservation.duplicateConsent.consentedAt))} ${formatTime(reservation.duplicateConsent.consentedAt)}`}
-                    />
-                    {reservation.duplicateConsent.existingReservations.length > 0 && (
-                      <div className="space-y-1 pt-1">
-                        <p className="text-xs text-muted-foreground">当時の他のご予約</p>
-                        <ul className="list-disc space-y-0.5 pl-5 text-sm">
-                          {reservation.duplicateConsent.existingReservations.map((r) => (
-                            <li key={r.reservationId}>
-                              {formatDateDisplay(new Date(r.startAt))} {formatTime(r.startAt)}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </Section>
-                </>
+                <Badge variant={reservation.duplicateConsent.stage === "hard" ? "destructive" : "outline"}>
+                  既存予約あり・同意済み
+                </Badge>
               )}
+              <span className="text-xs text-muted-foreground">{reservationSourceLabel(reservation.source)}</span>
+            </div>
 
-              {latestVisit && (
-                <>
-                  <Separator />
-                  <Section title="施術メモ">
-                    {editingNotes && conflictNotice}
-                    {editingNotes ? (
-                      <NotesEditor
-                        value={notesText}
-                        onChange={setNotesText}
-                        saving={isSavingNotes}
-                        saveDisabled={isSavingNotes || notesConflict}
-                        saveLabel={isSavingNotes ? "保存中..." : "保存"}
-                        onSave={() => {
-                          // 保存済みのメモを空で上書きしようとしている場合だけ確認を挟む。
-                          if (notesBaseline?.trim() && !notesText.trim()) {
-                            setClearNotesVisitId(latestVisit.id);
-                            return;
-                          }
-                          handleSaveNotes(latestVisit.id);
-                        }}
-                        onCancel={() => setEditingNotes(false)}
-                        cancelLabel="キャンセル"
-                      />
-                    ) : (
-                      <div className="space-y-1">
-                        <p className="text-sm whitespace-pre-wrap">
-                          {latestVisit.treatmentNotes || "メモなし"}
-                        </p>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            // 完了後の入力欄と同じ下書きを使い、編集への切替で上書きしない。
-                            if (!showNotesPrompt) {
-                              setNotesText(latestVisit.treatmentNotes ?? "");
-                              setNotesBaseline(latestVisit.treatmentNotes);
-                              setNotesConflict(false);
-                            }
-                            setShowNotesPrompt(false);
-                            setEditingNotes(true);
-                          }}
-                        >
-                          編集
-                        </Button>
-                      </div>
-                    )}
-                  </Section>
-                </>
+            <div>
+              <h3 className="text-lg font-semibold">{reservation.customerDisplayName}</h3>
+              {reservation.customerDisplayNameKana && (
+                <p className="text-sm text-muted-foreground">{reservation.customerDisplayNameKana}</p>
               )}
+            </div>
 
-              {/* 同じ顧客の直近の施術メモ。上の「施術メモ」はこの予約の来店行だけなので、
-                  未完了の予約を開くと1件も出ない — 施術前に前回のカルテを読みたい場面が
-                  まさにそれなので、過去ぶんは別セクションで出す（表示専用）。
-                  0件のときは顧客メモと違ってセクションごと出さない: 顧客メモは常に1つある
-                  はずの欄なので空でも見出しを残すが、こちらは「まだ来ていない顧客」で
-                  空なのが普通で、毎回「なし」を出すと読む場所が増えるだけになる。 */}
-              {reservation.customerPastNotes?.length ? (
-                <>
-                  <Separator />
-                  <Section title="過去の施術メモ">
-                    {/* 1件ぶんは日付と本文を密に、件と件のあいだは広く。メモは複数行に
-                        なるので、間隔が同じだと前の回の末尾と次の回の日付が地続きに
-                        見えて、どこで区切れるのか読み取れなくなる。 */}
-                    <div className="space-y-3">
-                      {reservation.customerPastNotes.map((note, index) => (
-                        <div key={`${note.visitedAt}-${index}`} className="space-y-0.5">
-                          {/* 年入りの表記。何年も前のカルテが並びうるので、年が無いと
-                              去年の同じ日と見分けが付かない。 */}
-                          <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                            {formatFullJstDate(new Date(note.visitedAt))}
-                            {/* 他店舗で受けた施術のときだけ店舗名を出す。owner 以上には全店舗
-                                ぶんが並ぶので、どこで受けたか分からないと別店舗の内容を
-                                自店舗の履歴として読んでしまう。同じ店舗のぶんに毎回名前を
-                                付けると、ほとんどの行が同じ文字で埋まって差が見えなくなる。 */}
-                            {note.storeId && note.storeId !== reservation.storeId ? (
-                              <Badge variant="outline" className="font-normal">
-                                {note.storeName}
-                              </Badge>
-                            ) : null}
-                          </p>
-                          <p className="whitespace-pre-wrap text-sm">{note.treatmentNotes}</p>
-                        </div>
-                      ))}
-                    </div>
-                    {/* 実際に打ち切られたときだけ出す。件数では判定しない — ちょうど3件しか
-                        無い顧客にも出てしまい、無い過去を見に行かせることになる。判定は
-                        worker が4件目の有無で行い、この項目で伝えてくる。 */}
-                    {reservation.customerPastNotesTruncated ? (
-                      <p className="text-xs text-muted-foreground">
-                        これより前のぶんは顧客タブの来店履歴でご確認いただけます。
-                      </p>
-                    ) : null}
-                  </Section>
-                </>
-              ) : null}
+            <Separator />
 
-              <Separator />
+            <Section title="予約情報">
+              <Row label="メニュー" value={displayServiceName(reservation.serviceName)} />
+              {showResourceRow && <Row label="リソース" value={reservation.resourceName} />}
+              <Row label="日時" value={`${formatDateDisplay(new Date(reservation.startAt))} ${formatTime(reservation.startAt)}–${formatTime(reservation.endAt)}`} />
+              <Row label="店舗" value={reservation.storeName} />
+              {reservationOriginLabel(reservation.reservationOrigin) && (
+                <Row label="予約経路" value={reservationOriginLabel(reservation.reservationOrigin)!} />
+              )}
+            </Section>
 
-              <div className="flex flex-wrap gap-2">
-                {ACTION_CONFIG.filter(
-                  (cfg) =>
-                    cfg.fromStatuses.includes(reservation.status) &&
-                    (!cfg.privilegedOnly || isPrivileged),
-                ).map((cfg) => (
-                  <Button
-                    key={cfg.action}
-                    variant={cfg.variant}
-                    size="sm"
-                    disabled={isActioning}
-                    onClick={() => { setApprovalFailure(""); setConfirm(cfg); }}
-                  >
-                    {cfg.label}
-                  </Button>
-                ))}
-                {(reservation.status === "pending_approval" || reservation.status === "confirmed") && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={isActioning}
-                    onClick={() =>
-                      setRescheduleTarget({
-                        id: reservation.id,
-                        storeId: reservation.storeId,
-                        resourceId: reservation.resourceId,
-                        startAt: reservation.startAt,
-                        endAt: reservation.endAt,
-                      })
-                    }
-                  >
-                    開始時刻を変更
-                  </Button>
-                )}
-                {(reservation.status === "pending_approval" || reservation.status === "confirmed") && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={isActioning}
-                    onClick={() =>
-                      setDurationTarget({
-                        id: reservation.id,
-                        startAt: reservation.startAt,
-                        endAt: reservation.endAt,
-                      })
-                    }
-                  >
-                    長さを変更
-                  </Button>
-                )}
-                {onRebook && isRebookableStatus(reservation.status) && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      // 閉じる経路と同じ確認を挟む。ここを素通りさせると、書きかけの
-                      // 施術メモが reservationId の切り替えで無確認に消える。
-                      if (hasUnsavedNotes) {
-                        setDiscardDraftNext("rebook");
-                        return;
-                      }
-                      rebookAndClose();
-                    }}
-                  >
-                    次回予約
-                  </Button>
-                )}
+            <Separator />
+
+            <Section title="顧客情報">
+              {onOpenChart && <Button variant="outline" className="w-full" onClick={() => {
+                if (hasUnsavedNotes) setDiscardDraftNext("chart"); else openChart();
+              }}>カルテを開く</Button>}
+              {reservation.phoneNormalized && (
+                <Row label="電話" value={reservation.phoneNormalized} />
+              )}
+              <Row label="LINE" value={lineFriendStatusLabel(reservation.lineFriendStatus)} />
+              {/* 顧客単位メモ（表示専用・編集は顧客タブ）。改行保持のため Row ではなく
+                  customer-detail-panel と同じ whitespace-pre-wrap ブロックで出す。
+                  空でも見出しごと消さない — 消すと「メモが無い」と「機能が壊れている」を
+                  現場が区別できず、実際にバグとして報告された。 */}
+              <div className="pt-1">
+                <p className="text-xs text-muted-foreground">顧客メモ</p>
+                <p className="whitespace-pre-wrap text-sm">{reservation.customerMemo || "メモなし"}</p>
               </div>
+              {reservation.customerAllergyNotes && (
+                <div className="pt-1">
+                  <p className="text-xs text-muted-foreground">アレルギー・注意事項</p>
+                  <p className="whitespace-pre-wrap text-sm">{reservation.customerAllergyNotes}</p>
+                </div>
+              )}
+            </Section>
 
-              <CancellationFeeAction
-                unpaidAt={reservation.cancellationFeeUnpaidAt}
-                status={reservation.status}
-                pending={isUpdatingFee}
-                onChange={(unpaid) => updateCancellationFee({ reservationId: reservation.id, unpaid })}
-              />
+            {reservation.duplicateConsent && (
+              <>
+                <Separator />
+                <Section title="重複予約の同意">
+                  <p className="text-sm text-muted-foreground">
+                    予約時に他のご予約があることを案内し、お客様が
+                    {reservation.duplicateConsent.stage === "hard"
+                      ? "「変更・キャンセル不可」の警告"
+                      : "警告"}
+                    に同意済みです。
+                  </p>
+                  <Row
+                    label="同意日時"
+                    value={`${formatDateDisplay(new Date(reservation.duplicateConsent.consentedAt))} ${formatTime(reservation.duplicateConsent.consentedAt)}`}
+                  />
+                  {reservation.duplicateConsent.existingReservations.length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-xs text-muted-foreground">当時の他のご予約</p>
+                      <ul className="list-disc space-y-0.5 pl-5 text-sm">
+                        {reservation.duplicateConsent.existingReservations.map((r) => (
+                          <li key={r.reservationId}>
+                            {formatDateDisplay(new Date(r.startAt))} {formatTime(r.startAt)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </Section>
+              </>
+            )}
 
-              {showNotesPrompt && (
-                <>
-                  <Separator />
-                  <Section title="施術メモを記録">
-                    {conflictNotice}
+            {latestVisit && (
+              <>
+                <Separator />
+                <Section title="施術メモ">
+                  {editingNotes && conflictNotice}
+                  {editingNotes ? (
                     <NotesEditor
                       value={notesText}
                       onChange={setNotesText}
                       saving={isSavingNotes}
-                      saveDisabled={isSavingNotes || notesConflict || !notesText.trim() || !latestVisit || isFetching}
-                      saveLabel={getNotesSaveLabel(isSavingNotes, isFetching, !!latestVisit)}
+                      saveDisabled={isSavingNotes || notesConflict}
+                      saveLabel={isSavingNotes ? "保存中..." : "保存"}
                       onSave={() => {
-                        const visit = latestVisit;
-                        if (visit) handleSaveNotes(visit.id);
+                        // 保存済みのメモを空で上書きしようとしている場合だけ確認を挟む。
+                        if (notesBaseline?.trim() && !notesText.trim()) {
+                          setClearNotesVisitId(latestVisit.id);
+                          return;
+                        }
+                        handleSaveNotes(latestVisit.id);
                       }}
-                      onCancel={closePanel}
-                      cancelLabel="スキップ"
-                      autoFocus
+                      onCancel={() => setEditingNotes(false)}
+                      cancelLabel="キャンセル"
                     />
-                  </Section>
-                </>
+                  ) : (
+                    <div className="space-y-1">
+                      <p className="text-sm whitespace-pre-wrap">
+                        {latestVisit.treatmentNotes || "メモなし"}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          // 完了後の入力欄と同じ下書きを使い、編集への切替で上書きしない。
+                          if (!showNotesPrompt) {
+                            setNotesText(latestVisit.treatmentNotes ?? "");
+                            setNotesBaseline(latestVisit.treatmentNotes);
+                            setNotesConflict(false);
+                          }
+                          setShowNotesPrompt(false);
+                          setEditingNotes(true);
+                        }}
+                      >
+                        編集
+                      </Button>
+                    </div>
+                  )}
+                </Section>
+              </>
+            )}
+
+            {/* 同じ顧客の直近の施術メモ。上の「施術メモ」はこの予約の来店行だけなので、
+                未完了の予約を開くと1件も出ない — 施術前に前回のカルテを読みたい場面が
+                まさにそれなので、過去ぶんは別セクションで出す（表示専用）。
+                0件のときは顧客メモと違ってセクションごと出さない: 顧客メモは常に1つある
+                はずの欄なので空でも見出しを残すが、こちらは「まだ来ていない顧客」で
+                空なのが普通で、毎回「なし」を出すと読む場所が増えるだけになる。 */}
+            {reservation.customerPastNotes?.length ? (
+              <>
+                <Separator />
+                <Section title="過去の施術メモ">
+                  {/* 1件ぶんは日付と本文を密に、件と件のあいだは広く。メモは複数行に
+                      なるので、間隔が同じだと前の回の末尾と次の回の日付が地続きに
+                      見えて、どこで区切れるのか読み取れなくなる。 */}
+                  <div className="space-y-3">
+                    {reservation.customerPastNotes.map((note, index) => (
+                      <div key={`${note.visitedAt}-${index}`} className="space-y-0.5">
+                        {/* 年入りの表記。何年も前のカルテが並びうるので、年が無いと
+                            去年の同じ日と見分けが付かない。 */}
+                        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                          {formatFullJstDate(new Date(note.visitedAt))}
+                          {/* 他店舗で受けた施術のときだけ店舗名を出す。owner 以上には全店舗
+                              ぶんが並ぶので、どこで受けたか分からないと別店舗の内容を
+                              自店舗の履歴として読んでしまう。同じ店舗のぶんに毎回名前を
+                              付けると、ほとんどの行が同じ文字で埋まって差が見えなくなる。 */}
+                          {note.storeId && note.storeId !== reservation.storeId ? (
+                            <Badge variant="outline" className="font-normal">
+                              {note.storeName}
+                            </Badge>
+                          ) : null}
+                        </p>
+                        <p className="whitespace-pre-wrap text-sm">{note.treatmentNotes}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {/* 実際に打ち切られたときだけ出す。件数では判定しない — ちょうど3件しか
+                      無い顧客にも出てしまい、無い過去を見に行かせることになる。判定は
+                      worker が4件目の有無で行い、この項目で伝えてくる。 */}
+                  {reservation.customerPastNotesTruncated ? (
+                    <p className="text-xs text-muted-foreground">
+                      これより前のぶんは顧客タブの来店履歴でご確認いただけます。
+                    </p>
+                  ) : null}
+                </Section>
+              </>
+            ) : null}
+
+            <Separator />
+
+            <div className="flex flex-wrap gap-2">
+              {ACTION_CONFIG.filter(
+                (cfg) =>
+                  cfg.fromStatuses.includes(reservation.status) &&
+                  (!cfg.privilegedOnly || isPrivileged),
+              ).map((cfg) => (
+                <Button
+                  key={cfg.action}
+                  variant={cfg.variant}
+                  size="sm"
+                  disabled={isActioning}
+                  onClick={() => { setApprovalFailure(""); setConfirm(cfg); }}
+                >
+                  {cfg.label}
+                </Button>
+              ))}
+              {(reservation.status === "pending_approval" || reservation.status === "confirmed") && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isActioning}
+                  onClick={() =>
+                    setRescheduleTarget({
+                      id: reservation.id,
+                      storeId: reservation.storeId,
+                      resourceId: reservation.resourceId,
+                      startAt: reservation.startAt,
+                      endAt: reservation.endAt,
+                    })
+                  }
+                >
+                  開始時刻を変更
+                </Button>
+              )}
+              {(reservation.status === "pending_approval" || reservation.status === "confirmed") && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isActioning}
+                  onClick={() =>
+                    setDurationTarget({
+                      id: reservation.id,
+                      startAt: reservation.startAt,
+                      endAt: reservation.endAt,
+                    })
+                  }
+                >
+                  長さを変更
+                </Button>
+              )}
+              {onRebook && isRebookableStatus(reservation.status) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    // 閉じる経路と同じ確認を挟む。ここを素通りさせると、書きかけの
+                    // 施術メモが reservationId の切り替えで無確認に消える。
+                    if (hasUnsavedNotes) {
+                      setDiscardDraftNext("rebook");
+                      return;
+                    }
+                    rebookAndClose();
+                  }}
+                >
+                  次回予約
+                </Button>
               )}
             </div>
-          )}
-        </SheetContent>
-      </Sheet>
+
+            <CancellationFeeAction
+              unpaidAt={reservation.cancellationFeeUnpaidAt}
+              status={reservation.status}
+              pending={isUpdatingFee}
+              onChange={(unpaid) => updateCancellationFee({ reservationId: reservation.id, unpaid })}
+            />
+
+            {showNotesPrompt && (
+              <>
+                <Separator />
+                <Section title="施術メモを記録">
+                  {conflictNotice}
+                  <NotesEditor
+                    value={notesText}
+                    onChange={setNotesText}
+                    saving={isSavingNotes}
+                    saveDisabled={isSavingNotes || notesConflict || !notesText.trim() || !latestVisit || isFetching}
+                    saveLabel={getNotesSaveLabel(isSavingNotes, isFetching, !!latestVisit)}
+                    onSave={() => {
+                      const visit = latestVisit;
+                      if (visit) handleSaveNotes(visit.id);
+                    }}
+                    onCancel={closePanel}
+                    cancelLabel="スキップ"
+                    autoFocus
+                  />
+                </Section>
+              </>
+            )}
+          </div>
+        )}
+      </DetailFrame>
 
       <AlertDialog open={!!confirm} onOpenChange={(open) => {
         if (!open && isActioning) return;

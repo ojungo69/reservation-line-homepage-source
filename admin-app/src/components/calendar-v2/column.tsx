@@ -94,18 +94,19 @@ function present(item: CalendarItem, dayLabel: string, dateKey: string) {
   const start = clock(item.span.start);
   const end = clock(item.span.end);
   const title = block.titleSnapshot ?? "外部予定";
-  const manual = block.source === "admin_block";
+  // Only Google's own blocks say Google; the store's and the system's are blocks.
+  const google = block.source === "google_calendar";
   return {
     id: block.id,
     tone: "external" as EventTone,
     // The source is the marker, so a short block still says where it came from.
-    marker: manual ? "ブロック" : "Google",
+    marker: google ? "Google" : "ブロック",
     title,
     start,
     range: `${start}–${end}`,
     detail: "",
     cleaning: null,
-    label: `${title}、${spanLabel(block.startAt, block.endAt)}、${manual ? "ブロック" : "Googleカレンダー"}`,
+    label: `${title}、${spanLabel(block.startAt, block.endAt)}、${google ? "Googleカレンダー" : "ブロック"}`,
   };
 }
 
@@ -113,6 +114,9 @@ type ColumnProps = Readonly<{
   column: CalendarColumn;
   dayLabel: string;
   items: readonly CalendarItem[];
+  // What 表示する予定 hides: still taken (spec.md, clarifications), so a plain band
+  // at each one's own time keeps it from looking free and takes the presses there.
+  hidden: readonly Span[];
   closed: readonly Span[];
   closures: readonly ClosureBand[];
   // The slot that takes Tab until the user moves: the opening time, where work starts.
@@ -136,6 +140,7 @@ export function CalendarColumnView({
   column,
   dayLabel,
   items,
+  hidden,
   closed,
   closures,
   entryMinute,
@@ -183,7 +188,10 @@ export function CalendarColumnView({
           type="button"
           tabIndex={minute === tabStop ? 0 : -1}
           data-slot-minutes={minute}
-          aria-label={`${dayLabel} ${clock(minute)} ${column.storeName}に予約を追加`}
+          // The band below is not read out, so the slot says what it covers.
+          aria-label={`${dayLabel} ${clock(minute)} ${column.storeName}に予約を追加${
+            hidden.some((span) => minute < span.end && minute + SLOT_MINUTES > span.start) ? "（この時間には非表示の予定があります）" : ""
+          }`}
           onClick={(event) => onSlot(column, minute, event.currentTarget)}
           onFocus={() => setTabMinute(minute)}
           onKeyDown={moveSlotFocus}
@@ -198,6 +206,28 @@ export function CalendarColumnView({
           style={{ top: minute * PX_PER_MINUTE, height: SLOT_MINUTES * PX_PER_MINUTE }}
         />
       ))}
+      {hidden.map((span, index) => {
+        // Not stretched like a short booking: the slots' names go by the same time.
+        const height = (span.end - span.start) * PX_PER_MINUTE;
+        return (
+          // This plain box takes the presses, at exactly that time; the look inside it
+          // takes none, so its edge, padding and corners cannot move where presses go.
+          // It also clips the look, which large text can make taller than a short time.
+          <div
+            key={`hidden-${index}-${span.start}`}
+            aria-hidden="true"
+            data-hidden-item=""
+            className="absolute inset-x-0 z-10 overflow-hidden"
+            style={{ top: span.start * PX_PER_MINUTE, height }}
+          >
+            {/* The fill is about 1.1:1 on the surface, so the edge is drawn in the outline
+                color (3:1, as the pending booking's; DESIGN.md §3), dashed to stay apart from it. */}
+            <div className="pointer-events-none h-full overflow-hidden rounded-md border border-dashed border-cal-outline bg-cal-text/5 px-1.5 pt-0.5 text-xs text-cal-text-secondary dark:bg-cal-outer">
+              {height >= MIN_EVENT_PX && "非表示の予定"}
+            </div>
+          </div>
+        );
+      })}
       {placed.map(({ item, start, end, lane, lanes, span }) => {
         const top = start * PX_PER_MINUTE;
         const height = (end - start) * PX_PER_MINUTE;

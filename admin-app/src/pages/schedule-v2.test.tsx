@@ -7,7 +7,9 @@ import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient } from "@/test-utils/query-client";
 import { FRAME_MS, frameAt } from "@/components/calendar-v2/swipe";
+import { PX_PER_MINUTE } from "@/components/calendar-v2/geometry";
 import { ShellV2Context, type ShellV2 } from "@/components/shell-v2/shell-context";
+import { DOCKED_QUERY } from "@/hooks/use-media-query";
 import { addDays, formatJstDate } from "@/lib/timeline";
 import type { ExternalBlock, Reservation } from "@/types/api";
 
@@ -17,7 +19,12 @@ const storeState = vi.hoisted(() => ({
   stores: [] as Array<{ id: string; name: string }>,
 }));
 const captured = vi.hoisted(() => ({
-  detail: null as null | { reservationId: string | null; onClose: () => void },
+  detail: null as null | {
+    reservationId: string | null;
+    onClose: () => void;
+    layout?: string;
+    anchor?: { current: { getBoundingClientRect: () => DOMRect } | null };
+  },
   create: null as null | Record<string, unknown>,
 }));
 
@@ -133,6 +140,8 @@ let businessHours: Array<{ id: string; storeId: string; weekday: number; opensAt
 let settingsFail: boolean;
 let closures: Array<{ id: string; storeId: string; startsAt: string; endsAt: string; reason: string | null; source: string }>;
 let narrow: boolean;
+// The sidebar is docked (64rem and up). A phone (narrow) never is.
+let docked: boolean;
 let reduceMotion: boolean;
 
 const settings = () => ({
@@ -215,7 +224,19 @@ function renderPage({
   return { client, ...render(strict ? <StrictMode>{tree}</StrictMode> : tree) };
 }
 
-const fakeShell = (): ShellV2 & { calls: { ownTopBar: boolean[]; blocked: boolean[] } } => {
+// The sidebar's places for the page's parts, outside the page as in AppShellV2.
+const slotElements: HTMLElement[] = [];
+const sidebarSlot = () => {
+  const slot = document.createElement("div");
+  document.body.append(slot);
+  slotElements.push(slot);
+  return slot;
+};
+
+const fakeShell = (): ShellV2 & {
+  calls: { ownTopBar: boolean[]; blocked: boolean[] };
+  sidebarSlots: { top: HTMLElement; end: HTMLElement };
+} => {
   const calls = { ownTopBar: [] as boolean[], blocked: [] as boolean[] };
   return {
     calls,
@@ -223,6 +244,8 @@ const fakeShell = (): ShellV2 & { calls: { ownTopBar: boolean[]; blocked: boolea
     menuButtonRef: { current: null },
     menuOpen: false,
     openMenu: vi.fn(),
+    closeMenu: vi.fn(),
+    sidebarSlots: { top: sidebarSlot(), end: sidebarSlot() },
     openPalette: vi.fn(),
     setOwnTopBar: (own) => calls.ownTopBar.push(own),
     setPaletteBlocked: (blocked) => calls.blocked.push(blocked),
@@ -234,6 +257,8 @@ const shownBody = () => document.querySelector<HTMLElement>('[data-calendar-scro
 const column = (key: string) => shownBody().querySelector<HTMLElement>(`[data-calendar-column="${key}"]`);
 const slotsIn = (key: string) => column(key)?.querySelectorAll("[data-slot-minutes]").length ?? 0;
 const eventButton = (name: RegExp) => screen.findByRole("button", { name });
+// A DOMRect's x, y, width and height are getters, so toEqual would call any two equal.
+const xywh = (rect: DOMRect | undefined) => rect && { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -267,6 +292,7 @@ beforeEach(() => {
   settingsFail = false;
   closures = [];
   narrow = false;
+  docked = true;
   reduceMotion = false;
   localStorage.clear();
   mocks.api.get.mockReset();
@@ -274,6 +300,7 @@ beforeEach(() => {
   vi.stubGlobal("matchMedia", (query: string) => ({
     get matches() {
       if (query.includes("prefers-reduced-motion")) return reduceMotion;
+      if (query === DOCKED_QUERY) return docked && !narrow;
       return query.includes("max-width: 639.98px") ? narrow : false;
     },
     addEventListener: () => {},
@@ -284,6 +311,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  for (const slot of slotElements.splice(0)) slot.remove();
 });
 
 describe("ScheduleV2Page の週表示", () => {
@@ -377,6 +405,19 @@ describe("ScheduleV2Page の店舗の扱い", () => {
     await user.click(screen.getByRole("button", { name: "週" }));
     expect(screen.getByText("週表示は店舗を1つ選ぶと使えます。上部の店舗の切り替えで選んでください。")).toBeTruthy();
     expect(shownBody().querySelectorAll("[data-calendar-column]")).toHaveLength(3);
+  });
+
+  it("全店舗の日表示では、外部予定をその店舗の列に出す（店舗の別の枠のものも）", async () => {
+    storeState.selected = null;
+    storeState.stores = STORES;
+    blocksByDay["2026-11-20"] = [
+      ...blocksByDay["2026-11-20"],
+      block("blk-s2", { storeId: "s2", storeName: "駅前店", resourceId: "r2b", resourceName: "席B", titleSnapshot: "駅前の研修" }),
+    ];
+    renderPage();
+    await eventButton(/^駅前の研修、/);
+    expect(column("2026-11-20:s2")?.textContent).toContain("駅前の研修");
+    expect(column("2026-11-20:s1")?.textContent).not.toContain("駅前の研修");
   });
 
   it("見られる店舗が1つだけなら、その店舗を選んだ状態として扱い、案内を出さない", async () => {
@@ -477,6 +518,63 @@ describe("ScheduleV2Page の予約と外部予定", () => {
     await waitFor(() => expect(shell.calls.blocked.at(-1)).toBe(false));
   });
 
+  it("止めた枠に残る予約も店の列に出し、押すと詳細を開く（UX-16）", async () => {
+    reservationsByDay["2026-11-20"] = [
+      ...reservationsByDay["2026-11-20"],
+      reservation("res-off", "2026-11-20", "15:00", "16:00", { resourceId: "r1-off", resourceName: "旧席", customerDisplayName: "旧席 花子" }),
+    ];
+    const user = userEvent.setup();
+    renderPage();
+    const event = await eventButton(/^旧席 花子、/);
+    expect(column("2026-11-20:s1")?.contains(event)).toBe(true);
+    await user.click(event);
+    expect(captured.detail?.reservationId).toBe("res-off");
+  });
+
+  it("詳細を開いている間は押した予約に選択の印を付け、閉じると外す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const event = await eventButton(/^山田 花子、/);
+    expect(event.getAttribute("aria-expanded")).toBe("false");
+    await user.click(event);
+    expect((await eventButton(/^山田 花子、/)).getAttribute("aria-expanded")).toBe("true");
+    act(() => captured.detail?.onClose());
+    expect((await eventButton(/^山田 花子、/)).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("サイドバーを常に出す広い画面では、押した予約の隣に小窓で開く", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const event = await eventButton(/^山田 花子、/);
+    event.getBoundingClientRect = () => new DOMRect(300, 200, 120, 40);
+    await user.click(event);
+    expect(captured.detail?.layout).toBe("popover");
+    expect(xywh(captured.detail?.anchor?.current?.getBoundingClientRect())).toEqual({ x: 300, y: 200, width: 120, height: 40 });
+  });
+
+  // Switching the container while open would mount a second modal over an open
+  // confirmation (the discard check) and drop focus out of it.
+  it("開いている間は幅が 64rem をまたいでも詳細の出し方を変えず、次に開くときに選び直す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await eventButton(/^山田 花子、/));
+    expect(captured.detail?.layout).toBe("popover");
+    docked = false;
+    act(() => refreshPage());
+    expect(captured.detail?.layout).toBe("popover");
+    act(() => captured.detail?.onClose());
+    await user.click(await eventButton(/^山田 花子、/));
+    expect(captured.detail?.layout).toBe("bottom");
+  });
+
+  it("サイドバーが引き出しになる幅（iPad の縦など）では、下から開くシートにする", async () => {
+    docked = false;
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await eventButton(/^山田 花子、/));
+    expect(captured.detail?.layout).toBe("bottom");
+  });
+
   it("手作業のブロックは権限があれば取消の確認を開き、Google の予定は押せない", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -492,6 +590,143 @@ describe("ScheduleV2Page の予約と外部予定", () => {
     await eventButton(/^山田 花子、/);
     expect(screen.queryByRole("button", { name: /^研修、/ })).toBeNull();
     expect(screen.getByText("研修、11月20日（金）、16:00から17:00、ブロック")).toBeTruthy();
+  });
+});
+
+describe("ScheduleV2Page の作成の入口", () => {
+  it("サイドバーの「予約を追加」は、表示中の店舗と日で作成画面を開き、閉じたらそのボタンへ戻る", async () => {
+    const shell = fakeShell();
+    const user = userEvent.setup();
+    renderPage({ shell });
+    const create = await within(shell.sidebarSlots.top).findByRole("button", { name: "予約を追加" });
+    await user.click(create);
+    // Opened from the drawer, the drawer shuts first (one modal at a time).
+    expect(shell.closeMenu).toHaveBeenCalled();
+    expect(captured.create).toMatchObject({ defaultStoreId: "s1", defaultResourceId: null, defaultMinutes: null });
+    expect(formatJstDate(captured.create?.defaultDate as Date)).toBe("2026-11-20");
+    act(() => (captured.create?.onClose as () => void)());
+    await waitFor(() => expect(document.activeElement).toBe(create));
+  });
+
+  // The body's strip keeps room below for it, so the grid's last hour scrolls clear of it.
+  const PLUS_ROOM = "pb-[calc(6rem+env(safe-area-inset-bottom))]";
+  const bodyStrip = () => document.querySelector("[data-calendar-scroll] > [data-swipe-pane]");
+
+  it("＋ボタンはサイドバーが引き出しのときに出し、同じ作成画面を開く", async () => {
+    docked = false;
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "予約を追加" }));
+    expect(captured.create).toMatchObject({ defaultStoreId: "s1", defaultResourceId: null, defaultMinutes: null });
+    expect(bodyStrip()?.classList.contains(PLUS_ROOM)).toBe(true);
+  });
+
+  it("サイドバーを常に出す幅では＋ボタンを出さない", async () => {
+    renderPage();
+    await eventButton(/^山田 花子、/);
+    expect(screen.queryByRole("button", { name: "予約を追加" })).toBeNull();
+    expect(bodyStrip()?.classList.contains(PLUS_ROOM)).toBe(false);
+  });
+});
+
+describe("ScheduleV2Page の表示する予定", () => {
+  // Through the named group, so the boxes must stay under 表示する予定.
+  const layer = (shell: ReturnType<typeof fakeShell>, name: string) =>
+    within(within(shell.sidebarSlots.end).getByRole("group", { name: "表示する予定" })).getByRole("checkbox", { name });
+
+  it("承認待ちを外すと承認待ちの予約だけを隠し、空き枠の数は変えない", async () => {
+    const shell = fakeShell();
+    const user = userEvent.setup();
+    renderPage({ shell });
+    await eventButton(/^佐藤 一郎、/);
+    const slots = slotsIn("2026-11-20:s1");
+    await user.click(layer(shell, "承認待ち"));
+    expect(screen.queryByRole("button", { name: /^佐藤 一郎、/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^山田 花子、/ })).toBeTruthy();
+    expect(slotsIn("2026-11-20:s1")).toBe(slots);
+    // Its time does not look free: a plain band covers the slots there (10:30-11:30),
+    // as the booking did.
+    const bands = column("2026-11-20:s1")?.querySelectorAll<HTMLElement>("[data-hidden-item]") ?? [];
+    expect([...bands].map((band) => [band.textContent, band.style.top, band.style.height])).toEqual([
+      ["非表示の予定", `${630 * PX_PER_MINUTE}px`, `${60 * PX_PER_MINUTE}px`],
+    ]);
+    // The band itself is a plain box at the event's time, which takes the presses;
+    // its look is inside and takes none. The edge is the outline color, which
+    // test/admin-calendar-tokens.test.ts keeps 3:1 on the surface.
+    expect(bands[0]?.className).toBe("absolute inset-x-0 z-10 overflow-hidden");
+    const look = bands[0]?.firstElementChild;
+    expect(["pointer-events-none", "border-cal-outline"].map((name) => look?.classList.contains(name))).toEqual([true, true]);
+    // The band is not read out: the slots it covers say so, and only those.
+    const covered = "11月20日（金） 10:30 本店に予約を追加（この時間には非表示の予定があります）";
+    expect(screen.getByRole("button", { name: covered })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "11月20日（金） 11:15 本店に予約を追加（この時間には非表示の予定があります）" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "11月20日（金） 10:15 本店に予約を追加" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "11月20日（金） 11:30 本店に予約を追加" })).toBeTruthy();
+    await user.click(layer(shell, "承認待ち"));
+    expect(screen.getByRole("button", { name: /^佐藤 一郎、/ })).toBeTruthy();
+    expect(column("2026-11-20:s1")?.querySelectorAll("[data-hidden-item]")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "11月20日（金） 10:30 本店に予約を追加" })).toBeTruthy();
+  });
+
+  it("Googleカレンダーの予定を外すと Google の予定だけを隠し、店のブロックは残す", async () => {
+    const shell = fakeShell();
+    const user = userEvent.setup();
+    renderPage({ shell });
+    expect(await screen.findByText("外部予定、11月20日（金）、18:00から19:00、Googleカレンダー")).toBeTruthy();
+    const slots = slotsIn("2026-11-20:s1");
+    await user.click(layer(shell, "Googleカレンダーの予定"));
+    expect(screen.queryByText("外部予定、11月20日（金）、18:00から19:00、Googleカレンダー")).toBeNull();
+    expect(screen.getByRole("button", { name: /^研修、/ })).toBeTruthy();
+    expect(slotsIn("2026-11-20:s1")).toBe(slots);
+    expect(screen.getByRole("button", { name: "11月20日（金） 18:00 本店に予約を追加（この時間には非表示の予定があります）" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "11月20日（金） 17:45 本店に予約を追加" })).toBeTruthy();
+  });
+
+  // The band is at the event's own time, not stretched like a short booking: what it
+  // takes presses on is what the slots' names say (10:10-10:15 leaves 10:15 free).
+  it("短い Google の予定を外すと、帯はその時間だけに描き、直後の空き枠はふさがない", async () => {
+    blocksByDay["2026-11-20"] = [
+      ...blocksByDay["2026-11-20"],
+      block("blk-short", { source: "google_calendar", titleSnapshot: "電話", startAt: jst("2026-11-20", "10:10"), endAt: jst("2026-11-20", "10:15") }),
+    ];
+    const shell = fakeShell();
+    const user = userEvent.setup();
+    renderPage({ shell });
+    await screen.findByText("電話、11月20日（金）、10:10から10:15、Googleカレンダー");
+    await user.click(layer(shell, "Googleカレンダーの予定"));
+    const bands = [...(column("2026-11-20:s1")?.querySelectorAll<HTMLElement>("[data-hidden-item]") ?? [])];
+    const short = bands.find((band) => band.style.top === `${610 * PX_PER_MINUTE}px`);
+    expect([short?.style.height, short?.textContent]).toEqual([`${5 * PX_PER_MINUTE}px`, ""]);
+    expect(screen.getByRole("button", { name: "11月20日（金） 10:00 本店に予約を追加（この時間には非表示の予定があります）" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "11月20日（金） 10:15 本店に予約を追加" })).toBeTruthy();
+  });
+
+  it("Googleカレンダーの予定を外しても Google 以外の外部のブロックは残し、Google の印も付けない", async () => {
+    blocksByDay["2026-11-20"] = [
+      ...blocksByDay["2026-11-20"],
+      block("blk-sys", { source: "system_revert", titleSnapshot: "戻した枠", startAt: jst("2026-11-20", "08:00"), endAt: jst("2026-11-20", "09:00") }),
+    ];
+    const shell = fakeShell();
+    const user = userEvent.setup();
+    renderPage({ shell });
+    expect(await screen.findByText("戻した枠、11月20日（金）、08:00から09:00、ブロック")).toBeTruthy();
+    await user.click(layer(shell, "Googleカレンダーの予定"));
+    expect(screen.getByText("戻した枠、11月20日（金）、08:00から09:00、ブロック")).toBeTruthy();
+  });
+
+  it("一覧でも承認待ちを隠し、その日を「予約はありません」とは言わずに隠した件数を伝える", async () => {
+    narrow = true;
+    reservationsByDay["2026-11-20"] = [
+      reservation("res-b", "2026-11-20", "10:30", "11:30", { status: "pending_approval", customerDisplayName: "佐藤 一郎" }),
+    ];
+    const shell = fakeShell();
+    const user = userEvent.setup();
+    renderPage({ shell });
+    expect(await within(shownBody()).findByText("佐藤 一郎")).toBeTruthy();
+    await user.click(layer(shell, "承認待ち"));
+    expect(within(shownBody()).queryByText("佐藤 一郎")).toBeNull();
+    expect(within(shownBody()).queryByText("この日の予約はありません")).toBeNull();
+    expect(within(shownBody()).getByText("承認待ちの予約1件を「表示する予定」で隠しています。")).toBeTruthy();
   });
 });
 
@@ -520,6 +755,16 @@ describe("ScheduleV2Page の上部バー", () => {
     await waitFor(() => expect(column("2026-11-26:s1")).toBeTruthy());
     expect(column("2026-11-20:s1")).toBeFalsy();
     expect(captured.detail?.reservationId).toBe("res-b");
+  });
+
+  it("承認待ちの一覧から開いた詳細は、承認待ちのボタンの隣に開く", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const pending = await screen.findByRole("button", { name: "承認待ち 1件" });
+    pending.getBoundingClientRect = () => new DOMRect(900, 10, 80, 40);
+    await user.click(pending);
+    await user.click(screen.getByRole("button", { name: "承認待ちの予約（s1）" }));
+    expect(xywh(captured.detail?.anchor?.current?.getBoundingClientRect())).toEqual({ x: 900, y: 10, width: 80, height: 40 });
   });
 
   it("カルテの次回予約から来ると、その顧客で作成画面を開く", async () => {
