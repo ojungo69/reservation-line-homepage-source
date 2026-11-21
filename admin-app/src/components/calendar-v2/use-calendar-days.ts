@@ -12,6 +12,10 @@ const RESERVATION_ROW_CAP = 200;
 // days every 2 minutes instead of every 30 seconds cuts its background requests
 // from 14 to about 5 per 30 seconds (battery, and the Worker's daily requests).
 const OTHER_DAY_POLL_MS = 120_000;
+// The periods beside the shown one, which a swipe brings into view (INT-11-06):
+// read once and kept for 2 minutes, never polled. A step makes them the shown
+// period, whose own queries refresh them once they are 30 seconds old.
+const PREVIEW = { refetchInterval: false, refetchOnWindowFocus: false, staleTime: OTHER_DAY_POLL_MS } as const;
 
 export type DayData = Readonly<{
   dateKey: string;
@@ -37,11 +41,15 @@ function reservationsStatusOf(pending: boolean, failed: boolean, rows: number): 
 
 /**
  * Bookings and external blocks for each shown day, one day per request as today
- * (the same queries and cache as the current day view, no server change).
+ * (the same queries and cache as the current day view, no server change). With
+ * preview, the days of a neighbouring period: see PREVIEW.
  */
-export function useCalendarDays(dayKeys: readonly string[]): DayData[] {
+export function useCalendarDays(dayKeys: readonly string[], { preview = false } = {}): DayData[] {
   const todayKey = formatJstDate(new Date());
-  const poll = (dateKey: string) => (dateKey === todayKey ? {} : { refetchInterval: OTHER_DAY_POLL_MS });
+  const poll = (dateKey: string) => {
+    if (preview) return PREVIEW;
+    return dateKey === todayKey ? {} : { refetchInterval: OTHER_DAY_POLL_MS };
+  };
   const reservations = useQueries({ queries: dayKeys.map((dateKey) => ({ ...reservationsQuery(dateKey), ...poll(dateKey) })) });
   const blocks = useQueries({ queries: dayKeys.map((dateKey) => ({ ...externalBlocksQuery(dateKey), ...poll(dateKey) })) });
   return dayKeys.map((dateKey, index) => {

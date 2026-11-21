@@ -1,6 +1,6 @@
-import { useEffect, useEffectEvent, type RefObject } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, type RefObject } from "react";
 import { flushSync } from "react-dom";
-import { swipeAxis, swipeStep, wheelPx, wheelStep } from "./swipe";
+import { FRAME_MS, frameAt, releaseVelocity, springFrames, swipeAxis, swipeStep, wheelPx, wheelStep, type Sample } from "./swipe";
 
 // INT-04-09: a touch that starts this close to a screen edge belongs to the
 // system's back gesture.
@@ -13,8 +13,24 @@ const ENTER_PX = 80;
 const CLICK_GRACE_MS = 400;
 // INT-13-06: wheel input this far apart starts a new gesture.
 const WHEEL_GAP_MS = 250;
+// The finger's track kept for its speed at the lift (releaseVelocity).
+const TRACK_MS = 150;
 
-type Gesture = { id: number; x: number; y: number; width: number; axis: "x" | "y" | null; dx: number };
+type Gesture = {
+  id: number;
+  x: number;
+  y: number;
+  width: number;
+  // Where the strip was when the finger came down: off rest when it caught a glide.
+  base: number;
+  caught: boolean;
+  axis: "x" | "y" | null;
+  offset: number;
+  track: Sample[];
+};
+// A released strip gliding to the next or previous period (direction ±1) or
+// back to the shown one (0), with the period it was released over.
+type Flight = { animations: Animation[]; frames: number[]; direction: -1 | 0 | 1; width: number; key: string };
 
 // The motion tokens of public/glass-tokens.css, read because animate() takes no var().
 function motion() {
@@ -31,21 +47,37 @@ function motion() {
  * INT-05, INT-13). The body scrolls vertically with
  * touch-action: pan-y pinch-zoom, so the browser keeps vertical scrolling and
  * zoom and hands over sideways touches; mouse and pen are left for dragging
- * bookings (INT-03, T011). While a swipe moves, every [data-swipe-pane] under
- * the root follows the finger; reduced motion keeps them still (DESIGN.md §8).
+ * bookings (INT-03, T011). While a swipe moves, every [data-swipe-pane] strip
+ * under the root follows the finger and brings the neighbouring period in
+ * (PeriodStrip); released, it glides on from the finger's speed to that period
+ * or back, and the step is made once it lands, so its render never stalls the
+ * glide. Reduced motion keeps the strips still (DESIGN.md §8). periodKey names
+ * the shown period, view and store: a change from elsewhere ends a glide
+ * without its step.
  */
 export function usePeriodSwipe(
   scrollerRef: RefObject<HTMLElement | null>,
   rootRef: RefObject<HTMLElement | null>,
   onStep: (direction: -1 | 1) => void,
+  periodKey: string,
 ) {
-  // flushSync: the next period is on screen before its entrance is played.
+  // flushSync: the next period is on screen before the strip is put back.
   const step = useEffectEvent((direction: -1 | 1) => flushSync(() => onStep(direction)));
+  const shownKey = useRef(periodKey);
+  const dropFlight = useRef(() => {});
+  useLayoutEffect(() => {
+    if (shownKey.current === periodKey) return;
+    shownKey.current = periodKey;
+    // 前/次, the date picker or a store moved the period under a glide, which
+    // was bringing in a period that is no longer next door.
+    dropFlight.current();
+  }, [periodKey]);
 
   useEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
     let gesture: Gesture | null = null;
+    let flight: Flight | null = null;
     let unblock: (() => void) | null = null;
     let wheelAxis: "x" | "y" | null = null;
     let wheelSum = 0;
@@ -53,21 +85,81 @@ export function usePeriodSwipe(
     let wheelTimer = 0;
 
     const panes = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-pane]") ?? [])];
+    // A scrolled list's neighbours are drawn from their own top, as a step shows
+    // them (the page opens a list at its top).
+    const listPanes = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side]") ?? [])];
     const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const place = (dx: number) => {
       for (const pane of panes()) pane.style.transform = dx ? `translateX(${dx}px)` : "";
+    };
+    const rest = () => {
+      place(0);
+      for (const pane of panes()) pane.style.willChange = "";
+      for (const pane of listPanes()) pane.style.transform = "";
     };
     const play = (from: Keyframe, to: Keyframe) => {
       const options = motion();
       for (const pane of panes()) pane.animate?.([from, to], options);
     };
-    const settle = (dx: number) => {
-      place(0);
-      if (!reduced()) play({ transform: `translateX(${dx}px)` }, { transform: "translateX(0)" });
-    };
     const enter = (direction: -1 | 1) => {
       const from = reduced() ? { opacity: 0.4 } : { transform: `translateX(${direction * ENTER_PX}px)`, opacity: 0 };
       play(from, { transform: "translateX(0)", opacity: 1 });
+    };
+    // The glide reached its period: the step shows it in the frame the strip rests.
+    const land = () => {
+      const done = flight;
+      flight = null;
+      if (!done) return;
+      if (done.direction !== 0 && done.key === shownKey.current) step(done.direction);
+      rest();
+      for (const animation of done.animations) animation.cancel();
+    };
+    // Glides the strips from `from` to `to`, starting at the finger's speed. An
+    // animation shows its first keyframe on the frame it starts, so it starts a
+    // frame on: no frame after the lift stands still.
+    const fly = (from: number, to: number, velocity: number, direction: -1 | 0 | 1, width: number) => {
+      const frames = springFrames(from, to, velocity).slice(1);
+      const keyframes = frames.map((x) => ({ transform: `translateX(${x}px)` }));
+      const options: KeyframeAnimationOptions = { duration: (frames.length - 1) * FRAME_MS, fill: "forwards" };
+      const animations = panes().map((pane) => pane.animate(keyframes, options));
+      const current: Flight = { animations, frames, direction, width, key: shownKey.current };
+      flight = current;
+      if (animations.length === 0) {
+        land();
+        return;
+      }
+      animations[0].onfinish = () => {
+        if (flight === current) land();
+      };
+    };
+    const settle = (from: number, velocity = 0) => {
+      if (from === 0 || reduced() || typeof scroller.animate !== "function") rest();
+      else fly(from, 0, velocity, 0, scroller.clientWidth);
+    };
+    // A touch caught the glide: the period it was bringing in is shown now, and
+    // the finger holds the strip where it was.
+    const seize = () => {
+      const done = flight;
+      flight = null;
+      if (!done) return 0;
+      let offset = frameAt(done.frames, Number(done.animations[0]?.currentTime ?? 0));
+      for (const animation of done.animations) animation.cancel();
+      if (done.direction !== 0 && done.key === shownKey.current) {
+        step(done.direction);
+        offset += done.direction * done.width;
+      }
+      // shortcut: a scrolled list's day that is leaving shows from its top while
+      // held; give each day its own scroll if that is noticed.
+      for (const pane of listPanes()) pane.style.transform = "";
+      place(offset);
+      return offset;
+    };
+    dropFlight.current = () => {
+      const done = flight;
+      flight = null;
+      if (!done) return;
+      for (const animation of done.animations) animation.cancel();
+      rest();
     };
     // A sideways touch is a swipe, not a press of the slot or booking under it.
     // Keyboard and assistive technology clicks carry no click count and pass.
@@ -86,8 +178,9 @@ export function usePeriodSwipe(
         unblock = null;
       };
     };
+    // A strip moved off rest goes back; a glide in progress is left to land.
     const stop = () => {
-      if (gesture?.axis === "x") settle(gesture.dx);
+      if (gesture?.offset) settle(gesture.offset);
       gesture = null;
     };
 
@@ -103,36 +196,72 @@ export function usePeriodSwipe(
       if (!(target instanceof Element) || !scroller.contains(target) || target.closest(FIELDS)) return;
       if (event.pointerType !== "touch" || !event.isPrimary) return;
       if (event.clientX < EDGE_PX || event.clientX > window.innerWidth - EDGE_PX) return;
+      const caught = flight !== null;
+      const base = seize();
       for (const pane of panes()) for (const animation of pane.getAnimations?.() ?? []) animation.cancel();
-      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, width: scroller.clientWidth, axis: null, dx: 0 };
+      gesture = {
+        id: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        width: scroller.clientWidth,
+        base,
+        caught,
+        axis: null,
+        offset: base,
+        track: [{ x: event.clientX, t: event.timeStamp }],
+      };
     };
     const onMove = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
       const dx = event.clientX - gesture.x;
+      gesture.track = [...gesture.track.filter((sample) => event.timeStamp - sample.t <= TRACK_MS), { x: event.clientX, t: event.timeStamp }];
+      const was = gesture.axis;
       // INT-04-02, 03: once decided, a vertical touch stays the browser's scroll.
       gesture.axis ??= swipeAxis(dx, event.clientY - gesture.y);
-      if (gesture.axis !== "x") return;
-      gesture.dx = dx;
-      if (!reduced()) place(dx);
+      if (gesture.axis === "y" && gesture.offset !== 0) {
+        // A caught glide let go for a vertical scroll.
+        settle(gesture.offset);
+        gesture.offset = 0;
+      }
+      if (gesture.axis !== "x" || reduced()) return;
+      if (was !== "x") {
+        for (const pane of panes()) pane.style.willChange = "transform";
+        const top = scroller.scrollTop;
+        if (top > 0) for (const pane of listPanes()) if (pane.dataset.periodSide !== "0") pane.style.transform = `translateY(${top}px)`;
+      }
+      gesture.offset = gesture.base + dx;
+      place(gesture.offset);
     };
     const onUp = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
-      const { x, width, dx: shown } = gesture;
+      const { x, width, base, caught, offset } = gesture;
       // A fast flick may lift before a move has decided the axis.
       const axis = gesture.axis ?? swipeAxis(event.clientX - x, event.clientY - gesture.y);
+      // A lift away from the last move adds the distance it saw.
+      const track = gesture.track.at(-1)?.x === event.clientX ? gesture.track : [...gesture.track, { x: event.clientX, t: event.timeStamp }];
       gesture = null;
-      if (axis !== "x") return;
-      blockClick();
-      // INT-04-04: the distance where the finger lifts decides. INT-10-04: a body
-      // whose width changed before the size observer reported it ends the swipe.
-      const direction = scroller.clientWidth === width ? swipeStep(event.clientX - x, width) : 0;
-      if (direction === 0) {
-        settle(shown);
+      // A touch that caught a glide stops it and presses nothing.
+      if (caught || axis === "x") blockClick();
+      if (axis !== "x") {
+        settle(offset);
         return;
       }
-      place(0);
-      step(direction);
-      enter(direction);
+      const shown = base + event.clientX - x;
+      const velocity = releaseVelocity(track, event.timeStamp);
+      // INT-04-04: where and how fast the finger lifts decides. INT-10-04: a body
+      // whose width changed before the size observer reported it ends the swipe.
+      const direction = scroller.clientWidth === width ? swipeStep(shown, width, velocity) : 0;
+      if (direction === 0) {
+        settle(reduced() ? 0 : shown, velocity);
+        return;
+      }
+      if (reduced() || typeof scroller.animate !== "function") {
+        rest();
+        step(direction);
+        enter(direction);
+        return;
+      }
+      fly(shown, -direction * width, velocity, direction, width);
     };
     // INT-04-08, INT-10-01・02: the browser took the touch over (a scroll, the OS),
     // or its target was redrawn away mid-swipe. A capture released after a
@@ -211,8 +340,10 @@ export function usePeriodSwipe(
       sizes?.disconnect();
       scroller.removeEventListener("wheel", onWheel);
       window.clearTimeout(wheelTimer);
+      dropFlight.current();
+      dropFlight.current = () => {};
       unblock?.();
-      place(0);
+      rest();
     };
   }, [scrollerRef, rootRef]);
 }

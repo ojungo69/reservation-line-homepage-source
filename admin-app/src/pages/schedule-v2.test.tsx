@@ -6,8 +6,9 @@ import { QueryClientProvider, notifyManager } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient } from "@/test-utils/query-client";
+import { FRAME_MS, frameAt } from "@/components/calendar-v2/swipe";
 import { ShellV2Context, type ShellV2 } from "@/components/shell-v2/shell-context";
-import { formatJstDate } from "@/lib/timeline";
+import { addDays, formatJstDate } from "@/lib/timeline";
 import type { ExternalBlock, Reservation } from "@/types/api";
 
 const auth = vi.hoisted(() => ({ privileged: true }));
@@ -224,7 +225,9 @@ const fakeShell = (): ShellV2 & { calls: { ownTopBar: boolean[]; blocked: boolea
   };
 };
 
-const column = (key: string) => document.querySelector<HTMLElement>(`[data-calendar-column="${key}"]`);
+// The shown period's part of the body; the strip's neighbours are previews (PeriodStrip).
+const shownBody = () => document.querySelector<HTMLElement>('[data-calendar-scroll] [data-period-side="0"]') as HTMLElement;
+const column = (key: string) => shownBody().querySelector<HTMLElement>(`[data-calendar-column="${key}"]`);
 const slotsIn = (key: string) => column(key)?.querySelectorAll("[data-slot-minutes]").length ?? 0;
 const eventButton = (name: RegExp) => screen.findByRole("button", { name });
 
@@ -286,7 +289,7 @@ describe("ScheduleV2Page の週表示", () => {
     expect(screen.getByRole("button", { name: "11月22日（日）の日表示を開く" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("2026年11月");
     expect(screen.getByRole("button", { name: "11月20日（金）の日表示を開く" }).getAttribute("aria-current")).toBe("date");
-    expect(document.querySelectorAll("[data-calendar-column]")).toHaveLength(7);
+    expect(shownBody().querySelectorAll("[data-calendar-column]")).toHaveLength(7);
   });
 
   it("同じ時間に重なる予約は横に並べ、取消済みは出さない", async () => {
@@ -327,7 +330,7 @@ describe("ScheduleV2Page の週表示", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "11月18日（水）の日表示を開く" }));
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("11月18日（水）");
-    expect(document.querySelectorAll("[data-calendar-column]")).toHaveLength(1);
+    expect(shownBody().querySelectorAll("[data-calendar-column]")).toHaveLength(1);
     expect(await eventButton(/^水曜 三郎、/)).toBeTruthy();
   });
 
@@ -363,13 +366,13 @@ describe("ScheduleV2Page の店舗の扱い", () => {
     const user = userEvent.setup();
     renderPage();
     expect(await eventButton(/^駅前 次郎、/)).toBeTruthy();
-    expect(document.querySelectorAll("[data-calendar-column]")).toHaveLength(3);
+    expect(shownBody().querySelectorAll("[data-calendar-column]")).toHaveLength(3);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("11月20日（金）");
     // Not on the first visit: only once the user asks for the week.
     expect(screen.queryByText(/週表示は店舗を1つ選ぶと使えます/)).toBeNull();
     await user.click(screen.getByRole("button", { name: "週" }));
     expect(screen.getByText("週表示は店舗を1つ選ぶと使えます。上部の店舗の切り替えで選んでください。")).toBeTruthy();
-    expect(document.querySelectorAll("[data-calendar-column]")).toHaveLength(3);
+    expect(shownBody().querySelectorAll("[data-calendar-column]")).toHaveLength(3);
   });
 
   it("見られる店舗が1つだけなら、その店舗を選んだ状態として扱い、案内を出さない", async () => {
@@ -789,7 +792,7 @@ describe("ScheduleV2Page の一覧 (CodeRabbit の指摘)", () => {
     reservationsByDay["2026-11-20"] = [];
     failingBlockDays.add("2026-11-20");
     renderPage();
-    const empty = await screen.findByText("この日の予約はありません");
+    const empty = await within(shownBody()).findByText("この日の予約はありません");
     expect(empty.closest("output")).not.toBeNull();
   });
 
@@ -799,7 +802,7 @@ describe("ScheduleV2Page の一覧 (CodeRabbit の指摘)", () => {
     const { client } = renderPage();
     // Only after the settings arrive: until then it says it is loading.
     await waitFor(() => expect(client.getQueryState(["settings"])?.status).toBe("success"));
-    expect(screen.getByText("表示できる店舗がありません。")).toBeTruthy();
+    expect(within(shownBody()).getByText("表示できる店舗がありません。")).toBeTruthy();
     expect(screen.queryByText("予定を読み込み中…")).toBeNull();
   });
 
@@ -831,7 +834,7 @@ describe("ScheduleV2Page の一覧 (Codex の指摘)", () => {
     );
     renderPage();
     expect(await screen.findByText(/11月20日（金）の予定が表示できる上限の件数に達しました。/)).toBeTruthy();
-    expect(screen.queryByText("この日の予約はありません")).toBeNull();
+    expect(within(shownBody()).queryByText("この日の予約はありません")).toBeNull();
   });
 
   it("フォーカスが移らない押し方でも、詳細を閉じると押した「詳細」へ戻す", async () => {
@@ -1246,6 +1249,256 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(scroller().scrollTop).toBe(700);
     swipe(scroller(), -80);
     expect(scroller().scrollTop).toBe(700);
+  });
+});
+
+// jsdom has no Web Animations: a stand-in keeps each animation, so a test reads
+// its keyframes, moves its clock and lets it finish.
+type Glide = {
+  keyframes: Keyframe[];
+  options: KeyframeAnimationOptions;
+  currentTime: number;
+  onfinish: (() => void) | null;
+  cancelled: boolean;
+  cancel: () => void;
+  finish: () => void;
+};
+let glides: Glide[] = [];
+const flights = () => glides.filter((glide) => glide.options.fill === "forwards" && !glide.cancelled);
+const xOf = (keyframe: Keyframe | undefined) => Number(/translateX\((-?[\d.e-]+)px\)/.exec(String(keyframe?.transform))?.[1]);
+const paneTransforms = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")].map((pane) => pane.style.transform);
+const wide = () => Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+/** One finger moved by dx over ms in two steps, then lifted where it stopped. */
+const flick = (dx: number, ms: number) => {
+  point("pointerDown", scroller(), 300, 400);
+  vi.setSystemTime(Date.now() + ms / 2);
+  point("pointerMove", scroller(), 300 + dx / 2, 400);
+  vi.setSystemTime(Date.now() + ms / 2);
+  point("pointerMove", scroller(), 300 + dx, 400);
+  point("pointerUp", scroller(), 300 + dx, 400);
+};
+const reservationReads = (date: string) =>
+  mocks.api.get.mock.calls.filter(([url]) => url === `/api/admin/reservations?range=date&date=${date}`).length;
+
+describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () => {
+  beforeEach(() => {
+    glides = [];
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value(keyframes: Keyframe[], options: KeyframeAnimationOptions) {
+        const glide: Glide = {
+          keyframes,
+          options,
+          currentTime: 0,
+          onfinish: null,
+          cancelled: false,
+          cancel: () => {
+            glide.cancelled = true;
+          },
+          finish: () => {
+            glide.currentTime = Number(options.duration);
+            glide.onfinish?.();
+          },
+        };
+        glides.push(glide);
+        return glide;
+      },
+    });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(HTMLElement.prototype, "animate");
+  });
+
+  it("前後の日は左右に並べて見せるだけにし、読み上げ・フォーカス・押下の対象から外す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const side = (at: string) => document.querySelector<HTMLElement>(`[data-calendar-scroll] [data-period-side="${at}"]`) as HTMLElement;
+    expect(side("-1").querySelector('[data-calendar-column="2026-11-19:s1"]')).not.toBeNull();
+    expect(side("1").querySelector('[data-calendar-column="2026-11-21:s1"]')).not.toBeNull();
+    for (const at of ["-1", "1"]) {
+      expect(side(at).getAttribute("aria-hidden")).toBe("true");
+      expect(side(at).hasAttribute("inert")).toBe(true);
+    }
+    expect(side("0").hasAttribute("inert")).toBe(false);
+    // The bar's names come in with them: a strip of three there too.
+    expect(document.querySelectorAll("[data-swipe-pane] > [data-period-side]")).toHaveLength(6);
+    expect(screen.queryAllByRole("button", { name: /11月21日/ })).toHaveLength(0);
+  });
+
+  it("離すと指の速さのまま隣の日まですべり、着いたところで日付を変える", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    // The step waits for the landing, so its render never stalls the glide.
+    expect(heading()).toBe("11月20日（金）");
+    expect(flights()).toHaveLength(2);
+    const [glide] = flights();
+    // Its first frame is already a frame on from the lift, at the finger's 1.25px/ms or faster.
+    expect(-100 - xOf(glide.keyframes[0])).toBeGreaterThanOrEqual(1.25 * FRAME_MS);
+    expect(xOf(glide.keyframes.at(-1))).toBe(-375);
+    act(() => glide.finish());
+    expect(heading()).toBe("11月21日（土）");
+    expect(paneTransforms()).toEqual(["", ""]);
+    expect(flights()).toHaveLength(0);
+  });
+
+  it("短くても速く払えば隣の日へ、ゆっくり短く動かして止めてから離せば元の日へすべる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-40, 50);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(-375);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+    flick(-40, 400);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("確定の距離を越えても、戻す向きに動かしながら離すと元の日へすべる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 100);
+    point("pointerMove", scroller(), 200, 400);
+    vi.setSystemTime(Date.now() + 100);
+    point("pointerMove", scroller(), 215, 400);
+    point("pointerUp", scroller(), 215, 400);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("すべっている途中で触れると、その日に変わって指がその位置で掴み、触れただけでは何も押さない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    const [glide] = flights();
+    glide.currentTime = FRAME_MS * 3;
+    const held = frameAt(glide.keyframes.map(xOf), FRAME_MS * 3) + 375;
+    point("pointerDown", scroller(), 200, 400);
+    expect(heading()).toBe("11月21日（土）");
+    expect(paneTransforms()).toEqual([`translateX(${held}px)`, `translateX(${held}px)`]);
+    point("pointerUp", scroller(), 200, 400);
+    // Let go without moving: the strip goes back to the day now shown.
+    expect(xOf(flights()[0].keyframes[0])).toBeLessThan(held);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    const slot = within(shownBody()).getAllByRole("button", { name: /に予約を追加$/ })[0];
+    fireEvent.click(slot, { detail: 1 });
+    expect(captured.create).toBeNull();
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("すべっている途中に前後のボタンや今日で期間が変わると、そのすべりの分は動かさない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    // Enter on 次の日 clicks it with no pointer.
+    fireEvent.click(screen.getByRole("button", { name: "次の日" }));
+    expect(heading()).toBe("11月21日（土）");
+    expect(flights()).toHaveLength(0);
+    expect(paneTransforms()).toEqual(["", ""]);
+    flick(100, 80);
+    fireEvent.click(screen.getByRole("button", { name: "今日" }));
+    expect(heading()).toBe("11月20日（金）");
+    // A dropped glide that still reports its end changes nothing.
+    act(() => {
+      for (const each of glides) each.onfinish?.();
+    });
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("すべっている途中で画面を離れると、すべりを止める", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    expect(flights()).toHaveLength(2);
+    unmount();
+    expect(flights()).toHaveLength(0);
+  });
+
+  it("動きを減らす設定では、すべらせずにすぐ切り替える", async () => {
+    reduceMotion = true;
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    expect(heading()).toBe("11月21日（土）");
+    expect(glides.filter((glide) => glide.options.fill === "forwards")).toHaveLength(0);
+  });
+
+  it("一覧を下へスクロールしていても、隣の日は上から見せ、離すと戻す", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    scroller().scrollTop = 300;
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 260, 400);
+    const panes = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side]")];
+    expect(panes.map((pane) => pane.style.transform)).toEqual(["translateY(300px)", "", "translateY(300px)"]);
+    point("pointerUp", scroller(), 260, 400);
+    act(() => flights()[0]?.finish());
+    expect(panes.map((pane) => pane.style.transform)).toEqual(["", "", ""]);
+  });
+
+  it("前後の日は先に 1 回だけ読み、繰り返し取りに行かない（INT-11-06）", async () => {
+    narrow = true;
+    const { client } = renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(1));
+    expect(["2026-11-19", "2026-11-20"].map(reservationReads)).toEqual([1, 1]);
+    const options = (key: unknown[]) => client.getQueryCache().find({ queryKey: key })?.observers[0]?.options;
+    for (const key of [["reservations", "2026-11-21"], ["external-blocks", "2026-11-19"]]) {
+      expect(options(key)?.refetchInterval, key.join()).toBe(false);
+      expect(options(key)?.refetchOnWindowFocus, key.join()).toBe(false);
+    }
+    // The shown day keeps its own polling.
+    expect(options(["reservations", "2026-11-20"])?.refetchInterval).toBe(30_000);
+    // A step reads the one new neighbour, and the day it shows comes from the cache.
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    await waitFor(() => expect(reservationReads("2026-11-22")).toBe(1));
+    expect(["2026-11-19", "2026-11-20", "2026-11-21"].map(reservationReads)).toEqual([1, 1, 1]);
+  });
+
+  it("週表示では今の週と前後の週を 1 日 1 回ずつ読み、1 週送るごとに 7 日分だけ足す", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: "11月16日（月）の日表示を開く" });
+    const days = (from: string, count: number) => Array.from({ length: count }, (_, index) => formatJstDate(addDays(new Date(`${from}T00:00:00+09:00`), index)));
+    await waitFor(() => expect(days("2026-11-09", 21).map(reservationReads)).toEqual(Array(21).fill(1)));
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    await waitFor(() => expect(days("2026-11-30", 7).map(reservationReads)).toEqual(Array(7).fill(1)));
+    expect(days("2026-11-09", 21).map(reservationReads)).toEqual(Array(21).fill(1));
+  });
+
+  it("前後の日の読み込みに失敗しても、今の日の注意には出さず、その日へ移ると出す（INT-11-06）", async () => {
+    narrow = true;
+    failingDays.add("2026-11-21");
+    const { client } = renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(client.getQueryState(["reservations", "2026-11-21"])?.status).toBe("error"));
+    const notices = () => document.querySelector("[data-calendar-notices]")?.textContent ?? "";
+    expect(notices()).not.toContain("11/21");
+    expect(notices()).not.toContain("11月21日");
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    await waitFor(() => expect(notices()).toContain("11月21日"));
   });
 });
 

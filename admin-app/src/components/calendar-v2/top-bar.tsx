@@ -184,11 +184,23 @@ export function CalendarTopBar({
   );
 }
 
-/** The row of day or store names under the bar's tools, lined up with the columns. */
+/**
+ * The row of day or store names under the bar's tools, lined up with the columns.
+ * As wide as the body, so its period strip moves with the body's (usePeriodSwipe)
+ * and keeps the neighbours out of sight.
+ */
 export function DayHeader({ scrollbarPx, children }: Readonly<{ scrollbarPx: number; children: ReactNode }>) {
   return (
-    // Moves with the body during a swipe (usePeriodSwipe).
-    <div data-swipe-pane="" className="flex" style={{ paddingRight: scrollbarPx }}>
+    <div className="overflow-hidden" style={{ marginRight: scrollbarPx }}>
+      {children}
+    </div>
+  );
+}
+
+/** One period's names: the time zone over the gutter, then one per column. */
+export function DayHeaderRow({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <div className="flex">
       <div className={cn("flex items-end justify-end pb-1 pr-2 text-xs", GUTTER_CLASS)}>JST</div>
       <div className="flex min-w-0 flex-1">{children}</div>
     </div>
