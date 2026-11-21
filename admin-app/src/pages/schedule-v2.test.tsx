@@ -2,7 +2,7 @@ import { mocks } from "@/test-utils/hook-mocks";
 import { StrictMode, useState } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClientProvider, notifyManager } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, notifyManager } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient } from "@/test-utils/query-client";
@@ -192,14 +192,18 @@ function PageUnderTest() {
   return <ScheduleV2Page />;
 }
 
-function renderPage({ shell, state, strict = false }: { shell?: ShellV2; state?: unknown; strict?: boolean } = {}) {
+function renderPage({
+  shell,
+  state,
+  strict = false,
+  client = createTestQueryClient(),
+}: { shell?: ShellV2; state?: unknown; strict?: boolean; client?: QueryClient } = {}) {
   const page = (
     <>
       <PageUnderTest />
       <LocationProbe />
     </>
   );
-  const client = createTestQueryClient();
   const tree = (
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[{ pathname: "/", state }]}>
@@ -1324,6 +1328,10 @@ const flick = (dx: number, ms: number) => {
 };
 const reservationReads = (date: string) =>
   mocks.api.get.mock.calls.filter(([url]) => url === `/api/admin/reservations?range=date&date=${date}`).length;
+const blocksUrl = (date: string) => `/api/admin/external-blocks?from=${date}&to=${date}&status=active`;
+const blockReads = (date: string) => mocks.api.get.mock.calls.filter(([url]) => url === blocksUrl(date)).length;
+// The production client tries a failed read once more (lib/query-client.ts); here at once.
+const retryOnce = () => new QueryClient({ defaultOptions: { queries: { retry: 1, retryDelay: 0 }, mutations: { retry: false } } });
 
 describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () => {
   beforeEach(() => {
@@ -1855,28 +1863,71 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(scroller().scrollTop).toBe(0);
   });
 
-  it("先読みの応答が変更の後に届いても、表示に入った日は新しく読み、変更を見せる", async () => {
+  it("先読みの応答が変更の後に届いても、表示に入った日は予約もブロックも新しく読み、変更を見せる", async () => {
     narrow = true;
-    // The next day's read ahead is sent before the change and answers after it.
-    let answerOld: (() => void) | null = null;
+    // The next day's reads ahead are sent before the change and answer after it.
+    const held = new Set(["/api/admin/reservations?range=date&date=2026-11-21", blocksUrl("2026-11-21")]);
+    const answers: Array<() => void> = [];
     mocks.api.get.mockImplementation((url: string) => {
-      if (url !== "/api/admin/reservations?range=date&date=2026-11-21" || answerOld) return respond(url);
+      if (!held.delete(url)) return respond(url);
       const old = respond(url);
-      return new Promise((resolve) => {
-        answerOld = () => resolve(old);
-      });
+      return new Promise((resolve) => answers.push(() => resolve(old)));
     });
     const { client } = renderPage();
     await screen.findByRole("region", { name: "選択日の予約" });
-    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(1));
+    await waitFor(() => expect(answers).toHaveLength(2));
     reservationsByDay["2026-11-21"] = [reservation("res-m", "2026-11-21", "10:00", "11:00", { customerDisplayName: "移動 四郎" })];
     await act(() => client.invalidateQueries({ queryKey: ["reservations"] }));
     swipe(scroller(), -80);
     act(() => flights()[0]?.finish());
     expect(heading()).toBe("11/21（土）");
-    await act(async () => answerOld?.());
-    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(2));
+    await act(async () => {
+      for (const answer of answers) answer();
+    });
+    await waitFor(() => expect([reservationReads("2026-11-21"), blockReads("2026-11-21")]).toEqual([2, 2]));
     expect(await within(shownBody()).findByText(/移動 四郎/)).toBeTruthy();
+  });
+
+  it("本番と同じ再試行 1 回では、隣のままの日の先読みは失敗しても 1 回だけ読み直し、表示に入ったら表示として読んで失敗を知らせる", async () => {
+    narrow = true;
+    failingDays.add("2026-11-21");
+    renderPage({ client: retryOnce() });
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(2));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(reservationReads("2026-11-21")).toBe(2);
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    expect(heading()).toBe("11/21（土）");
+    expect(await screen.findByText(/11月21日（土）の予約の読み込みに失敗しました/)).toBeTruthy();
+    expect(reservationReads("2026-11-21")).toBe(4);
+  });
+
+  it("本番と同じ再試行 1 回で、先読みが届く前に移った日は、表示の読み込みが 1 回失敗しても再試行で中身を見せる", async () => {
+    narrow = true;
+    reservationsByDay["2026-11-21"] = [reservation("res-n", "2026-11-21", "10:00", "11:00", { customerDisplayName: "土曜 五郎" })];
+    let answerAhead: (() => void) | null = null;
+    let shownFails = 1;
+    mocks.api.get.mockImplementation((url: string) => {
+      if (url !== "/api/admin/reservations?range=date&date=2026-11-21") return respond(url);
+      if (!answerAhead) {
+        const ahead = respond(url);
+        return new Promise((resolve) => {
+          answerAhead = () => resolve(ahead);
+        });
+      }
+      if (shownFails-- > 0) return Promise.reject(new Error("network"));
+      return respond(url);
+    });
+    renderPage({ client: retryOnce() });
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(1));
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    expect(heading()).toBe("11/21（土）");
+    expect(await within(shownBody()).findByText(/土曜 五郎/)).toBeTruthy();
+    expect(reservationReads("2026-11-21")).toBe(3);
+    await act(async () => answerAhead?.());
   });
 
   it("スクロールした一覧ですべりを掴んで離し、着く前に前の日を押すと、その日はページの決めた先頭から開く", async () => {

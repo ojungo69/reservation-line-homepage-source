@@ -51,16 +51,16 @@ export function swipeStep(dx: number, width: number, velocity = 0): -1 | 0 | 1 {
 }
 
 /**
- * The finger's speed (px/ms) as it lifted at liftAt, over the 100ms before it
- * last moved sideways: 0 when that last sideways move was more than 40ms before
- * the lift (it had stopped, even if it drifted up or down since). The lift only
- * ends the track: it often comes a frame or two after the last move, which is
- * no sign of the finger slowing down. A turn or a still hold within those
- * 100ms counts from where the finger set off again. A moving finger sends a
- * move every frame, so a gap of more than 40ms crossed slower than a flick
- * (0.3px/ms) is a hold too; a faster one is a late frame of a flick. The move
- * into the last position always counts: when it is the only one after a pause,
- * its average is the least the finger was moving.
+ * The finger's speed (px/ms) as it lifted at liftAt, in the steps of INT-13-03:
+ * (1) the end is the last record where x changed; (2) a lift more than 40ms
+ * after it is a stopped finger, 0 (it may have drifted up or down since); (3)
+ * the move into the end always counts; (4) going further back, stop before a
+ * record more than 100ms before the end, one at the same x (held), one more
+ * than 40ms back crossed slower than a flick (a moving finger sends a move
+ * every frame, so that was a hold), or one past a turn; (5) the speed is the
+ * average from there to the end. Sparse records give the least speed they
+ * allow. The lift only ends the track: it often comes a frame or two after the
+ * last move, which is no sign of the finger slowing down.
  */
 export function releaseVelocity(samples: readonly Sample[], liftAt: number): number {
   let moved = samples.length - 1;
