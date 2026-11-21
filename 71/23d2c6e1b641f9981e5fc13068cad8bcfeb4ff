@@ -1,0 +1,27 @@
+admin-app/src/components/calendar-v2/period-strip.tsx
+  s_d52c2d995f51c6::t_337bcf1c7f5ba9 23,25,29,35
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_e470307266371d 1572-1623,1966,1971-1975,1979-1980
+specs/008-admin-calendar-ux/interactions.md
+  s_d52c2d995f51c6::t_7fd21bbc81a8e4 66,204
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_f986e9637ce1c5 37
+admin-app/src/components/calendar-v2/use-period-swipe.ts
+  s_d52c2d995f51c6::t_a0bf85e1bdeea9 328-333,373-374
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7123d2c6e1b641f9981e5fc13068cad8bcfeb4ff",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
