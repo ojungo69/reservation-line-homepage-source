@@ -1583,6 +1583,8 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     act(() => flights()[0].finish());
     const now = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
     expect(now.map((content) => content.style.transform)).toEqual(["", "", ""]);
+    // The next day, drawn from its top, lands at the top.
+    expect(scroller().scrollTop).toBe(0);
   });
 
   it("隣のまま残る日は、変更の後に期間を移っても読み直さない", async () => {
