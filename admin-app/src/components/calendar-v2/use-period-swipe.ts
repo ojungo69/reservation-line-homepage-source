@@ -337,8 +337,8 @@ export function usePeriodSwipe(
       wheelAxis ??= Math.abs(event.deltaX) > Math.abs(event.deltaY) ? "x" : "y";
       // INT-04-06: while the strip is off rest under a finger or gliding, a wheel
       // neither scrolls (each list day is drawn at the scroll it had) nor steps;
-      // its gesture still goes on, with the axis its first input took, so it does
-      // not step after the landing.
+      // its gesture keeps going with the axis its first input took, and the
+      // amount it brings meanwhile is not counted.
       // shortcut: a wheel the page cannot cancel (some WebKit momentum) still
       // scrolls then, and a scrolled list day may land at its top; keep its drawn
       // scroll through the landing if a trackpad user notices.
