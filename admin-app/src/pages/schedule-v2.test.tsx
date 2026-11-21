@@ -643,8 +643,12 @@ describe("ScheduleV2Page の表示する予定", () => {
     expect([...bands].map((band) => [band.textContent, band.style.top, band.style.height])).toEqual([
       ["非表示の予定", `${630 * PX_PER_MINUTE}px`, `${60 * PX_PER_MINUTE}px`],
     ]);
-    // Its edge is the outline color, which test/admin-calendar-tokens.test.ts keeps 3:1 on the surface.
-    expect(bands[0]?.classList.contains("border-cal-outline")).toBe(true);
+    // The band itself is a plain box at the event's time, which takes the presses;
+    // its look is inside and takes none. The edge is the outline color, which
+    // test/admin-calendar-tokens.test.ts keeps 3:1 on the surface.
+    expect(bands[0]?.className).toBe("absolute inset-x-0 z-10");
+    const look = bands[0]?.firstElementChild;
+    expect(["pointer-events-none", "border-cal-outline"].map((name) => look?.classList.contains(name))).toEqual([true, true]);
     // The band is not read out: the slots it covers say so, and only those.
     const covered = "11月20日（金） 10:30 本店に予約を追加（この時間には非表示の予定があります）";
     expect(screen.getByRole("button", { name: covered })).toBeTruthy();

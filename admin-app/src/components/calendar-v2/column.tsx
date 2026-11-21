@@ -210,16 +210,20 @@ export function CalendarColumnView({
         // Not stretched like a short booking: the slots' names go by the same time.
         const height = (span.end - span.start) * PX_PER_MINUTE;
         return (
+          // This plain box takes the presses, at exactly that time; the look inside it
+          // takes none, so its edge, padding and corners cannot move where presses go.
           <div
             key={`hidden-${index}-${span.start}`}
             aria-hidden="true"
             data-hidden-item=""
-            // The fill is about 1.1:1 on the surface, so the edge is drawn in the outline
-            // color (3:1, as the pending booking's; DESIGN.md §3), dashed to stay apart from it.
-            className="absolute inset-x-0 z-10 overflow-hidden rounded-md border border-dashed border-cal-outline bg-cal-text/5 px-1.5 pt-0.5 text-xs text-cal-text-secondary dark:bg-cal-outer"
+            className="absolute inset-x-0 z-10"
             style={{ top: span.start * PX_PER_MINUTE, height }}
           >
-            {height >= MIN_EVENT_PX && "非表示の予定"}
+            {/* The fill is about 1.1:1 on the surface, so the edge is drawn in the outline
+                color (3:1, as the pending booking's; DESIGN.md §3), dashed to stay apart from it. */}
+            <div className="pointer-events-none h-full overflow-hidden rounded-md border border-dashed border-cal-outline bg-cal-text/5 px-1.5 pt-0.5 text-xs text-cal-text-secondary dark:bg-cal-outer">
+              {height >= MIN_EVENT_PX && "非表示の予定"}
+            </div>
           </div>
         );
       })}
