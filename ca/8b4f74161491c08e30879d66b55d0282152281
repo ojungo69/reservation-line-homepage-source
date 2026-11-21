@@ -1,0 +1,21 @@
+admin-app/src/components/calendar-v2/stable-anchor.test.tsx
+  s_52c3955e48bff4::t_dc71b8c6f25696 5-6,19,21,33,38-39,45
+admin-app/src/pages/schedule-v2.test.tsx
+  s_52c3955e48bff4::t_515dd4176db0f4 259-260,514,651
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ca8b4f74161491c08e30879d66b55d0282152281",
+  "prompts": {},
+  "sessions": {
+    "s_52c3955e48bff4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71325e2b-fe13-4768-9035-42503a99e9fb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
