@@ -256,6 +256,8 @@ const shownBody = () => document.querySelector<HTMLElement>('[data-calendar-scro
 const column = (key: string) => shownBody().querySelector<HTMLElement>(`[data-calendar-column="${key}"]`);
 const slotsIn = (key: string) => column(key)?.querySelectorAll("[data-slot-minutes]").length ?? 0;
 const eventButton = (name: RegExp) => screen.findByRole("button", { name });
+// A DOMRect's x, y, width and height are getters, so toEqual would call any two equal.
+const xywh = (rect: DOMRect | undefined) => rect && { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -509,7 +511,7 @@ describe("ScheduleV2Page の予約と外部予定", () => {
     event.getBoundingClientRect = () => new DOMRect(300, 200, 120, 40);
     await user.click(event);
     expect(captured.detail?.layout).toBe("popover");
-    expect(captured.detail?.anchor?.current?.getBoundingClientRect()).toEqual(new DOMRect(300, 200, 120, 40));
+    expect(xywh(captured.detail?.anchor?.current?.getBoundingClientRect())).toEqual({ x: 300, y: 200, width: 120, height: 40 });
   });
 
   it("サイドバーが引き出しになる幅（iPad の縦など）では、下から開くシートにする", async () => {
@@ -646,7 +648,7 @@ describe("ScheduleV2Page の上部バー", () => {
     pending.getBoundingClientRect = () => new DOMRect(900, 10, 80, 40);
     await user.click(pending);
     await user.click(screen.getByRole("button", { name: "承認待ちの予約（s1）" }));
-    expect(captured.detail?.anchor?.current?.getBoundingClientRect()).toEqual(new DOMRect(900, 10, 80, 40));
+    expect(xywh(captured.detail?.anchor?.current?.getBoundingClientRect())).toEqual({ x: 900, y: 10, width: 80, height: 40 });
   });
 
   it("カルテの次回予約から来ると、その顧客で作成画面を開く", async () => {
