@@ -60,6 +60,14 @@ describe("releaseVelocity", () => {
     expect(releaseVelocity([{ x: 300, t: 0 }, { x: 180, t: 80 }, { x: 190, t: 100 }], 100)).toBe(0.5);
   });
 
+  it("止めてから払った指は、動き出す直前からの速さとする", () => {
+    expect(releaseVelocity([{ x: 300, t: 0 }, { x: 300, t: 130 }, { x: 270, t: 150 }], 160)).toBe(-1.5);
+  });
+
+  it("横に止まってから縦にだけ動いた指は、横に止まった時から数える", () => {
+    expect(releaseVelocity([{ x: 300, t: 0 }, { x: 230, t: 20 }, { x: 230, t: 71 }], 72)).toBe(0);
+  });
+
   it("最後の動きから 40ms 以内に離した指は、動いたままの速さとする", () => {
     expect(releaseVelocity([{ x: 300, t: 0 }, { x: 255, t: 83 }], 123)).toBeCloseTo(-45 / 83);
   });

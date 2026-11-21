@@ -121,7 +121,9 @@ export function usePeriodSwipe(
     // animation shows its first keyframe on the frame it starts, so it starts a
     // frame on: no frame after the lift stands still.
     const fly = (from: number, to: number, velocity: number, direction: -1 | 0 | 1, width: number) => {
-      const frames = springFrames(from, to, velocity).slice(1);
+      const frames = springFrames(from, to, velocity)
+        .slice(1)
+        .map((x) => within(x, width));
       const keyframes = frames.map((x) => ({ transform: `translateX(${x}px)` }));
       const options: KeyframeAnimationOptions = { duration: (frames.length - 1) * FRAME_MS, fill: "forwards" };
       const animations = panes().map((pane) => pane.animate(keyframes, options));
@@ -139,15 +141,16 @@ export function usePeriodSwipe(
       if (from === 0 || !glides()) rest();
       else fly(from, 0, velocity, 0, scroller.clientWidth);
     };
-    // A touch caught the glide: the period it was bringing in is shown now, and
-    // the finger holds the strip where it was.
+    // A touch caught the glide: the finger holds the strip where it was, and the
+    // period it was bringing in is shown now if it had come into view; caught
+    // earlier, the glide's step is dropped.
     const seize = () => {
       const done = flight;
       flight = null;
       if (!done) return 0;
       let offset = frameAt(done.frames, Number(done.animations[0]?.currentTime ?? 0));
       for (const animation of done.animations) animation.cancel();
-      if (done.direction !== 0) {
+      if (done.direction !== 0 && offset * done.direction < 0) {
         step(done.direction);
         offset += done.direction * done.width;
       }
@@ -230,11 +233,7 @@ export function usePeriodSwipe(
     const onMove = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
       const dx = event.clientX - gesture.x;
-      // Only sideways change counts: a finger held still sideways has stopped, even
-      // while it drifts up or down.
-      if (gesture.track.at(-1)?.x !== event.clientX) {
-        gesture.track = [...gesture.track.filter((sample) => event.timeStamp - sample.t <= TRACK_MS), { x: event.clientX, t: event.timeStamp }];
-      }
+      gesture.track = [...gesture.track.filter((sample) => event.timeStamp - sample.t <= TRACK_MS), { x: event.clientX, t: event.timeStamp }];
       const was = gesture.axis;
       // INT-04-02, 03: once decided, a vertical touch stays the browser's scroll.
       gesture.axis ??= swipeAxis(dx, event.clientY - gesture.y);
@@ -269,6 +268,7 @@ export function usePeriodSwipe(
       // glide's offset only sets where the strip glides from. INT-10-04: a body
       // whose width changed before the size observer reported it ends the swipe.
       const direction = scroller.clientWidth === width ? swipeStep(travel, width, velocity) : 0;
+      if (was !== "x" && glides()) prime();
       if (direction === 0) {
         settle(shown, velocity);
         return;
@@ -279,7 +279,6 @@ export function usePeriodSwipe(
         enter(direction);
         return;
       }
-      if (was !== "x") prime();
       fly(shown, -direction * width, velocity, direction, width);
     };
     // INT-04-08, INT-10-01・02: the browser took the touch over (a scroll, the OS),

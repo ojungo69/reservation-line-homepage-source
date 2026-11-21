@@ -1114,6 +1114,22 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(heading()).toBe("11月20日（金）");
   });
 
+  it("止めてから短く速く払った指は、払った速さで決める", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 130);
+    point("pointerMove", scroller(), 300, 404);
+    vi.setSystemTime(Date.now() + 20);
+    point("pointerMove", scroller(), 270, 404);
+    vi.setSystemTime(Date.now() + 10);
+    // 30px in 20ms after holding still: a flick.
+    point("pointerUp", scroller(), 270, 404);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
   it("最後の動きから離れた位置で指を離したときは、その分も速さに入れる", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -1580,6 +1596,62 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(heading()).toBe("11月22日（日）");
     await waitFor(() => expect(reservationReads("2026-11-22")).toBe(2));
     expect(reservationReads("2026-11-21")).toBe(1);
+  });
+
+  it("戻る向きと逆に速く折り返して離しても、すべりは隣の期間より外へ出ない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    point("pointerDown", scroller(), 220, 400);
+    vi.setSystemTime(Date.now() + 50);
+    point("pointerMove", scroller(), 115, 400);
+    vi.setSystemTime(Date.now() + 8);
+    point("pointerMove", scroller(), 215, 400);
+    point("pointerUp", scroller(), 215, 400);
+    const [glide] = flights();
+    expect(xOf(glide.keyframes.at(-1))).toBe(0);
+    expect(Math.max(...glide.keyframes.map(xOf))).toBeLessThanOrEqual(375);
+  });
+
+  it("行き先の期間が見える前に掴んだすべりは、その期間に切り替えずに掴む", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    // Caught at once: the next day is in view, so it is shown; the old day sits to the left.
+    point("pointerDown", scroller(), 300, 400);
+    expect(heading()).toBe("11月21日（土）");
+    vi.setSystemTime(Date.now() + 10);
+    point("pointerMove", scroller(), 277, 400);
+    vi.setSystemTime(Date.now() + 10);
+    point("pointerMove", scroller(), 254, 400);
+    point("pointerUp", scroller(), 254, 400);
+    // Flicked on toward the day after: caught again before that day comes into view.
+    const [glide] = flights();
+    expect(xOf(glide.keyframes.at(-1))).toBe(-375);
+    const held = xOf(glide.keyframes[0]);
+    expect(held).toBeGreaterThan(0);
+    point("pointerDown", scroller(), 300, 400);
+    expect(heading()).toBe("11月21日（土）");
+    expect(paneTransforms()).toEqual([`translateX(${held}px)`, `translateX(${held}px)`]);
+  });
+
+  it("スクロールした一覧で離したときに初めて横と決まり、戻るときも、隣の日は上から見せる", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerUp", scroller(), 280, 400);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    const contents = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents.map((content) => content.style.transform)).toEqual(["translateY(300px)", "", "translateY(300px)"]);
+    act(() => flights()[0].finish());
+    expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
   });
 
   it("すべっている途中に前後のボタンや今日で期間が変わると、そのすべりの分は動かさない", async () => {
