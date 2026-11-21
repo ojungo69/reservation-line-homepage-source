@@ -1,0 +1,19 @@
+admin-app/src/components/calendar-v2/use-period-swipe.ts
+  s_d52c2d995f51c6::t_aa1a47af2437a3 340-341
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "73849759142d986f34e4d6f1c4132fba9f2268e0",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
