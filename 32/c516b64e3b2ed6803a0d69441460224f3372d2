@@ -1,0 +1,29 @@
+admin-app/src/components/calendar-v2/swipe.test.ts
+  s_d52c2d995f51c6::t_859b14ad440a5e 65-70
+admin-app/src/components/calendar-v2/swipe.ts
+  s_d52c2d995f51c6::t_0cf228b1ada364 58-59,70-71
+admin-app/src/components/calendar-v2/use-period-swipe.ts
+  s_d52c2d995f51c6::t_aea7b213cc883b 156-158
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_3c9d9b08bdcadc 1722-1738
+specs/008-admin-calendar-ux/interactions.md
+  s_d52c2d995f51c6::t_983690265e79e5 248
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_003c6410036a74 37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "32c516b64e3b2ed6803a0d69441460224f3372d2",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
