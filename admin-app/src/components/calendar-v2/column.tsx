@@ -213,7 +213,9 @@ export function CalendarColumnView({
             key={`hidden-${index}-${span.start}`}
             aria-hidden="true"
             data-hidden-item=""
-            className="absolute inset-x-0 z-10 overflow-hidden rounded-md bg-cal-text/5 px-1.5 pt-0.5 text-xs text-cal-text-secondary dark:bg-cal-outer"
+            // The fill is about 1.1:1 on the surface, so the edge is drawn in the outline
+            // color (3:1, as the pending booking's; DESIGN.md §3), dashed to stay apart from it.
+            className="absolute inset-x-0 z-10 overflow-hidden rounded-md border border-dashed border-cal-outline bg-cal-text/5 px-1.5 pt-0.5 text-xs text-cal-text-secondary dark:bg-cal-outer"
             style={{ top: drawn.start * PX_PER_MINUTE, height: (drawn.end - drawn.start) * PX_PER_MINUTE }}
           >
             非表示の予定
