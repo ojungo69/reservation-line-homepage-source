@@ -1,0 +1,19 @@
+admin-app/src/components/calendar-v2/stable-anchor.test.tsx
+  s_d52c2d995f51c6::t_e6bee04d7230c9 42-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1d301b003c569fb920bb8b10fc63777e7f87e67e",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
