@@ -1445,6 +1445,40 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(heading()).toBe("11月20日（金）");
   });
 
+  it("指を止めて 160ms 後に戻して離しても、止める前の記録から戻す速さを求め、元の日へすべる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 60);
+    point("pointerMove", scroller(), 150, 400);
+    vi.setSystemTime(Date.now() + 160);
+    point("pointerMove", scroller(), 168, 400);
+    vi.setSystemTime(Date.now() + 5);
+    point("pointerUp", scroller(), 168, 400);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+  });
+
+  it("止めて戻したあと、同じ横の位置のまま縦にだけ動いてから離しても、元の日へすべる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 60);
+    point("pointerMove", scroller(), 150, 400);
+    vi.setSystemTime(Date.now() + 160);
+    point("pointerMove", scroller(), 168, 400);
+    for (const y of [410, 420]) {
+      vi.setSystemTime(Date.now() + 10);
+      point("pointerMove", scroller(), 168, y);
+    }
+    vi.setSystemTime(Date.now() + 5);
+    point("pointerUp", scroller(), 168, 420);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+  });
+
   it("すべっている途中で触れると、その日に変わって指がその位置で掴み、触れただけでは何も押さない", async () => {
     const user = userEvent.setup();
     renderPage();

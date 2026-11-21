@@ -13,8 +13,6 @@ const ENTER_PX = 80;
 const CLICK_GRACE_MS = 400;
 // INT-13-06: wheel input this far apart starts a new gesture.
 const WHEEL_GAP_MS = 250;
-// The finger's track kept for its speed at the lift (releaseVelocity).
-const TRACK_MS = 150;
 
 type Gesture = {
   id: number;
@@ -251,7 +249,8 @@ export function usePeriodSwipe(
     const onMove = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
       const dx = event.clientX - gesture.x;
-      gesture.track = [...gesture.track.filter((sample) => event.timeStamp - sample.t <= TRACK_MS), { x: event.clientX, t: event.timeStamp }];
+      // Every move is kept: the speed at the lift may start from one before a pause (INT-13-03).
+      gesture.track.push({ x: event.clientX, t: event.timeStamp });
       const was = gesture.axis;
       // INT-04-02, 03: once decided, a vertical touch stays the browser's scroll.
       gesture.axis ??= swipeAxis(dx, event.clientY - gesture.y);
