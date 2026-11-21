@@ -1,0 +1,21 @@
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_61510cc9682cd8 533-543
+  s_d52c2d995f51c6::t_e6319b31205320 409-421
+  s_d52c2d995f51c6::t_a366ac6b25db32 633,637
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "baee614dc0266c421fd95b3c66475a94bd5e25bf",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
