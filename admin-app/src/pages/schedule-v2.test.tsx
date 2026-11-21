@@ -1618,6 +1618,20 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(heading()).toBe("11月22日（日）");
   });
 
+  it("すべりの間に始まった縦の wheel は、その操作の向きを縦に決め、着いたあとの横の入力でも期間を動かさない（INT-03-08）", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(false);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+    // The same gesture, with no 250ms gap, turns sideways after the landing.
+    fireEvent.wheel(scroller(), { deltaX: 200 });
+    expect(heading()).toBe("11月21日（土）");
+  });
+
   it("すべっている間と、指で帯を動かしている間は、wheel を受け付けず、元の位置にあるときは受け付ける", async () => {
     const user = userEvent.setup();
     renderPage();

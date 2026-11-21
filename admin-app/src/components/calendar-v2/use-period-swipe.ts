@@ -333,15 +333,19 @@ export function usePeriodSwipe(
         wheelSum = 0;
         wheelDone = false;
       }, WHEEL_GAP_MS);
+      if (event.deltaX === 0 && event.deltaY === 0) return;
+      wheelAxis ??= Math.abs(event.deltaX) > Math.abs(event.deltaY) ? "x" : "y";
       // INT-04-06: while the strip is off rest under a finger or gliding, a wheel
       // neither scrolls (each list day is drawn at the scroll it had) nor steps;
-      // its gesture still goes on, so it does not step again after the landing.
+      // its gesture still goes on, with the axis its first input took, so it does
+      // not step after the landing.
+      // shortcut: a wheel the page cannot cancel (some WebKit momentum) still
+      // scrolls then, and a scrolled list day may land at its top; keep its drawn
+      // scroll through the landing if a trackpad user notices.
       if (flight || gesture?.offset) {
         if (event.cancelable) event.preventDefault();
         return;
       }
-      if (event.deltaX === 0 && event.deltaY === 0) return;
-      wheelAxis ??= Math.abs(event.deltaX) > Math.abs(event.deltaY) ? "x" : "y";
       // INT-05-01: a vertical gesture scrolls the hours. INT-05-07: input the
       // page cannot cancel may still become the browser's back or forward.
       if (wheelAxis !== "x" || !event.cancelable) return;
