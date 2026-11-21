@@ -406,6 +406,19 @@ describe("ScheduleV2Page の店舗の扱い", () => {
     expect(shownBody().querySelectorAll("[data-calendar-column]")).toHaveLength(3);
   });
 
+  it("全店舗の日表示では、外部予定をその店舗の列に出す（店舗の別の枠のものも）", async () => {
+    storeState.selected = null;
+    storeState.stores = STORES;
+    blocksByDay["2026-11-20"] = [
+      ...blocksByDay["2026-11-20"],
+      block("blk-s2", { storeId: "s2", storeName: "駅前店", resourceId: "r2b", resourceName: "席B", titleSnapshot: "駅前の研修" }),
+    ];
+    renderPage();
+    await eventButton(/^駅前の研修、/);
+    expect(column("2026-11-20:s2")?.textContent).toContain("駅前の研修");
+    expect(column("2026-11-20:s1")?.textContent).not.toContain("駅前の研修");
+  });
+
   it("見られる店舗が1つだけなら、その店舗を選んだ状態として扱い、案内を出さない", async () => {
     storeState.selected = null;
     storeState.stores = STORES.slice(0, 1);
@@ -517,6 +530,17 @@ describe("ScheduleV2Page の予約と外部予定", () => {
     expect(captured.detail?.reservationId).toBe("res-off");
   });
 
+  it("詳細を開いている間は押した予約に選択の印を付け、閉じると外す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const event = await eventButton(/^山田 花子、/);
+    expect(event.getAttribute("aria-expanded")).toBe("false");
+    await user.click(event);
+    expect((await eventButton(/^山田 花子、/)).getAttribute("aria-expanded")).toBe("true");
+    act(() => captured.detail?.onClose());
+    expect((await eventButton(/^山田 花子、/)).getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("サイドバーを常に出す広い画面では、押した予約の隣に小窓で開く", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -606,9 +630,11 @@ describe("ScheduleV2Page の表示する予定", () => {
     const user = userEvent.setup();
     renderPage({ shell });
     expect(await screen.findByText("外部予定、11月20日（金）、18:00から19:00、Googleカレンダー")).toBeTruthy();
+    const slots = slotsIn("2026-11-20:s1");
     await user.click(layer(shell, "Googleカレンダーの予定"));
     expect(screen.queryByText("外部予定、11月20日（金）、18:00から19:00、Googleカレンダー")).toBeNull();
     expect(screen.getByRole("button", { name: /^研修、/ })).toBeTruthy();
+    expect(slotsIn("2026-11-20:s1")).toBe(slots);
   });
 
   it("一覧でも承認待ちを隠し、その日を「予約はありません」とは言わずに隠した件数を伝える", async () => {
