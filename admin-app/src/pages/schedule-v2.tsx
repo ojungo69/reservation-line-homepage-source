@@ -146,9 +146,13 @@ export default function ScheduleV2Page() {
   const opener = useReturnFocus(sheetOpen, scrollerRef);
   // Made when a detail opens, so one opened from <body> does not take the last one's place.
   const detailAnchor = useRef<ReturnType<typeof stableAnchor> | null>(null);
+  // Chosen when it opens and kept while open: a switch across 64rem would mount a
+  // second modal over an open confirmation (the discard check) and take its focus.
+  const [detailLayout, setDetailLayout] = useState<"popover" | "bottom">("popover");
   const openDetail = (id: string, from: HTMLElement) => {
     opener.current = from;
     detailAnchor.current = stableAnchor(from);
+    setDetailLayout(docked ? "popover" : "bottom");
     setSelectedReservationId(id);
   };
 
@@ -355,7 +359,10 @@ export default function ScheduleV2Page() {
       {/* The sidebar's parts for this page, before and after its page links (DESIGN.md §5). */}
       {shell?.sidebarSlots.top && createPortal(<CreateReservationButton onCreate={openCreate} />, shell.sidebarSlots.top)}
       {shell?.sidebarSlots.end && createPortal(<CalendarLayers layers={layers} onChange={setLayers} />, shell.sidebarSlots.end)}
-      {/* Without the docked sidebar its create button is in the drawer: this one stays on screen. */}
+      {/* Without the docked sidebar its create button is in the drawer: this one stays on screen.
+          shortcut: the time grid ends at 24:00 with no room below, so the button can cover
+          the last hour of the rightmost column; give the grid bottom padding if late
+          bookings appear (the list has its room: DayList's addButton). */}
       {!docked && (
         <button
           type="button"
@@ -372,7 +379,7 @@ export default function ScheduleV2Page() {
 
       <ReservationDetailPanel
         reservationId={selectedReservationId}
-        layout={docked ? "popover" : "bottom"}
+        layout={detailLayout}
         anchor={detailAnchor}
         onClose={() => setSelectedReservationId(null)}
         onOpenChart={(customerId, reservationId) =>

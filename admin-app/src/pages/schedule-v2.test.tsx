@@ -551,6 +551,21 @@ describe("ScheduleV2Page の予約と外部予定", () => {
     expect(xywh(captured.detail?.anchor?.current?.getBoundingClientRect())).toEqual({ x: 300, y: 200, width: 120, height: 40 });
   });
 
+  // Switching the container while open would mount a second modal over an open
+  // confirmation (the discard check) and drop focus out of it.
+  it("開いている間は幅が 64rem をまたいでも詳細の出し方を変えず、次に開くときに選び直す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await eventButton(/^山田 花子、/));
+    expect(captured.detail?.layout).toBe("popover");
+    docked = false;
+    act(() => refreshPage());
+    expect(captured.detail?.layout).toBe("popover");
+    act(() => captured.detail?.onClose());
+    await user.click(await eventButton(/^山田 花子、/));
+    expect(captured.detail?.layout).toBe("bottom");
+  });
+
   it("サイドバーが引き出しになる幅（iPad の縦など）では、下から開くシートにする", async () => {
     docked = false;
     const user = userEvent.setup();
@@ -635,6 +650,19 @@ describe("ScheduleV2Page の表示する予定", () => {
     expect(screen.queryByText("外部予定、11月20日（金）、18:00から19:00、Googleカレンダー")).toBeNull();
     expect(screen.getByRole("button", { name: /^研修、/ })).toBeTruthy();
     expect(slotsIn("2026-11-20:s1")).toBe(slots);
+  });
+
+  it("Googleカレンダーの予定を外しても Google 以外の外部のブロックは残し、Google の印も付けない", async () => {
+    blocksByDay["2026-11-20"] = [
+      ...blocksByDay["2026-11-20"],
+      block("blk-sys", { source: "system_revert", titleSnapshot: "戻した枠", startAt: jst("2026-11-20", "08:00"), endAt: jst("2026-11-20", "09:00") }),
+    ];
+    const shell = fakeShell();
+    const user = userEvent.setup();
+    renderPage({ shell });
+    expect(await screen.findByText("戻した枠、11月20日（金）、08:00から09:00、ブロック")).toBeTruthy();
+    await user.click(layer(shell, "Googleカレンダーの予定"));
+    expect(screen.getByText("戻した枠、11月20日（金）、08:00から09:00、ブロック")).toBeTruthy();
   });
 
   it("一覧でも承認待ちを隠し、その日を「予約はありません」とは言わずに隠した件数を伝える", async () => {

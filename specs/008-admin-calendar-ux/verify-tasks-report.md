@@ -105,5 +105,6 @@ Added by the implementing agent after this report was written. The sections abov
 | Selected mark while the detail is open | Fix applied: test added in `baee614`. The pressed booking has `aria-expanded="true"` while the detail is open and `"false"` after it closes. |
 | Google toggle and the free slots | Fix applied in `baee614`. The Google toggle test now also checks that the slot count does not change. |
 
-A clean re-run of the verification would re-score T005 against these tests.
+Note on the "no time" row above: the calendar passes no time, and the shared booking form then shows its own default, 10:00. `tasks.md` now says so.
 
+A clean re-run of the verification would re-score T005 against these tests.

@@ -94,18 +94,19 @@ function present(item: CalendarItem, dayLabel: string, dateKey: string) {
   const start = clock(item.span.start);
   const end = clock(item.span.end);
   const title = block.titleSnapshot ?? "外部予定";
-  const manual = block.source === "admin_block";
+  // Only Google's own blocks say Google; the store's and the system's are blocks.
+  const google = block.source === "google_calendar";
   return {
     id: block.id,
     tone: "external" as EventTone,
     // The source is the marker, so a short block still says where it came from.
-    marker: manual ? "ブロック" : "Google",
+    marker: google ? "Google" : "ブロック",
     title,
     start,
     range: `${start}–${end}`,
     detail: "",
     cleaning: null,
-    label: `${title}、${spanLabel(block.startAt, block.endAt)}、${manual ? "ブロック" : "Googleカレンダー"}`,
+    label: `${title}、${spanLabel(block.startAt, block.endAt)}、${google ? "Googleカレンダー" : "ブロック"}`,
   };
 }
 

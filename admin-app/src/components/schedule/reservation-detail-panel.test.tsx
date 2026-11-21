@@ -732,8 +732,10 @@ describe("ReservationDetailPanel の器", () => {
     const dialog = screen.getByRole("dialog", { name: "予約詳細" });
     expect(within(dialog).getByText("予約 花子")).toBeTruthy();
     // Modal like the sheets: the calendar under it cannot open another booking
-    // (which would drop an unsaved note without asking).
+    // (which would drop an unsaved note without asking). The backdrop also takes
+    // presses on controls that set pointer-events back on (the calendar's bar).
     expect(document.body.style.pointerEvents).toBe("none");
+    expect(document.querySelector("[data-detail-backdrop]")).not.toBeNull();
     await user.click(within(dialog).getByRole("button", { name: "閉じる" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });

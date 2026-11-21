@@ -1,5 +1,6 @@
 import { ChartConflictNotice } from "@/components/customers/chart-conflict-notice";
 import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Popover, PopoverAnchor, PopoverClose, PopoverContent } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -65,6 +66,10 @@ function DetailFrame({
   if (layout === "popover") {
     return (
       <Popover open={open} onOpenChange={onOpenChange} modal>
+        {/* The modal sets pointer-events: none on <body>, which the calendar's bar
+            turns back on for its buttons. This clear layer takes those presses,
+            and Radix reads them as an outside press, so they reach onOpenChange. */}
+        {open && createPortal(<div aria-hidden="true" data-detail-backdrop="" className="pointer-events-auto fixed inset-0 z-50" />, document.body)}
         <PopoverAnchor virtualRef={anchor} />
         <PopoverContent
           material="modal"
