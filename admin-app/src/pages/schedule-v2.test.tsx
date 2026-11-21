@@ -1098,6 +1098,22 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(heading()).toBe("11月21日（土）");
   });
 
+  it("横の動きが止まってから縦にだけ動いて離した指は、止めたものとする", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 20);
+    point("pointerMove", scroller(), 230, 400);
+    vi.setSystemTime(Date.now() + 51);
+    point("pointerMove", scroller(), 230, 420);
+    vi.setSystemTime(Date.now() + 1);
+    // 70px, under 20% of 375px, and still sideways for 52ms: no flick.
+    point("pointerUp", scroller(), 230, 420);
+    expect(heading()).toBe("11月20日（金）");
+  });
+
   it("最後の動きから離れた位置で指を離したときは、その分も速さに入れる", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -1492,6 +1508,78 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(heading()).toBe("11月21日（土）");
     expect(flights()).toHaveLength(0);
     expect(paneTransforms()).toEqual(["", ""]);
+  });
+
+  it("すべっている途中に本文の幅だけが変わっても、すぐに着地させる", async () => {
+    const resized: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resized.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    let width = 375;
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => width });
+    flick(-100, 80);
+    width = 345;
+    act(() => {
+      for (const callback of resized) callback([], {} as ResizeObserver);
+    });
+    expect(heading()).toBe("11月21日（土）");
+    expect(flights()).toHaveLength(0);
+  });
+
+  it("掴み直して大きく引いても、帯は隣の期間より外へは出さない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 50, 400);
+    point("pointerMove", scroller(), 450, 400);
+    expect(paneTransforms()).toEqual(["translateX(375px)", "translateX(375px)"]);
+    point("pointerUp", scroller(), 450, 400);
+    expect(Math.max(...flights()[0].keyframes.map(xOf))).toBeLessThanOrEqual(375);
+  });
+
+  it("向きが決まる前に離した速いフリックでも、スクロールした一覧の隣の日は上から見せてすべる", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 40);
+    point("pointerUp", scroller(), 250, 400);
+    const contents = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(-375);
+    expect(contents.map((content) => content.style.transform)).toEqual(["translateY(300px)", "", "translateY(300px)"]);
+    act(() => flights()[0].finish());
+    const now = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(now.map((content) => content.style.transform)).toEqual(["", "", ""]);
+  });
+
+  it("隣のまま残る日は、変更の後に期間を移っても読み直さない", async () => {
+    const user = userEvent.setup();
+    const { client } = renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(1));
+    await act(() => client.invalidateQueries({ queryKey: ["reservations"] }));
+    await user.click(screen.getByRole("button", { name: "11月20日（金）" }));
+    const calendar = await screen.findByRole("group", { name: "日付選択カレンダー" });
+    await user.click(within(calendar).getByRole("button", { name: "2026年11月22日 (日)" }));
+    expect(heading()).toBe("11月22日（日）");
+    await waitFor(() => expect(reservationReads("2026-11-22")).toBe(2));
+    expect(reservationReads("2026-11-21")).toBe(1);
   });
 
   it("すべっている途中に前後のボタンや今日で期間が変わると、そのすべりの分は動かさない", async () => {

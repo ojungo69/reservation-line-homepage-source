@@ -88,6 +88,8 @@ export function usePeriodSwipe(
     // the clipped pane, so the scroll height stays.
     const listContents = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *") ?? [])];
     const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // The strip never shows past its neighbours; an unmeasured body (0) sets no limit.
+    const within = (x: number, width: number) => (width > 0 ? Math.max(-width, Math.min(width, x)) : x);
     // Without Web Animations (jsdom) or with reduced motion, steps are made at once.
     const glides = () => !reduced() && typeof scroller.animate === "function";
     const place = (dx: number) => {
@@ -119,7 +121,9 @@ export function usePeriodSwipe(
     // animation shows its first keyframe on the frame it starts, so it starts a
     // frame on: no frame after the lift stands still.
     const fly = (from: number, to: number, velocity: number, direction: -1 | 0 | 1, width: number) => {
-      const frames = springFrames(from, to, velocity).slice(1);
+      const frames = springFrames(from, to, velocity)
+        .slice(1)
+        .map((x) => within(x, width));
       const keyframes = frames.map((x) => ({ transform: `translateX(${x}px)` }));
       const options: KeyframeAnimationOptions = { duration: (frames.length - 1) * FRAME_MS, fill: "forwards" };
       const animations = panes().map((pane) => pane.animate(keyframes, options));
@@ -190,6 +194,13 @@ export function usePeriodSwipe(
       stop();
       land();
     };
+    // A swipe that has turned sideways gets its own layer, and a scrolled list's
+    // neighbours show their top.
+    const prime = () => {
+      for (const pane of panes()) pane.style.willChange = "transform";
+      const top = scroller.scrollTop;
+      if (top > 0) for (const content of listContents()) if (content.parentElement?.dataset.periodSide !== "0") content.style.transform = `translateY(${top}px)`;
+    };
 
     // A second finger outside the body is seen too: the listener is on the document.
     const onDown = (event: PointerEvent) => {
@@ -221,7 +232,11 @@ export function usePeriodSwipe(
     const onMove = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
       const dx = event.clientX - gesture.x;
-      gesture.track = [...gesture.track.filter((sample) => event.timeStamp - sample.t <= TRACK_MS), { x: event.clientX, t: event.timeStamp }];
+      // Only sideways change counts: a finger held still sideways has stopped, even
+      // while it drifts up or down.
+      if (gesture.track.at(-1)?.x !== event.clientX) {
+        gesture.track = [...gesture.track.filter((sample) => event.timeStamp - sample.t <= TRACK_MS), { x: event.clientX, t: event.timeStamp }];
+      }
       const was = gesture.axis;
       // INT-04-02, 03: once decided, a vertical touch stays the browser's scroll.
       gesture.axis ??= swipeAxis(dx, event.clientY - gesture.y);
@@ -231,17 +246,13 @@ export function usePeriodSwipe(
         gesture.offset = 0;
       }
       if (gesture.axis !== "x" || reduced()) return;
-      if (was !== "x") {
-        for (const pane of panes()) pane.style.willChange = "transform";
-        const top = scroller.scrollTop;
-        if (top > 0) for (const content of listContents()) if (content.parentElement?.dataset.periodSide !== "0") content.style.transform = `translateY(${top}px)`;
-      }
-      gesture.offset = gesture.base + dx;
+      if (was !== "x") prime();
+      gesture.offset = within(gesture.base + dx, gesture.width);
       place(gesture.offset);
     };
     const onUp = (event: PointerEvent) => {
       if (event.pointerId !== gesture?.id) return;
-      const { x, width, base, caught, offset } = gesture;
+      const { x, width, base, caught, offset, axis: was } = gesture;
       // A fast flick may lift before a move has decided the axis.
       const axis = gesture.axis ?? swipeAxis(event.clientX - x, event.clientY - gesture.y);
       // A lift away from the last move adds the distance it saw.
@@ -254,7 +265,7 @@ export function usePeriodSwipe(
         return;
       }
       const travel = event.clientX - x;
-      const shown = base + travel;
+      const shown = within(base + travel, width);
       const velocity = releaseVelocity(track, event.timeStamp);
       // INT-04-04: how far and how fast this finger moved decides; a caught
       // glide's offset only sets where the strip glides from. INT-10-04: a body
@@ -270,6 +281,7 @@ export function usePeriodSwipe(
         enter(direction);
         return;
       }
+      if (was !== "x") prime();
       fly(shown, -direction * width, velocity, direction, width);
     };
     // INT-04-08, INT-10-01・02: the browser took the touch over (a scroll, the OS),
@@ -333,6 +345,7 @@ export function usePeriodSwipe(
         ? null
         : new ResizeObserver(() => {
             if (gesture && scroller.clientWidth !== gesture.width) stop();
+            if (flight && scroller.clientWidth !== flight.width) land();
           });
     sizes?.observe(scroller);
     // Not passive: a sideways gesture is kept from the browser's history swipe.

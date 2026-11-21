@@ -54,13 +54,19 @@ export function useCalendarDays(dayKeys: readonly string[], { preview = false } 
   };
   const reservations = useQueries({ queries: dayKeys.map((dateKey) => ({ ...reservationsQuery(dateKey), ...poll(dateKey) })) });
   const blocks = useQueries({ queries: dayKeys.map((dateKey) => ({ ...externalBlocksQuery(dateKey), ...poll(dateKey) })) });
+  // Each day is read ahead once when it comes next door, and not again while it
+  // stays there; a failed read waits for the day to be shown.
   const keys = dayKeys.join(" ");
+  const readAhead = useRef(new Set<string>());
   useEffect(() => {
-    if (!preview || !keys) return;
-    for (const dateKey of keys.split(" ")) {
-      void client.prefetchQuery({ ...reservationsQuery(dateKey), staleTime: OTHER_DAY_POLL_MS });
-      void client.prefetchQuery({ ...externalBlocksQuery(dateKey), staleTime: OTHER_DAY_POLL_MS });
+    if (!preview) return;
+    const near = keys ? keys.split(" ") : [];
+    for (const dateKey of near) {
+      if (readAhead.current.has(dateKey)) continue;
+      void client.prefetchQuery({ ...reservationsQuery(dateKey), staleTime: OTHER_DAY_POLL_MS, retry: false });
+      void client.prefetchQuery({ ...externalBlocksQuery(dateKey), staleTime: OTHER_DAY_POLL_MS, retry: false });
     }
+    readAhead.current = new Set(near);
   }, [client, keys, preview]);
   return dayKeys.map((dateKey, index) => {
     const bookings = reservations[index];
