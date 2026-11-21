@@ -1,4 +1,3 @@
-import { useId } from "react";
 import { Plus } from "lucide-react";
 import { PRESSABLE } from "@/components/shell-v2/pressable";
 import { cn } from "@/lib/utils";
@@ -32,24 +31,24 @@ const LAYER_ROWS = [
 
 /** 表示する予定: shows or hides pending bookings and Google's blocks on the calendar. */
 export function CalendarLayers({ layers, onChange }: Readonly<{ layers: Layers; onChange: (next: Layers) => void }>) {
-  const headingId = useId();
   return (
-    <div role="group" aria-labelledby={headingId} className="border-t border-cal-grid px-3 pb-3 pt-2">
-      <p id={headingId} className="px-4 pb-1 pt-2 text-xs font-medium text-cal-text-secondary">
-        表示する予定
-      </p>
-      {LAYER_ROWS.map((row) => (
-        <label key={row.key} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-full px-4 text-sm hover:bg-cal-text/8">
-          <input
-            type="checkbox"
-            className="size-4 shrink-0 accent-cal-primary"
-            checked={layers[row.key]}
-            onChange={(event) => onChange({ ...layers, [row.key]: event.target.checked })}
-          />
-          <span aria-hidden="true" className={cn("size-3 shrink-0 rounded-sm", row.swatch)} />
-          <span className="min-w-0">{row.label}</span>
-        </label>
-      ))}
+    // The top border is on a wrapper: on the fieldset it would run through the legend.
+    <div className="border-t border-cal-grid px-3 pb-3 pt-2">
+      <fieldset>
+        <legend className="px-4 pb-1 pt-2 text-xs font-medium text-cal-text-secondary">表示する予定</legend>
+        {LAYER_ROWS.map((row) => (
+          <label key={row.key} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-full px-4 text-sm hover:bg-cal-text/8">
+            <input
+              type="checkbox"
+              className="size-4 shrink-0 accent-cal-primary"
+              checked={layers[row.key]}
+              onChange={(event) => onChange({ ...layers, [row.key]: event.target.checked })}
+            />
+            <span aria-hidden="true" className={cn("size-3 shrink-0 rounded-sm", row.swatch)} />
+            <span className="min-w-0">{row.label}</span>
+          </label>
+        ))}
+      </fieldset>
     </div>
   );
 }
