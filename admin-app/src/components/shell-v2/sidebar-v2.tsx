@@ -98,16 +98,19 @@ export function SidebarV2({ theme, onThemeChange, onNavigate, slotRefs }: Sideba
 
       <div ref={slotRefs?.top} className="shrink-0" />
 
-      <nav aria-label="メインナビゲーション" className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-        {SECTIONS.map(({ key, label }) => {
-          const items = navItemsBySection(key).filter((item) => !item.privileged || isPrivileged);
-          // A section shows when the user can see at least one of its items (same rule as Sidebar).
-          if (items.length === 0) return null;
-          return <NavGroup key={key} label={label} items={items} pending={pending} onNavigate={onNavigate} />;
-        })}
-      </nav>
-
-      <div ref={slotRefs?.end} className="shrink-0" />
+      {/* One scroll area for the links and what the page adds after them: a short
+          screen scrolls them together instead of squeezing the links. */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <nav aria-label="メインナビゲーション" className="px-3 pb-3">
+          {SECTIONS.map(({ key, label }) => {
+            const items = navItemsBySection(key).filter((item) => !item.privileged || isPrivileged);
+            // A section shows when the user can see at least one of its items (same rule as Sidebar).
+            if (items.length === 0) return null;
+            return <NavGroup key={key} label={label} items={items} pending={pending} onNavigate={onNavigate} />;
+          })}
+        </nav>
+        <div ref={slotRefs?.end} />
+      </div>
 
       <div className="shrink-0 space-y-1 border-t border-cal-grid px-3 py-3">
         <a
