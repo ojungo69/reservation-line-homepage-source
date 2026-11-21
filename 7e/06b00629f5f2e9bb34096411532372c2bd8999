@@ -1,0 +1,19 @@
+admin-app/src/components/schedule/reservation-detail-panel.test.tsx
+  s_d52c2d995f51c6::t_872bc2f1bf60c2 734-736
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7e06b00629f5f2e9bb34096411532372c2bd8999",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
