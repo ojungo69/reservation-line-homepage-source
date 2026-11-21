@@ -630,8 +630,9 @@ describe("ScheduleV2Page の作成の入口", () => {
 });
 
 describe("ScheduleV2Page の表示する予定", () => {
+  // Through the named group, so the boxes must stay under 表示する予定.
   const layer = (shell: ReturnType<typeof fakeShell>, name: string) =>
-    within(shell.sidebarSlots.end).getByRole("checkbox", { name });
+    within(within(shell.sidebarSlots.end).getByRole("group", { name: "表示する予定" })).getByRole("checkbox", { name });
 
   it("承認待ちを外すと承認待ちの予約だけを隠し、空き枠の数は変えない", async () => {
     const shell = fakeShell();

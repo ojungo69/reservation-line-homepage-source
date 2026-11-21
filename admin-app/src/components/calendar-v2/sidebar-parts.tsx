@@ -34,7 +34,9 @@ export function CalendarLayers({ layers, onChange }: Readonly<{ layers: Layers; 
   return (
     // The top border is on a wrapper: on the fieldset it would run through the legend.
     <div className="border-t border-cal-grid px-3 pb-3 pt-2">
-      <fieldset>
+      {/* min-w-0: a fieldset is otherwise never narrower than its content, and with
+          large text that would push the drawer sideways. */}
+      <fieldset className="min-w-0">
         <legend className="px-4 pb-1 pt-2 text-xs font-medium text-cal-text-secondary">表示する予定</legend>
         {LAYER_ROWS.map((row) => (
           <label key={row.key} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-full px-4 text-sm hover:bg-cal-text/8">
