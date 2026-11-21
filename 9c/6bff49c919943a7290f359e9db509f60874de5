@@ -1,0 +1,27 @@
+admin-app/src/components/calendar-v2/stable-anchor.ts
+  s_d52c2d995f51c6::t_1b8f032f50df58 1-7,10,13-18,21-26
+admin-app/src/components/calendar-v2/column.tsx
+  s_d52c2d995f51c6::t_fe89e2be9ee952 191-194
+admin-app/src/components/calendar-v2/stable-anchor.test.tsx
+  s_d52c2d995f51c6::t_8213ddaa9c1eeb 109-143
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_3327029848252a 646-651,655,668-669
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_3da50635b30973 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9c6bff49c919943a7290f359e9db509f60874de5",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
