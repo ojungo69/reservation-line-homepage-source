@@ -109,7 +109,8 @@ export function usePeriodSwipe(
       place(0);
       for (const pane of panes()) pane.style.willChange = "";
       const shown = listContents().find((content) => content.parentElement?.dataset.periodSide === "0");
-      const keep = shown ? drawnAt(shown) : null;
+      // A day drawn from its top under a scroll the step has reset comes out below 0.
+      const keep = shown ? Math.max(0, drawnAt(shown)) : null;
       for (const content of listContents()) shift(content, 0);
       if (keep !== null && keep !== scroller.scrollTop) scroller.scrollTop = keep;
     };
@@ -122,18 +123,12 @@ export function usePeriodSwipe(
       play(from, { transform: "translateX(0)", opacity: 1 });
     };
     // The glide reached its period: the step shows it in the frame the strip rests,
-    // and a list day that came in keeps the scroll it was drawn at.
+    // and a list day that came in keeps the scroll it was drawn at (rest).
     const land = () => {
       const done = flight;
       flight = null;
       if (!done) return;
-      if (done.direction !== 0) {
-        const incoming = listContents().find((content) => content.parentElement?.dataset.periodSide === String(done.direction));
-        const keep = incoming ? drawnAt(incoming) : 0;
-        step(done.direction);
-        // Still drawn where it was, under the scroll the step left.
-        if (incoming) shift(incoming, scroller.scrollTop - keep);
-      }
+      if (done.direction !== 0) step(done.direction);
       rest();
       for (const animation of done.animations) animation.cancel();
     };
