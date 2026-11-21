@@ -1599,6 +1599,25 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(heading()).toBe("11月20日（金）");
   });
 
+  it("横 wheel の 1 回の操作は、慣性がすべりをまたいでも 1 期間しか動かさない（INT-13-06）", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    fireEvent.wheel(scroller(), { deltaX: 100 });
+    expect(heading()).toBe("11月21日（土）");
+    // Its momentum goes on, never 250ms apart, while a touch glides to the next day.
+    flick(-100, 80);
+    for (let i = 0; i < 4; i++) {
+      await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+      fireEvent.wheel(scroller(), { deltaX: 100 });
+    }
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月22日（日）");
+    fireEvent.wheel(scroller(), { deltaX: 100 });
+    expect(heading()).toBe("11月22日（日）");
+  });
+
   it("すべっている間と、指で帯を動かしている間は、wheel を受け付けず、元の位置にあるときは受け付ける", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -1607,11 +1626,14 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     flick(-100, 80);
     expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(false);
     expect(fireEvent.wheel(scroller(), { deltaX: 200 })).toBe(false);
+    // INT-05-04: ctrl + wheel is the browser's zoom, also while it glides.
+    expect(fireEvent.wheel(scroller(), { deltaY: 120, ctrlKey: true })).toBe(true);
     act(() => flights()[0].finish());
     expect(heading()).toBe("11月21日（土）");
     point("pointerDown", scroller(), 300, 400);
     point("pointerMove", scroller(), 250, 400);
     expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(false);
+    expect(fireEvent.wheel(scroller(), { deltaY: 120, ctrlKey: true })).toBe(true);
     point("pointerUp", scroller(), 250, 400);
     act(() => flights()[0]?.finish());
     expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(true);

@@ -325,12 +325,6 @@ export function usePeriodSwipe(
     // Its first input fixes its axis (INT-03-08); a sideways one moves one period
     // at most, once the signed sum of all its sideways input reaches 80px.
     const onWheel = (event: WheelEvent) => {
-      // INT-04-06: while the strip is off rest under a finger or gliding, a wheel
-      // neither scrolls (each list day is drawn at the scroll it had) nor steps.
-      if (flight || gesture?.offset) {
-        if (event.cancelable) event.preventDefault();
-        return;
-      }
       // INT-05-04: ctrl + wheel is the trackpad's pinch zoom.
       if (event.ctrlKey) return;
       window.clearTimeout(wheelTimer);
@@ -339,6 +333,13 @@ export function usePeriodSwipe(
         wheelSum = 0;
         wheelDone = false;
       }, WHEEL_GAP_MS);
+      // INT-04-06: while the strip is off rest under a finger or gliding, a wheel
+      // neither scrolls (each list day is drawn at the scroll it had) nor steps;
+      // its gesture still goes on, so it does not step again after the landing.
+      if (flight || gesture?.offset) {
+        if (event.cancelable) event.preventDefault();
+        return;
+      }
       if (event.deltaX === 0 && event.deltaY === 0) return;
       wheelAxis ??= Math.abs(event.deltaX) > Math.abs(event.deltaY) ? "x" : "y";
       // INT-05-01: a vertical gesture scrolls the hours. INT-05-07: input the
