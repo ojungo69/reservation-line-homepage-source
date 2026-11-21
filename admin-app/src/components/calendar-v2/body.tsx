@@ -239,14 +239,11 @@ export function DayList({
   day,
   storeId,
   layers,
-  addButton,
   onDetails,
 }: Readonly<{
   day: DayData | undefined;
   storeId: string | null;
   layers: Layers;
-  // The floating ＋ button is on screen: the last card stays scrollable above it.
-  addButton: boolean;
   onDetails: (id: string, opener: HTMLElement) => void;
 }>) {
   // The shared card does not pass on which button was pressed, and Safari does not
@@ -262,7 +259,7 @@ export function DayList({
   // nor a day whose bookings 表示する予定 hides.
   const empty = day?.reservationsStatus === "ready" && all.length === 0;
   return (
-    <section aria-label="選択日の予約" className={cn("px-4 pt-3", addButton ? "pb-24" : "pb-3")}>
+    <section aria-label="選択日の予約" className="px-4 py-3">
       {/* Always there, so a screen reader hears the day's state after 前/次. */}
       <output className={cn("block text-sm", (loading || empty || hidden > 0) && "mb-2")}>
         {loading && "予定を読み込み中…"}

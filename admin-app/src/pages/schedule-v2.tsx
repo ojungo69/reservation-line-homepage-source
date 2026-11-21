@@ -267,7 +267,7 @@ export default function ScheduleV2Page() {
   );
   const bodyAt = (at: Date) => {
     if (view === "list") {
-      return <DayList day={dayByKey.get(formatJstDate(at))} storeId={storeId} layers={layers} addButton={!docked} onDetails={openDetail} />;
+      return <DayList day={dayByKey.get(formatJstDate(at))} storeId={storeId} layers={layers} onDetails={openDetail} />;
     }
     const atColumns = columnsAt(at);
     if (atColumns.length === 0) return <NoColumns loading={settingsQuery.isPending} />;
@@ -348,8 +348,13 @@ export default function ScheduleV2Page() {
         tabIndex={-1}
         // isolate: the grid's own layers (a focused slot's ring is z-40) stay
         // under the bar, which comes first in the DOM. pan-y pinch-zoom: the
-        // browser scrolls and zooms, and sideways touches are the swipe's.
-        className="isolate h-full touch-pan-y touch-pinch-zoom overflow-x-hidden overflow-y-auto overscroll-contain outline-hidden"
+        // browser scrolls and zooms, and sideways touches are the swipe's. Room
+        // below for the ＋ button while the sidebar is a drawer: the grid's last
+        // hour and the list's last card scroll clear of it.
+        className={cn(
+          "isolate h-full touch-pan-y touch-pinch-zoom overflow-x-hidden overflow-y-auto overscroll-contain outline-hidden",
+          !docked && "pb-[calc(6rem+env(safe-area-inset-bottom))]",
+        )}
         style={{ paddingTop: layout.barPx, scrollPaddingTop: layout.barPx }}
       >
         {/* At least a screen tall, so a short day's neighbours show a screen of theirs. */}
@@ -359,10 +364,7 @@ export default function ScheduleV2Page() {
       {/* The sidebar's parts for this page, before and after its page links (DESIGN.md §5). */}
       {shell?.sidebarSlots.top && createPortal(<CreateReservationButton onCreate={openCreate} />, shell.sidebarSlots.top)}
       {shell?.sidebarSlots.end && createPortal(<CalendarLayers layers={layers} onChange={setLayers} />, shell.sidebarSlots.end)}
-      {/* Without the docked sidebar its create button is in the drawer: this one stays on screen.
-          shortcut: the time grid ends at 24:00 with no room below, so the button can cover
-          the last hour of the rightmost column; give the grid bottom padding if late
-          bookings appear (the list has its room: DayList's addButton). */}
+      {/* Without the docked sidebar its create button is in the drawer: this one stays on screen. */}
       {!docked && (
         <button
           type="button"
