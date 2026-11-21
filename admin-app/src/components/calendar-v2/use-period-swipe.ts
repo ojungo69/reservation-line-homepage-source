@@ -121,9 +121,7 @@ export function usePeriodSwipe(
     // animation shows its first keyframe on the frame it starts, so it starts a
     // frame on: no frame after the lift stands still.
     const fly = (from: number, to: number, velocity: number, direction: -1 | 0 | 1, width: number) => {
-      const frames = springFrames(from, to, velocity)
-        .slice(1)
-        .map((x) => within(x, width));
+      const frames = springFrames(from, to, velocity).slice(1);
       const keyframes = frames.map((x) => ({ transform: `translateX(${x}px)` }));
       const options: KeyframeAnimationOptions = { duration: (frames.length - 1) * FRAME_MS, fill: "forwards" };
       const animations = panes().map((pane) => pane.animate(keyframes, options));
