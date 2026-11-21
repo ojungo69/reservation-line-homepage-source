@@ -386,7 +386,6 @@ export function usePeriodSwipe(
       endSwipe.current();
       endSwipe.current = () => {};
       unblock?.();
-      rest();
     };
   }, [scrollerRef, rootRef]);
 }
