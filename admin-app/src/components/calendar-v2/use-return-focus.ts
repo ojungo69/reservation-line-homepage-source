@@ -20,7 +20,8 @@ export function useReturnFocus(sheetOpen: boolean, fallbackRef: RefObject<HTMLEl
     sheetWasOpen.current = false;
     const target = opener.current;
     opener.current = null;
-    if (target !== document.body && target.isConnected) target.focus();
+    // One left in a neighbouring period's preview is inert (PeriodStrip): gone too.
+    if (target !== document.body && target.isConnected && !target.closest("[inert]")) target.focus();
     // <body> stands for "nothing to go back to": the fallback takes focus then.
     if (target === document.body || document.activeElement !== target) fallbackRef.current?.focus();
   }, [sheetOpen, fallbackRef]);

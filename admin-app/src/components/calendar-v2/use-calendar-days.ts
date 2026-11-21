@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { externalBlocksQuery } from "@/hooks/use-external-blocks";
 import { reservationsQuery } from "@/hooks/use-reservations";
 import { formatJstDate } from "@/lib/timeline";
@@ -12,6 +12,12 @@ const RESERVATION_ROW_CAP = 200;
 // days every 2 minutes instead of every 30 seconds cuts its background requests
 // from 14 to about 5 per 30 seconds (battery, and the Worker's daily requests).
 const OTHER_DAY_POLL_MS = 120_000;
+// The periods beside the shown one, which a swipe brings into view (INT-11-06):
+// read once ahead and kept for 2 minutes. Their observers only watch the cache,
+// so nothing polls them or reads them again on focus or an invalidation; a step
+// makes them the shown period, whose own queries read them again as they come
+// into view.
+const PREVIEW = { enabled: false } as const;
 
 export type DayData = Readonly<{
   dateKey: string;
@@ -37,13 +43,50 @@ function reservationsStatusOf(pending: boolean, failed: boolean, rows: number): 
 
 /**
  * Bookings and external blocks for each shown day, one day per request as today
- * (the same queries and cache as the current day view, no server change).
+ * (the same queries and cache as the current day view, no server change). With
+ * preview, the days of a neighbouring period: see PREVIEW.
  */
-export function useCalendarDays(dayKeys: readonly string[]): DayData[] {
+export function useCalendarDays(dayKeys: readonly string[], { preview = false } = {}): DayData[] {
+  const client = useQueryClient();
   const todayKey = formatJstDate(new Date());
-  const poll = (dateKey: string) => (dateKey === todayKey ? {} : { refetchInterval: OTHER_DAY_POLL_MS });
+  // A day that comes into view is read again even when its cache is fresh: it
+  // may have been read ahead before a change made elsewhere (INT-11-06).
+  const shownBefore = useRef<ReadonlySet<string>>(new Set());
+  const poll = (dateKey: string) => {
+    if (preview) return PREVIEW;
+    const reread = shownBefore.current.has(dateKey) ? {} : { refetchOnMount: "always" as const };
+    return { ...reread, ...(dateKey === todayKey ? {} : { refetchInterval: OTHER_DAY_POLL_MS }) };
+  };
   const reservations = useQueries({ queries: dayKeys.map((dateKey) => ({ ...reservationsQuery(dateKey), ...poll(dateKey) })) });
   const blocks = useQueries({ queries: dayKeys.map((dateKey) => ({ ...externalBlocksQuery(dateKey), ...poll(dateKey) })) });
+  // Each day is read ahead once when it comes next door (with the usual retry),
+  // and not again while it stays there.
+  const keys = dayKeys.join(" ");
+  // A read ahead still on its way may have been sent before a change: its late
+  // answer would undo the change's invalidation, and the day's first read would
+  // join it. A day coming into view drops it, before its observers subscribe.
+  useLayoutEffect(() => {
+    if (preview) return;
+    for (const dateKey of keys ? keys.split(" ") : []) {
+      if (shownBefore.current.has(dateKey)) continue;
+      void client.cancelQueries({ queryKey: reservationsQuery(dateKey).queryKey, exact: true });
+      void client.cancelQueries({ queryKey: externalBlocksQuery(dateKey).queryKey, exact: true });
+    }
+  }, [client, keys, preview]);
+  useEffect(() => {
+    if (!preview) shownBefore.current = new Set(keys ? keys.split(" ") : []);
+  }, [keys, preview]);
+  const readAhead = useRef(new Set<string>());
+  useEffect(() => {
+    if (!preview) return;
+    const near = keys ? keys.split(" ") : [];
+    for (const dateKey of near) {
+      if (readAhead.current.has(dateKey)) continue;
+      void client.prefetchQuery({ ...reservationsQuery(dateKey), staleTime: OTHER_DAY_POLL_MS });
+      void client.prefetchQuery({ ...externalBlocksQuery(dateKey), staleTime: OTHER_DAY_POLL_MS });
+    }
+    readAhead.current = new Set(near);
+  }, [client, keys, preview]);
   return dayKeys.map((dateKey, index) => {
     const bookings = reservations[index];
     const others = blocks[index];

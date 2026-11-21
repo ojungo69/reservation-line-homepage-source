@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { CalendarColumns, DayHeaderCells, DayList, FALLBACK_OPENING_MINUTE, columnState, openingOf } from "@/components/calendar-v2/body";
 import { activeResourceIds, buildColumns, effectiveView, visibleStoreId, type CalendarColumn, type CalendarView } from "@/components/calendar-v2/columns";
@@ -6,7 +6,8 @@ import { PX_PER_MINUTE, mondayWeek } from "@/components/calendar-v2/geometry";
 import { CalendarGrid } from "@/components/calendar-v2/grid";
 import { dayLabel, shortDayLabel, spanLabel, weekHeading } from "@/components/calendar-v2/labels";
 import { CalendarNotices } from "@/components/calendar-v2/notices";
-import { CalendarTopBar, DayHeader } from "@/components/calendar-v2/top-bar";
+import { PeriodStrip } from "@/components/calendar-v2/period-strip";
+import { CalendarTopBar, DayHeader, DayHeaderRow } from "@/components/calendar-v2/top-bar";
 import { useCalendarDate, useCalendarDays } from "@/components/calendar-v2/use-calendar-days";
 import { useCalendarLayout } from "@/components/calendar-v2/use-calendar-layout";
 import { useCalendarView } from "@/components/calendar-v2/use-calendar-view";
@@ -86,10 +87,16 @@ export default function ScheduleV2Page() {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const dayDates = week ? mondayWeek(date) : [date];
+  const periodOf = (at: Date) => (week ? mondayWeek(at) : [at]);
+  const dayDates = periodOf(date);
   const dayKeys = dayDates.map(formatJstDate);
+  const bar = barText(week, narrow, date, dayDates);
+  // The periods a swipe brings in from the sides (PeriodStrip).
+  const prevDate = addDays(date, -bar.stepDays);
+  const nextDate = addDays(date, bar.stepDays);
   const days = useCalendarDays(dayKeys);
-  const dayByKey = new Map(days.map((day) => [day.dateKey, day]));
+  const neighbourDays = useCalendarDays([prevDate, nextDate].flatMap(periodOf).map(formatJstDate), { preview: true });
+  const dayByKey = new Map([...days, ...neighbourDays].map((day) => [day.dateKey, day]));
   const settingsQuery = useSettings({ live: true });
   const settings = settingsQuery.data?.ok ? settingsQuery.data.settings : null;
   const pendingQuery = usePendingReservations();
@@ -100,7 +107,8 @@ export default function ScheduleV2Page() {
   const [pendingOpen, setPendingOpen] = useState(false);
   const [cancelBlock, setCancelBlock] = useState<ExternalBlock | null>(null);
 
-  const columns = view === "list" ? [] : buildColumns(view, date, storeId, stores);
+  const columnsAt = (at: Date) => (view === "list" ? [] : buildColumns(view, at, storeId, stores));
+  const columns = columnsAt(date);
   const settingsUsable = settings !== null && !settingsQuery.isError;
   const states = columns.map((column) => columnState(column, dayByKey, settings, settingsUsable));
   const storesWhere = (test: (state: (typeof states)[number]) => boolean) =>
@@ -202,36 +210,35 @@ export default function ScheduleV2Page() {
 
   const todayKey = formatJstDate(now);
   const nowJst = toJstDate(now);
-  const bar = barText(week, narrow, date, dayDates);
   // The bar's 前/次, its date picker and the body's swipe and wheel move here (T006).
   const goTo = (next: Date) => {
     keepHours.current = true;
     setDate(next);
   };
   const step = (direction: -1 | 1) => goTo(addDays(date, direction * bar.stepDays));
-  usePeriodSwipe(scrollerRef, rootRef, step);
-  const dayHeader = (
-    <DayHeader scrollbarPx={layout.scrollbarPx}>
+  usePeriodSwipe(scrollerRef, rootRef, step, `${view}|${dayKeys[0]}|${storeId ?? "all"}`);
+
+  const blockHandler = isPrivileged ? onBlock : undefined;
+  const headerAt = (at: Date) => (
+    <DayHeaderRow>
       <DayHeaderCells
-        columns={columns}
+        columns={columnsAt(at)}
         dayByKey={dayByKey}
         week={week}
         allStores={storeId === null}
         todayKey={todayKey}
         onOpenDay={openDay}
       />
-    </DayHeader>
+    </DayHeaderRow>
   );
-
-  const blockHandler = isPrivileged ? onBlock : undefined;
-  let body = <DayList day={dayByKey.get(formatJstDate(date))} storeId={storeId} onDetails={onReservation} />;
-  if (view !== "list" && columns.length === 0) {
-    body = <NoColumns loading={settingsQuery.isPending} />;
-  } else if (view !== "list") {
-    body = (
+  const bodyAt = (at: Date) => {
+    if (view === "list") return <DayList day={dayByKey.get(formatJstDate(at))} storeId={storeId} onDetails={onReservation} />;
+    const atColumns = columnsAt(at);
+    if (atColumns.length === 0) return <NoColumns loading={settingsQuery.isPending} />;
+    return (
       <CalendarGrid>
         <CalendarColumns
-          states={states}
+          states={atColumns.map((column) => columnState(column, dayByKey, settings, settingsUsable))}
           week={week}
           todayKey={todayKey}
           nowMinute={nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes()}
@@ -243,7 +250,18 @@ export default function ScheduleV2Page() {
         />
       </CalendarGrid>
     );
-  }
+  };
+  // The bar's names and the body each sit in a strip of three periods.
+  const strip = (paneAt: (at: Date) => ReactNode, className?: string) => (
+    <PeriodStrip
+      className={className}
+      fromTop={view === "list"}
+      prev={{ key: formatJstDate(periodOf(prevDate)[0]), content: paneAt(prevDate) }}
+      current={{ key: dayKeys[0], content: paneAt(date) }}
+      next={{ key: formatJstDate(periodOf(nextDate)[0]), content: paneAt(nextDate) }}
+    />
+  );
+  const dayHeader = <DayHeader scrollbarPx={layout.scrollbarPx}>{strip(headerAt)}</DayHeader>;
 
   return (
     <div ref={rootRef} className="relative h-full overflow-hidden bg-cal-surface text-cal-text">
@@ -297,7 +315,8 @@ export default function ScheduleV2Page() {
         className="isolate h-full touch-pan-y touch-pinch-zoom overflow-x-hidden overflow-y-auto overscroll-contain outline-hidden"
         style={{ paddingTop: layout.barPx, scrollPaddingTop: layout.barPx }}
       >
-        <div data-swipe-pane="">{body}</div>
+        {/* At least a screen tall, so a short day's neighbours show a screen of theirs. */}
+        {strip(bodyAt, "min-h-full")}
       </div>
 
       <ReservationDetailPanel

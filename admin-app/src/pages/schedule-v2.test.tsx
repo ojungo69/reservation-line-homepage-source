@@ -2,12 +2,13 @@ import { mocks } from "@/test-utils/hook-mocks";
 import { StrictMode, useState } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClientProvider, notifyManager } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, notifyManager } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient } from "@/test-utils/query-client";
+import { FRAME_MS, frameAt } from "@/components/calendar-v2/swipe";
 import { ShellV2Context, type ShellV2 } from "@/components/shell-v2/shell-context";
-import { formatJstDate } from "@/lib/timeline";
+import { addDays, formatJstDate } from "@/lib/timeline";
 import type { ExternalBlock, Reservation } from "@/types/api";
 
 const auth = vi.hoisted(() => ({ privileged: true }));
@@ -191,14 +192,18 @@ function PageUnderTest() {
   return <ScheduleV2Page />;
 }
 
-function renderPage({ shell, state, strict = false }: { shell?: ShellV2; state?: unknown; strict?: boolean } = {}) {
+function renderPage({
+  shell,
+  state,
+  strict = false,
+  client = createTestQueryClient(),
+}: { shell?: ShellV2; state?: unknown; strict?: boolean; client?: QueryClient } = {}) {
   const page = (
     <>
       <PageUnderTest />
       <LocationProbe />
     </>
   );
-  const client = createTestQueryClient();
   const tree = (
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[{ pathname: "/", state }]}>
@@ -224,7 +229,9 @@ const fakeShell = (): ShellV2 & { calls: { ownTopBar: boolean[]; blocked: boolea
   };
 };
 
-const column = (key: string) => document.querySelector<HTMLElement>(`[data-calendar-column="${key}"]`);
+// The shown period's part of the body; the strip's neighbours are previews (PeriodStrip).
+const shownBody = () => document.querySelector<HTMLElement>('[data-calendar-scroll] [data-period-side="0"]') as HTMLElement;
+const column = (key: string) => shownBody().querySelector<HTMLElement>(`[data-calendar-column="${key}"]`);
 const slotsIn = (key: string) => column(key)?.querySelectorAll("[data-slot-minutes]").length ?? 0;
 const eventButton = (name: RegExp) => screen.findByRole("button", { name });
 
@@ -286,7 +293,7 @@ describe("ScheduleV2Page の週表示", () => {
     expect(screen.getByRole("button", { name: "11月22日（日）の日表示を開く" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("2026年11月");
     expect(screen.getByRole("button", { name: "11月20日（金）の日表示を開く" }).getAttribute("aria-current")).toBe("date");
-    expect(document.querySelectorAll("[data-calendar-column]")).toHaveLength(7);
+    expect(shownBody().querySelectorAll("[data-calendar-column]")).toHaveLength(7);
   });
 
   it("同じ時間に重なる予約は横に並べ、取消済みは出さない", async () => {
@@ -327,7 +334,7 @@ describe("ScheduleV2Page の週表示", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "11月18日（水）の日表示を開く" }));
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("11月18日（水）");
-    expect(document.querySelectorAll("[data-calendar-column]")).toHaveLength(1);
+    expect(shownBody().querySelectorAll("[data-calendar-column]")).toHaveLength(1);
     expect(await eventButton(/^水曜 三郎、/)).toBeTruthy();
   });
 
@@ -363,13 +370,13 @@ describe("ScheduleV2Page の店舗の扱い", () => {
     const user = userEvent.setup();
     renderPage();
     expect(await eventButton(/^駅前 次郎、/)).toBeTruthy();
-    expect(document.querySelectorAll("[data-calendar-column]")).toHaveLength(3);
+    expect(shownBody().querySelectorAll("[data-calendar-column]")).toHaveLength(3);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("11月20日（金）");
     // Not on the first visit: only once the user asks for the week.
     expect(screen.queryByText(/週表示は店舗を1つ選ぶと使えます/)).toBeNull();
     await user.click(screen.getByRole("button", { name: "週" }));
     expect(screen.getByText("週表示は店舗を1つ選ぶと使えます。上部の店舗の切り替えで選んでください。")).toBeTruthy();
-    expect(document.querySelectorAll("[data-calendar-column]")).toHaveLength(3);
+    expect(shownBody().querySelectorAll("[data-calendar-column]")).toHaveLength(3);
   });
 
   it("見られる店舗が1つだけなら、その店舗を選んだ状態として扱い、案内を出さない", async () => {
@@ -789,7 +796,7 @@ describe("ScheduleV2Page の一覧 (CodeRabbit の指摘)", () => {
     reservationsByDay["2026-11-20"] = [];
     failingBlockDays.add("2026-11-20");
     renderPage();
-    const empty = await screen.findByText("この日の予約はありません");
+    const empty = await within(shownBody()).findByText("この日の予約はありません");
     expect(empty.closest("output")).not.toBeNull();
   });
 
@@ -799,7 +806,7 @@ describe("ScheduleV2Page の一覧 (CodeRabbit の指摘)", () => {
     const { client } = renderPage();
     // Only after the settings arrive: until then it says it is loading.
     await waitFor(() => expect(client.getQueryState(["settings"])?.status).toBe("success"));
-    expect(screen.getByText("表示できる店舗がありません。")).toBeTruthy();
+    expect(within(shownBody()).getByText("表示できる店舗がありません。")).toBeTruthy();
     expect(screen.queryByText("予定を読み込み中…")).toBeNull();
   });
 
@@ -831,7 +838,7 @@ describe("ScheduleV2Page の一覧 (Codex の指摘)", () => {
     );
     renderPage();
     expect(await screen.findByText(/11月20日（金）の予定が表示できる上限の件数に達しました。/)).toBeTruthy();
-    expect(screen.queryByText("この日の予約はありません")).toBeNull();
+    expect(within(shownBody()).queryByText("この日の予約はありません")).toBeNull();
   });
 
   it("フォーカスが移らない押し方でも、詳細を閉じると押した「詳細」へ戻す", async () => {
@@ -1095,6 +1102,51 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(heading()).toBe("11月21日（土）");
   });
 
+  it("横の動きが止まってから縦にだけ動いて離した指は、止めたものとする", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 20);
+    point("pointerMove", scroller(), 230, 400);
+    vi.setSystemTime(Date.now() + 51);
+    point("pointerMove", scroller(), 230, 420);
+    vi.setSystemTime(Date.now() + 1);
+    // 70px, under 20% of 375px, and still sideways for 52ms: no flick.
+    point("pointerUp", scroller(), 230, 420);
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("止めてから短く速く払った指は、払った速さで決める", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 130);
+    point("pointerMove", scroller(), 300, 404);
+    vi.setSystemTime(Date.now() + 20);
+    point("pointerMove", scroller(), 270, 404);
+    vi.setSystemTime(Date.now() + 10);
+    // 30px in 20ms after holding still: a flick.
+    point("pointerUp", scroller(), 270, 404);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("最後の動きから離れた位置で指を離したときは、その分も速さに入れる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 50);
+    point("pointerMove", scroller(), 295, 400);
+    vi.setSystemTime(Date.now() + 10);
+    // 45px in 60ms: a flick, though the last move alone was slow.
+    point("pointerUp", scroller(), 255, 400);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
   it("掴んでいた予約が描き直しで消えて捕捉を失ったら中止し、元の日のまま戻す（INT-10-02）", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -1246,6 +1298,834 @@ describe("ScheduleV2Page のフリック（T006）", () => {
     expect(scroller().scrollTop).toBe(700);
     swipe(scroller(), -80);
     expect(scroller().scrollTop).toBe(700);
+  });
+});
+
+// jsdom has no Web Animations: a stand-in keeps each animation, so a test reads
+// its keyframes, moves its clock and lets it finish.
+type Glide = {
+  keyframes: Keyframe[];
+  options: KeyframeAnimationOptions;
+  currentTime: number;
+  onfinish: (() => void) | null;
+  cancelled: boolean;
+  cancel: () => void;
+  finish: () => void;
+};
+let glides: Glide[] = [];
+const flights = () => glides.filter((glide) => glide.options.fill === "forwards" && !glide.cancelled);
+const xOf = (keyframe: Keyframe | undefined) => Number(/translateX\((-?[\d.e-]+)px\)/.exec(String(keyframe?.transform))?.[1]);
+const paneTransforms = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-pane]")].map((pane) => pane.style.transform);
+const wide = () => Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+/** One finger moved by dx over ms in two steps, then lifted where it stopped. */
+const flick = (dx: number, ms: number) => {
+  point("pointerDown", scroller(), 300, 400);
+  vi.setSystemTime(Date.now() + ms / 2);
+  point("pointerMove", scroller(), 300 + dx / 2, 400);
+  vi.setSystemTime(Date.now() + ms / 2);
+  point("pointerMove", scroller(), 300 + dx, 400);
+  point("pointerUp", scroller(), 300 + dx, 400);
+};
+const reservationReads = (date: string) =>
+  mocks.api.get.mock.calls.filter(([url]) => url === `/api/admin/reservations?range=date&date=${date}`).length;
+const blocksUrl = (date: string) => `/api/admin/external-blocks?from=${date}&to=${date}&status=active`;
+const blockReads = (date: string) => mocks.api.get.mock.calls.filter(([url]) => url === blocksUrl(date)).length;
+// The production client tries a failed read once more (lib/query-client.ts); here at once.
+const retryOnce = () => new QueryClient({ defaultOptions: { queries: { retry: 1, retryDelay: 0 }, mutations: { retry: false } } });
+
+describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () => {
+  beforeEach(() => {
+    glides = [];
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value(keyframes: Keyframe[], options: KeyframeAnimationOptions) {
+        const glide: Glide = {
+          keyframes,
+          options,
+          currentTime: 0,
+          onfinish: null,
+          cancelled: false,
+          cancel: () => {
+            glide.cancelled = true;
+          },
+          finish: () => {
+            glide.currentTime = Number(options.duration);
+            glide.onfinish?.();
+          },
+        };
+        glides.push(glide);
+        return glide;
+      },
+    });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(HTMLElement.prototype, "animate");
+  });
+
+  it("前後の日は左右に並べて見せるだけにし、読み上げ・フォーカス・押下の対象から外す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const side = (at: string) => document.querySelector<HTMLElement>(`[data-calendar-scroll] [data-period-side="${at}"]`) as HTMLElement;
+    expect(side("-1").querySelector('[data-calendar-column="2026-11-19:s1"]')).not.toBeNull();
+    expect(side("1").querySelector('[data-calendar-column="2026-11-21:s1"]')).not.toBeNull();
+    for (const at of ["-1", "1"]) {
+      expect(side(at).getAttribute("aria-hidden")).toBe("true");
+      expect(side(at).hasAttribute("inert")).toBe(true);
+    }
+    expect(side("0").hasAttribute("inert")).toBe(false);
+    // The bar's names come in with them: a strip of three there too.
+    expect(document.querySelectorAll("[data-swipe-pane] > [data-period-side]")).toHaveLength(6);
+    expect(screen.queryAllByRole("button", { name: /11月21日/ })).toHaveLength(0);
+  });
+
+  it("離すと指の速さのまま隣の日まですべり、着いたところで日付を変える", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    const incoming = document.querySelector('[data-calendar-scroll] [data-period-side="1"]');
+    flick(-100, 80);
+    // The step waits for the landing, so its render never stalls the glide.
+    expect(heading()).toBe("11月20日（金）");
+    expect(flights()).toHaveLength(2);
+    const [glide] = flights();
+    // Its first frame is already a frame on from the lift, at the finger's 1.25px/ms or faster, short of the day.
+    expect(-100 - xOf(glide.keyframes[0])).toBeGreaterThanOrEqual(1.25 * FRAME_MS);
+    expect(xOf(glide.keyframes[0])).toBeGreaterThan(-200);
+    expect(xOf(glide.keyframes.at(-1))).toBe(-375);
+    act(() => glide.finish());
+    expect(heading()).toBe("11月21日（土）");
+    // The day that came in is the same element, now the shown one.
+    expect(shownBody()).toBe(incoming);
+    expect(paneTransforms()).toEqual(["", ""]);
+    expect(flights()).toHaveLength(0);
+  });
+
+  it("短くても速く払えば隣の日へ、ゆっくり短く動かして止めてから離せば元の日へすべる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-40, 50);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(-375);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+    flick(-40, 400);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+    // Quick, then held still for more than 40ms before the lift.
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 25);
+    point("pointerMove", scroller(), 280, 400);
+    vi.setSystemTime(Date.now() + 25);
+    point("pointerMove", scroller(), 260, 400);
+    vi.setSystemTime(Date.now() + 50);
+    point("pointerUp", scroller(), 260, 400);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("確定の距離を越えても、戻す向きに動かしながら離すと元の日へすべる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    point("pointerDown", scroller(), 300, 400);
+    // A move a frame: out to 200, then back 2.5px a frame (about 0.15px/ms).
+    for (const x of [280, 260, 240, 220, 200, 202.5, 205, 207.5, 210, 212.5, 215]) {
+      vi.setSystemTime(Date.now() + 16);
+      point("pointerMove", scroller(), x, 400);
+    }
+    point("pointerUp", scroller(), 215, 400);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("指を止めて 160ms 後に戻して離しても、止める前の記録から戻す速さを求め、元の日へすべる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 60);
+    point("pointerMove", scroller(), 150, 400);
+    vi.setSystemTime(Date.now() + 160);
+    point("pointerMove", scroller(), 168, 400);
+    vi.setSystemTime(Date.now() + 5);
+    point("pointerUp", scroller(), 168, 400);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+  });
+
+  it("止めて戻したあと、同じ横の位置のまま縦にだけ動いてから離しても、元の日へすべる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 60);
+    point("pointerMove", scroller(), 150, 400);
+    vi.setSystemTime(Date.now() + 160);
+    point("pointerMove", scroller(), 168, 400);
+    for (const y of [410, 420]) {
+      vi.setSystemTime(Date.now() + 10);
+      point("pointerMove", scroller(), 168, y);
+    }
+    vi.setSystemTime(Date.now() + 5);
+    point("pointerUp", scroller(), 168, 420);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+  });
+
+  it("すべっている途中で触れると、その日に変わって指がその位置で掴み、触れただけでは何も押さない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    const [glide] = flights();
+    glide.currentTime = FRAME_MS * 3;
+    const held = frameAt(glide.keyframes.map(xOf), FRAME_MS * 3) + 375;
+    point("pointerDown", scroller(), 200, 400);
+    expect(heading()).toBe("11月21日（土）");
+    expect(paneTransforms()).toEqual([`translateX(${held}px)`, `translateX(${held}px)`]);
+    point("pointerUp", scroller(), 200, 400);
+    // Let go without moving: the strip goes back to the day now shown.
+    expect(xOf(flights()[0].keyframes[0])).toBeLessThan(held);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    const slot = within(shownBody()).getAllByRole("button", { name: /に予約を追加$/ })[0];
+    fireEvent.click(slot, { detail: 1 });
+    expect(captured.create).toBeNull();
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("すべっている途中で掴んだ指が縦に動くか、ブラウザに引き取られたら、掴んだ日のまま帯を戻す", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    const interruptions: Array<[string, () => void]> = [
+      ["vertical", () => point("pointerMove", scroller(), 200, 440)],
+      ["cancel", () => fireEvent.pointerCancel(scroller(), { pointerId: 1 })],
+    ];
+    for (const [index, [name, interrupt]] of interruptions.entries()) {
+      flick(-100, 80);
+      flights()[0].currentTime = FRAME_MS * 3;
+      point("pointerDown", scroller(), 200, 400);
+      interrupt();
+      expect(xOf(flights()[0]?.keyframes.at(-1)), name).toBe(0);
+      act(() => flights()[0].finish());
+      point("pointerUp", scroller(), 200, 440);
+      expect(paneTransforms(), name).toEqual(["", ""]);
+      expect(heading(), name).toBe(index === 0 ? "11月21日（土）" : "11月22日（日）");
+    }
+  });
+
+  it("掴んだ後は、掴んだ指の動いた量と速さで決め、引き継いだずれは出だしの位置にだけ使う", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    flights()[0].currentTime = FRAME_MS * 3;
+    const held = frameAt(flights()[0].keyframes.map(xOf), FRAME_MS * 3) + 375;
+    point("pointerDown", scroller(), 200, 400);
+    point("pointerMove", scroller(), 187, 400);
+    point("pointerUp", scroller(), 187, 400);
+    // 13px is no swipe: the caught day stays, from where the strip was.
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    expect(xOf(flights()[0].keyframes[0])).toBeLessThan(held - 13);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("指を置いたまま前後のボタンで期間が変わったら、その指を離しても動かさない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    fireEvent.click(screen.getByRole("button", { name: "次の日" }));
+    expect(heading()).toBe("11月21日（土）");
+    expect(paneTransforms()).toEqual(["", ""]);
+    point("pointerUp", scroller(), 200, 400);
+    expect(flights()).toHaveLength(0);
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("すべっている途中で画面の大きさが変わったら、すぐに着地させる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    fireEvent(window, new Event("resize"));
+    expect(heading()).toBe("11月21日（土）");
+    expect(flights()).toHaveLength(0);
+    expect(paneTransforms()).toEqual(["", ""]);
+  });
+
+  it("指で帯を動かしたまま本文の幅だけが変わったら、すべらせずにすぐ元へ戻す（INT-10-04）", async () => {
+    const resized: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resized.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    let width = 375;
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => width });
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    width = 345;
+    act(() => {
+      for (const callback of resized) callback([], {} as ResizeObserver);
+    });
+    expect(flights()).toHaveLength(0);
+    expect(paneTransforms()).toEqual(["", ""]);
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("横 wheel の 1 回の操作は、慣性がすべりをまたいでも 1 期間しか動かさない（INT-13-06）", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    fireEvent.wheel(scroller(), { deltaX: 100 });
+    expect(heading()).toBe("11月21日（土）");
+    // Its momentum goes on, never 250ms apart, while a touch glides to the next day.
+    flick(-100, 80);
+    for (let i = 0; i < 4; i++) {
+      await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+      fireEvent.wheel(scroller(), { deltaX: 100 });
+    }
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月22日（日）");
+    fireEvent.wheel(scroller(), { deltaX: 100 });
+    expect(heading()).toBe("11月22日（日）");
+  });
+
+  it("すべりの間に始まった縦の wheel は、その操作の向きを縦に決め、着いたあとの横の入力でも期間を動かさない（INT-03-08）", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(false);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+    // The same gesture, with no 250ms gap, turns sideways after the landing.
+    fireEvent.wheel(scroller(), { deltaX: 200 });
+    expect(heading()).toBe("11月21日（土）");
+  });
+
+  it("すべっている間と、指で帯を動かしている間は、wheel を受け付けず、元の位置にあるときは受け付ける", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(false);
+    expect(fireEvent.wheel(scroller(), { deltaX: 200 })).toBe(false);
+    // INT-05-04: ctrl + wheel is the browser's zoom, also while it glides.
+    expect(fireEvent.wheel(scroller(), { deltaY: 120, ctrlKey: true })).toBe(true);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 250, 400);
+    expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(false);
+    expect(fireEvent.wheel(scroller(), { deltaY: 120, ctrlKey: true })).toBe(true);
+    point("pointerUp", scroller(), 250, 400);
+    act(() => flights()[0]?.finish());
+    expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(true);
+    // A finger only resting on the body leaves the wheel to scroll.
+    point("pointerDown", scroller(), 300, 400);
+    expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(true);
+    point("pointerUp", scroller(), 300, 400);
+  });
+
+  it("すべっている途中に本文の幅だけが変わっても、すぐに着地させる", async () => {
+    const resized: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resized.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    let width = 375;
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => width });
+    flick(-100, 80);
+    width = 345;
+    act(() => {
+      for (const callback of resized) callback([], {} as ResizeObserver);
+    });
+    expect(heading()).toBe("11月21日（土）");
+    expect(flights()).toHaveLength(0);
+  });
+
+  it("掴み直して大きく引いても、帯は隣の期間より外へは出さない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 50, 400);
+    point("pointerMove", scroller(), 450, 400);
+    expect(paneTransforms()).toEqual(["translateX(375px)", "translateX(375px)"]);
+    point("pointerUp", scroller(), 450, 400);
+    expect(Math.max(...flights()[0].keyframes.map(xOf))).toBeLessThanOrEqual(375);
+  });
+
+  it("向きが決まる前に離した速いフリックでも、スクロールした一覧の隣の日は上から見せてすべる", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    point("pointerDown", scroller(), 300, 400);
+    vi.setSystemTime(Date.now() + 40);
+    point("pointerUp", scroller(), 250, 400);
+    const contents = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(-375);
+    expect(contents.map((content) => content.style.transform)).toEqual(["translateY(300px)", "", "translateY(300px)"]);
+    act(() => flights()[0].finish());
+    const now = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(now.map((content) => content.style.transform)).toEqual(["", "", ""]);
+    // The next day, drawn from its top, lands at the top.
+    expect(scroller().scrollTop).toBe(0);
+  });
+
+  it("隣のまま残る日は、変更の後に期間を移っても読み直さない", async () => {
+    const user = userEvent.setup();
+    const { client } = renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(1));
+    await act(() => client.invalidateQueries({ queryKey: ["reservations"] }));
+    await user.click(screen.getByRole("button", { name: "11月20日（金）" }));
+    const calendar = await screen.findByRole("group", { name: "日付選択カレンダー" });
+    await user.click(within(calendar).getByRole("button", { name: "2026年11月22日 (日)" }));
+    expect(heading()).toBe("11月22日（日）");
+    await waitFor(() => expect(reservationReads("2026-11-22")).toBe(2));
+    expect(reservationReads("2026-11-21")).toBe(1);
+  });
+
+  it("戻る向きと逆に速く折り返して離しても、すべりは隣の期間より外へ出ない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    point("pointerDown", scroller(), 220, 400);
+    vi.setSystemTime(Date.now() + 50);
+    point("pointerMove", scroller(), 115, 400);
+    vi.setSystemTime(Date.now() + 8);
+    point("pointerMove", scroller(), 215, 400);
+    point("pointerUp", scroller(), 215, 400);
+    const [glide] = flights();
+    expect(xOf(glide.keyframes.at(-1))).toBe(0);
+    expect(Math.max(...glide.keyframes.map(xOf))).toBeLessThanOrEqual(375);
+  });
+
+  it("行き先の期間が見える前に掴んだすべりは、その期間に切り替えずに掴む", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    // Caught at once: the next day is in view, so it is shown; the old day sits to the left.
+    point("pointerDown", scroller(), 300, 400);
+    expect(heading()).toBe("11月21日（土）");
+    vi.setSystemTime(Date.now() + 10);
+    point("pointerMove", scroller(), 277, 400);
+    vi.setSystemTime(Date.now() + 10);
+    point("pointerMove", scroller(), 254, 400);
+    point("pointerUp", scroller(), 254, 400);
+    // Flicked on toward the day after: caught again before that day comes into view.
+    const [glide] = flights();
+    expect(xOf(glide.keyframes.at(-1))).toBe(-375);
+    const held = xOf(glide.keyframes[0]);
+    expect(held).toBeGreaterThan(0);
+    point("pointerDown", scroller(), 300, 400);
+    expect(heading()).toBe("11月21日（土）");
+    expect(paneTransforms()).toEqual([`translateX(${held}px)`, `translateX(${held}px)`]);
+  });
+
+  it("スクロールした一覧で離したときに初めて横と決まり、戻るときも、隣の日は上から見せる", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerUp", scroller(), 280, 400);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    const contents = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents.map((content) => content.style.transform)).toEqual(["translateY(300px)", "", "translateY(300px)"]);
+    act(() => flights()[0].finish());
+    expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
+  });
+
+  it("すべりを掴んだ押下は、その間に画面の大きさが変わって操作が終わっても、離したあと何も押さない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    swipe(scroller(), -40);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    const slot = within(shownBody()).getAllByRole("button", { name: /に予約を追加$/ })[0];
+    point("pointerDown", slot, 300, 400);
+    fireEvent(window, new Event("resize"));
+    point("pointerUp", slot, 300, 400);
+    fireEvent.click(slot, { detail: 1 });
+    expect(captured.create).toBeNull();
+  });
+
+  it("すべっている途中でウィンドウを離れるか画面が隠れたら、すぐに着地させる", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    const leaves: Array<[string, () => void]> = [
+      ["blur", () => fireEvent(window, new Event("blur"))],
+      [
+        "hidden",
+        () => {
+          vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+          fireEvent(document, new Event("visibilitychange"));
+        },
+      ],
+    ];
+    for (const [index, [name, leave]] of leaves.entries()) {
+      flick(-100, 80);
+      leave();
+      vi.restoreAllMocks();
+      expect(flights(), name).toHaveLength(0);
+      expect(paneTransforms(), name).toEqual(["", ""]);
+      expect(heading(), name).toBe(index === 0 ? "11月21日（土）" : "11月22日（日）");
+    }
+  });
+
+  it("すべっている途中に前後のボタンや今日で期間が変わると、そのすべりの分は動かさない", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    // Enter on 次の日 clicks it with no pointer.
+    fireEvent.click(screen.getByRole("button", { name: "次の日" }));
+    expect(heading()).toBe("11月21日（土）");
+    expect(flights()).toHaveLength(0);
+    expect(paneTransforms()).toEqual(["", ""]);
+    flick(100, 80);
+    fireEvent.click(screen.getByRole("button", { name: "今日" }));
+    expect(heading()).toBe("11月20日（金）");
+    // A dropped glide that still reports its end changes nothing.
+    act(() => {
+      for (const each of glides) each.onfinish?.();
+    });
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("すべっている途中で画面を離れると、すべりを止める", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    expect(flights()).toHaveLength(2);
+    unmount();
+    expect(flights()).toHaveLength(0);
+  });
+
+  it("動きを減らす設定では、すべらせずにすぐ切り替える", async () => {
+    reduceMotion = true;
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    expect(heading()).toBe("11月21日（土）");
+    expect(glides.filter((glide) => glide.options.fill === "forwards")).toHaveLength(0);
+  });
+
+  it("一覧を下へスクロールしていても、隣の日は上から見せ、離すと戻す", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    scroller().scrollTop = 300;
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 260, 400);
+    // The content moves inside its clipped pane, so the scroll height stays.
+    const contents = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents.map((content) => content.style.transform)).toEqual(["translateY(300px)", "", "translateY(300px)"]);
+    expect(contents.map((content) => content.parentElement?.style.transform)).toEqual(["", "", ""]);
+    point("pointerUp", scroller(), 260, 400);
+    act(() => flights()[0]?.finish());
+    expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
+    // Brought back to where it started and taken over by the browser: still put back.
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 260, 400);
+    point("pointerMove", scroller(), 300, 400);
+    fireEvent.pointerCancel(scroller(), { pointerId: 1 });
+    expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
+  });
+
+  it("スクロールした一覧で戻り途中の帯を掴んでも、隣の日は上から見せたままにする", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    swipe(scroller(), -40);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    point("pointerDown", scroller(), 300, 400);
+    expect(heading()).toBe("11/20（金）");
+    const contents = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents.map((content) => content.style.transform)).toEqual(["translateY(300px)", "", "translateY(300px)"]);
+    point("pointerUp", scroller(), 300, 400);
+    act(() => flights()[0].finish());
+    expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
+  });
+
+  it("スクロールした一覧ですべりを掴むと、まだ見えている元の日はそのスクロールのまま描き、戻して着いたらそのスクロールに戻す", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    flick(-100, 80);
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 100, 400);
+    // The next day is shown from its top; the day leaving is drawn where it was.
+    expect(heading()).toBe("11/21（土）");
+    expect(scroller().scrollTop).toBe(0);
+    const contents = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents().map((content) => content.style.transform)).toEqual(["translateY(-300px)", "", ""]);
+    // Dragged back and let go: the day it lands on is at the scroll it was drawn at.
+    point("pointerMove", scroller(), 300, 400);
+    point("pointerUp", scroller(), 300, 400);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(375);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11/20（金）");
+    expect(scroller().scrollTop).toBe(300);
+    expect(contents().map((content) => content.style.transform)).toEqual(["", "", ""]);
+  });
+
+  it("隣として先に読んだ日も、表示に入ったら 1 回読み直す（変更の前に読んだ古い中身を見せたままにしない）", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(1));
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    expect(heading()).toBe("11/21（土）");
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(2));
+  });
+
+  it("スクロールした一覧で、進むすべりと戻るすべりを続けて掴んでから離すと、元の日はそのスクロールで止まる", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    flick(-100, 80);
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 100, 400);
+    expect(heading()).toBe("11/21（土）");
+    point("pointerMove", scroller(), 300, 400);
+    point("pointerUp", scroller(), 300, 400);
+    // Gliding back to the day before: caught again once it is in view, then let go.
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 300, 400);
+    expect(heading()).toBe("11/20（金）");
+    point("pointerUp", scroller(), 300, 400);
+    act(() => flights()[0]?.finish());
+    expect(scroller().scrollTop).toBe(300);
+    const contents = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
+  });
+
+  it("スクロールした一覧ですべりを掴んで縦に動かし、戻るすべりの途中で取り消されても、元の日は着地までそのスクロールで描く", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    flick(-100, 80);
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 100, 400);
+    point("pointerMove", scroller(), 100, 440);
+    fireEvent.pointerCancel(scroller(), { pointerId: 1 });
+    const contents = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents()[0].style.transform).toBe("translateY(-300px)");
+    act(() => flights()[0].finish());
+    expect(contents().map((content) => content.style.transform)).toEqual(["", "", ""]);
+    expect(scroller().scrollTop).toBe(0);
+  });
+
+  it("先読みの応答が変更の後に届いても、表示に入った日は予約もブロックも新しく読み、変更を見せる", async () => {
+    narrow = true;
+    // The next day's reads ahead are sent before the change and answer after it.
+    const held = new Set(["/api/admin/reservations?range=date&date=2026-11-21", blocksUrl("2026-11-21")]);
+    const answers: Array<() => void> = [];
+    mocks.api.get.mockImplementation((url: string) => {
+      if (!held.delete(url)) return respond(url);
+      const old = respond(url);
+      return new Promise((resolve) => answers.push(() => resolve(old)));
+    });
+    const { client } = renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(answers).toHaveLength(2));
+    reservationsByDay["2026-11-21"] = [reservation("res-m", "2026-11-21", "10:00", "11:00", { customerDisplayName: "移動 四郎" })];
+    blocksByDay["2026-11-21"] = [block("blk-m", { startAt: jst("2026-11-21", "15:00"), endAt: jst("2026-11-21", "16:00") })];
+    await act(() => client.invalidateQueries({ queryKey: ["reservations"] }));
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    expect(heading()).toBe("11/21（土）");
+    await waitFor(() => expect([reservationReads("2026-11-21"), blockReads("2026-11-21")]).toEqual([2, 2]));
+    expect(await within(shownBody()).findByText(/移動 四郎/)).toBeTruthy();
+    const blocksShown = () => client.getQueryData<{ externalBlocks: { id: string }[] }>(["external-blocks", "2026-11-21"])?.externalBlocks.map((row) => row.id);
+    await waitFor(() => expect(blocksShown()).toEqual(["blk-m"]));
+    // The old answers arrive last and change nothing.
+    await act(async () => {
+      for (const answer of answers) answer();
+    });
+    expect(within(shownBody()).getByText(/移動 四郎/)).toBeTruthy();
+    expect(blocksShown()).toEqual(["blk-m"]);
+  });
+
+  it("本番と同じ再試行 1 回では、隣のままの日の先読みは失敗しても 1 回だけ読み直し、表示に入ったら表示として読んで失敗を知らせる", async () => {
+    narrow = true;
+    failingDays.add("2026-11-21");
+    renderPage({ client: retryOnce() });
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(2));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(reservationReads("2026-11-21")).toBe(2);
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    expect(heading()).toBe("11/21（土）");
+    expect(await screen.findByText(/11月21日（土）の予約の読み込みに失敗しました/)).toBeTruthy();
+    expect(reservationReads("2026-11-21")).toBe(4);
+  });
+
+  it("本番と同じ再試行 1 回で、先読みが届く前に移った日は、表示の読み込みが 1 回失敗しても再試行で中身を見せる", async () => {
+    narrow = true;
+    reservationsByDay["2026-11-21"] = [reservation("res-n", "2026-11-21", "10:00", "11:00", { customerDisplayName: "土曜 五郎" })];
+    let answerAhead: (() => void) | null = null;
+    let shownFails = 1;
+    mocks.api.get.mockImplementation((url: string) => {
+      if (url !== "/api/admin/reservations?range=date&date=2026-11-21") return respond(url);
+      if (!answerAhead) {
+        const ahead = respond(url);
+        return new Promise((resolve) => {
+          answerAhead = () => resolve(ahead);
+        });
+      }
+      if (shownFails-- > 0) return Promise.reject(new Error("network"));
+      return respond(url);
+    });
+    renderPage({ client: retryOnce() });
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(1));
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    expect(heading()).toBe("11/21（土）");
+    expect(await within(shownBody()).findByText(/土曜 五郎/)).toBeTruthy();
+    expect(reservationReads("2026-11-21")).toBe(3);
+    await act(async () => answerAhead?.());
+  });
+
+  it("スクロールした一覧ですべりを掴んで離し、着く前に前の日を押すと、その日はページの決めた先頭から開く", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    flick(-100, 80);
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 100, 400);
+    expect(heading()).toBe("11/21（土）");
+    point("pointerUp", scroller(), 100, 400);
+    expect(flights()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "前の日" }));
+    expect(heading()).toBe("11/20（金）");
+    expect(scroller().scrollTop).toBe(0);
+    const contents = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
+  });
+
+  it("前後の日は先に 1 回だけ読み、繰り返し取りに行かない（INT-11-06）", async () => {
+    narrow = true;
+    const { client } = renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(1));
+    expect(["2026-11-19", "2026-11-20"].map(reservationReads)).toEqual([1, 1]);
+    const options = (key: unknown[]) => client.getQueryCache().find({ queryKey: key })?.observers[0]?.options;
+    // Watched only: nothing of theirs polls, refetches on focus or on an invalidation.
+    for (const key of [["reservations", "2026-11-21"], ["external-blocks", "2026-11-19"]]) {
+      expect(options(key)?.enabled, key.join()).toBe(false);
+    }
+    // The shown day keeps its own polling.
+    expect(options(["reservations", "2026-11-20"])?.refetchInterval).toBe(30_000);
+    await act(() => client.invalidateQueries({ queryKey: ["reservations"] }));
+    await waitFor(() => expect(reservationReads("2026-11-20")).toBe(2));
+    expect(["2026-11-19", "2026-11-21"].map(reservationReads)).toEqual([1, 1]);
+    // A step reads the one new neighbour; the day it shows was invalidated, so it is read again.
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    await waitFor(() => expect(reservationReads("2026-11-22")).toBe(1));
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(2));
+    expect(["2026-11-19", "2026-11-20"].map(reservationReads)).toEqual([1, 2]);
+  });
+
+  it("週表示では今の週と前後の週を 1 日 1 回ずつ読み、1 週送ると、新しく隣になった週を先に読み、表示に入った週を 1 回読み直す", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: "11月16日（月）の日表示を開く" });
+    const days = (from: string, count: number) => Array.from({ length: count }, (_, index) => formatJstDate(addDays(new Date(`${from}T00:00:00+09:00`), index)));
+    await waitFor(() => expect(days("2026-11-09", 21).map(reservationReads)).toEqual(Array(21).fill(1)));
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    // The new neighbour week is read ahead; the week now shown is read again once.
+    await waitFor(() => expect(days("2026-11-30", 7).map(reservationReads)).toEqual(Array(7).fill(1)));
+    await waitFor(() => expect(days("2026-11-23", 7).map(reservationReads)).toEqual(Array(7).fill(2)));
+    expect(days("2026-11-09", 14).map(reservationReads)).toEqual(Array(14).fill(1));
+  });
+
+  it("前後の日の読み込みに失敗しても、今の日の注意には出さず、その日へ移ると出す（INT-11-06）", async () => {
+    narrow = true;
+    failingDays.add("2026-11-21");
+    const { client } = renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(client.getQueryState(["reservations", "2026-11-21"])?.status).toBe("error"));
+    const notices = () => document.querySelector("[data-calendar-notices]")?.textContent ?? "";
+    expect(notices()).not.toContain("11/21");
+    expect(notices()).not.toContain("11月21日");
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    await waitFor(() => expect(notices()).toContain("11月21日"));
   });
 });
 
