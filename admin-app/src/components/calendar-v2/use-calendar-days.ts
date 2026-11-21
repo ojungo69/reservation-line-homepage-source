@@ -48,16 +48,22 @@ function reservationsStatusOf(pending: boolean, failed: boolean, rows: number): 
 export function useCalendarDays(dayKeys: readonly string[], { preview = false } = {}): DayData[] {
   const client = useQueryClient();
   const todayKey = formatJstDate(new Date());
+  // A day that comes into view is read again even when its cache is fresh: it
+  // may have been read ahead before a change made elsewhere (INT-11-06).
+  const shownBefore = useRef<ReadonlySet<string>>(new Set());
   const poll = (dateKey: string) => {
     if (preview) return PREVIEW;
-    return dateKey === todayKey ? {} : { refetchInterval: OTHER_DAY_POLL_MS };
+    const reread = shownBefore.current.has(dateKey) ? {} : { refetchOnMount: "always" as const };
+    return { ...reread, ...(dateKey === todayKey ? {} : { refetchInterval: OTHER_DAY_POLL_MS }) };
   };
   const reservations = useQueries({ queries: dayKeys.map((dateKey) => ({ ...reservationsQuery(dateKey), ...poll(dateKey) })) });
   const blocks = useQueries({ queries: dayKeys.map((dateKey) => ({ ...externalBlocksQuery(dateKey), ...poll(dateKey) })) });
-  // Each day is read ahead once when it comes next door, and not again while it
-  // stays there. The read keeps the usual retry: the day may be shown while it
-  // is still on its way, and then it is the shown day's read.
+  // Each day is read ahead once when it comes next door (with the usual retry),
+  // and not again while it stays there.
   const keys = dayKeys.join(" ");
+  useEffect(() => {
+    if (!preview) shownBefore.current = new Set(keys ? keys.split(" ") : []);
+  }, [keys, preview]);
   const readAhead = useRef(new Set<string>());
   useEffect(() => {
     if (!preview) return;

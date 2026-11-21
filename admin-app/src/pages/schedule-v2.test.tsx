@@ -1426,10 +1426,11 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     await user.click(await screen.findByRole("button", { name: "日" }));
     wide();
     point("pointerDown", scroller(), 300, 400);
-    vi.setSystemTime(Date.now() + 100);
-    point("pointerMove", scroller(), 200, 400);
-    vi.setSystemTime(Date.now() + 100);
-    point("pointerMove", scroller(), 215, 400);
+    // A move a frame: out to 200, then back 2.5px a frame (about 0.15px/ms).
+    for (const x of [280, 260, 240, 220, 200, 202.5, 205, 207.5, 210, 212.5, 215]) {
+      vi.setSystemTime(Date.now() + 16);
+      point("pointerMove", scroller(), x, 400);
+    }
     point("pointerUp", scroller(), 215, 400);
     expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
     act(() => flights()[0].finish());
@@ -1800,6 +1801,58 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(contents().map((content) => content.style.transform)).toEqual(["", "", ""]);
   });
 
+  it("隣として先に読んだ日も、表示に入ったら 1 回読み直す（変更の前に読んだ古い中身を見せたままにしない）", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(1));
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    expect(heading()).toBe("11/21（土）");
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(2));
+  });
+
+  it("スクロールした一覧で、進むすべりと戻るすべりを続けて掴んでから離すと、元の日はそのスクロールで止まる", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    flick(-100, 80);
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 100, 400);
+    expect(heading()).toBe("11/21（土）");
+    point("pointerMove", scroller(), 300, 400);
+    point("pointerUp", scroller(), 300, 400);
+    // Gliding back to the day before: caught again once it is in view, then let go.
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 300, 400);
+    expect(heading()).toBe("11/20（金）");
+    point("pointerUp", scroller(), 300, 400);
+    act(() => flights()[0]?.finish());
+    expect(scroller().scrollTop).toBe(300);
+    const contents = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
+  });
+
+  it("スクロールした一覧ですべりを掴んで縦に動かし、戻るすべりの途中で取り消されても、元の日は着地までそのスクロールで描く", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    flick(-100, 80);
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 100, 400);
+    point("pointerMove", scroller(), 100, 440);
+    fireEvent.pointerCancel(scroller(), { pointerId: 1 });
+    const contents = () => [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents()[0].style.transform).toBe("translateY(-300px)");
+    act(() => flights()[0].finish());
+    expect(contents().map((content) => content.style.transform)).toEqual(["", "", ""]);
+    expect(scroller().scrollTop).toBe(0);
+  });
+
   it("前後の日は先に 1 回だけ読み、繰り返し取りに行かない（INT-11-06）", async () => {
     narrow = true;
     const { client } = renderPage();
@@ -1831,8 +1884,10 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     await waitFor(() => expect(days("2026-11-09", 21).map(reservationReads)).toEqual(Array(21).fill(1)));
     swipe(scroller(), -80);
     act(() => flights()[0]?.finish());
+    // The new neighbour week is read ahead; the week now shown is read again once.
     await waitFor(() => expect(days("2026-11-30", 7).map(reservationReads)).toEqual(Array(7).fill(1)));
-    expect(days("2026-11-09", 21).map(reservationReads)).toEqual(Array(21).fill(1));
+    await waitFor(() => expect(days("2026-11-23", 7).map(reservationReads)).toEqual(Array(7).fill(2)));
+    expect(days("2026-11-09", 14).map(reservationReads)).toEqual(Array(14).fill(1));
   });
 
   it("前後の日の読み込みに失敗しても、今の日の注意には出さず、その日へ移ると出す（INT-11-06）", async () => {

@@ -70,6 +70,10 @@ describe("releaseVelocity", () => {
     expect(releaseVelocity([{ x: 300, t: 0 }, { x: 290, t: 16 }, { x: 250, t: 66 }], 70)).toBe(-50 / 66);
   });
 
+  it("ゆっくり動かしてから払った指は、払い始めてからの速さとする", () => {
+    expect(releaseVelocity([{ x: 300, t: 0 }, { x: 295, t: 45 }, { x: 282, t: 120 }, { x: 273, t: 135 }], 145)).toBeCloseTo(-0.6);
+  });
+
   it("折り返した所で止まってから戻した指は、戻し始めてからの速さとする", () => {
     const track = [{ x: 300, t: 0 }, { x: 220, t: 70 }, { x: 200, t: 80 }, { x: 200, t: 140 }, { x: 205, t: 150 }];
     expect(releaseVelocity(track, 160)).toBe(0.5);

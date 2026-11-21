@@ -104,10 +104,14 @@ export function usePeriodSwipe(
     const place = (dx: number) => {
       for (const pane of panes()) pane.style.transform = dx ? `translateX(${dx}px)` : "";
     };
+    // The strip at rest; the list day shown keeps the scroll it is drawn at.
     const rest = () => {
       place(0);
       for (const pane of panes()) pane.style.willChange = "";
+      const shown = listContents().find((content) => content.parentElement?.dataset.periodSide === "0");
+      const keep = shown ? drawnAt(shown) : null;
       for (const content of listContents()) shift(content, 0);
+      if (keep !== null && keep !== scroller.scrollTop) scroller.scrollTop = keep;
     };
     const play = (from: Keyframe, to: Keyframe) => {
       const options = motion();
@@ -127,7 +131,8 @@ export function usePeriodSwipe(
         const incoming = listContents().find((content) => content.parentElement?.dataset.periodSide === String(done.direction));
         const keep = incoming ? drawnAt(incoming) : 0;
         step(done.direction);
-        if (keep > 0) scroller.scrollTop = keep;
+        // Still drawn where it was, under the scroll the step left.
+        if (incoming) shift(incoming, scroller.scrollTop - keep);
       }
       rest();
       for (const animation of done.animations) animation.cancel();
@@ -152,7 +157,9 @@ export function usePeriodSwipe(
         if (flight === current) land();
       };
     };
+    // A glide in progress (a caught one let go for a vertical scroll) rests when it lands.
     const settle = (from: number, velocity = 0) => {
+      if (flight) return;
       if (from === 0 || !glides()) rest();
       else fly(from, 0, velocity, 0, scroller.clientWidth);
     };
