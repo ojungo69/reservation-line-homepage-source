@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { externalBlocksQuery } from "@/hooks/use-external-blocks";
 import { reservationsQuery } from "@/hooks/use-reservations";
@@ -15,7 +15,8 @@ const OTHER_DAY_POLL_MS = 120_000;
 // The periods beside the shown one, which a swipe brings into view (INT-11-06):
 // read once ahead and kept for 2 minutes. Their observers only watch the cache,
 // so nothing polls them or reads them again on focus or an invalidation; a step
-// makes them the shown period, whose own queries read them once 30 seconds old.
+// makes them the shown period, whose own queries read them again as they come
+// into view.
 const PREVIEW = { enabled: false } as const;
 
 export type DayData = Readonly<{
@@ -61,6 +62,17 @@ export function useCalendarDays(dayKeys: readonly string[], { preview = false } 
   // Each day is read ahead once when it comes next door (with the usual retry),
   // and not again while it stays there.
   const keys = dayKeys.join(" ");
+  // A read ahead still on its way may have been sent before a change: its late
+  // answer would undo the change's invalidation, and the day's first read would
+  // join it. A day coming into view drops it, before its observers subscribe.
+  useLayoutEffect(() => {
+    if (preview) return;
+    for (const dateKey of keys ? keys.split(" ") : []) {
+      if (shownBefore.current.has(dateKey)) continue;
+      void client.cancelQueries({ queryKey: reservationsQuery(dateKey).queryKey, exact: true });
+      void client.cancelQueries({ queryKey: externalBlocksQuery(dateKey).queryKey, exact: true });
+    }
+  }, [client, keys, preview]);
   useEffect(() => {
     if (!preview) shownBefore.current = new Set(keys ? keys.split(" ") : []);
   }, [keys, preview]);

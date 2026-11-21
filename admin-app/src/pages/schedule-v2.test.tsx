@@ -1855,6 +1855,49 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(scroller().scrollTop).toBe(0);
   });
 
+  it("先読みの応答が変更の後に届いても、表示に入った日は新しく読み、変更を見せる", async () => {
+    narrow = true;
+    // The next day's read ahead is sent before the change and answers after it.
+    let answerOld: (() => void) | null = null;
+    mocks.api.get.mockImplementation((url: string) => {
+      if (url !== "/api/admin/reservations?range=date&date=2026-11-21" || answerOld) return respond(url);
+      const old = respond(url);
+      return new Promise((resolve) => {
+        answerOld = () => resolve(old);
+      });
+    });
+    const { client } = renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(1));
+    reservationsByDay["2026-11-21"] = [reservation("res-m", "2026-11-21", "10:00", "11:00", { customerDisplayName: "移動 四郎" })];
+    await act(() => client.invalidateQueries({ queryKey: ["reservations"] }));
+    swipe(scroller(), -80);
+    act(() => flights()[0]?.finish());
+    expect(heading()).toBe("11/21（土）");
+    await act(async () => answerOld?.());
+    await waitFor(() => expect(reservationReads("2026-11-21")).toBe(2));
+    expect(await within(shownBody()).findByText(/移動 四郎/)).toBeTruthy();
+  });
+
+  it("スクロールした一覧ですべりを掴んで離し、着く前に前の日を押すと、その日はページの決めた先頭から開く", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    flick(-100, 80);
+    flights()[0].currentTime = FRAME_MS * 3;
+    point("pointerDown", scroller(), 100, 400);
+    expect(heading()).toBe("11/21（土）");
+    point("pointerUp", scroller(), 100, 400);
+    expect(flights()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "前の日" }));
+    expect(heading()).toBe("11/20（金）");
+    expect(scroller().scrollTop).toBe(0);
+    const contents = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
+  });
+
   it("前後の日は先に 1 回だけ読み、繰り返し取りに行かない（INT-11-06）", async () => {
     narrow = true;
     const { client } = renderPage();
@@ -1879,7 +1922,7 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(["2026-11-19", "2026-11-20"].map(reservationReads)).toEqual([1, 2]);
   });
 
-  it("週表示では今の週と前後の週を 1 日 1 回ずつ読み、1 週送るごとに 7 日分だけ足す", async () => {
+  it("週表示では今の週と前後の週を 1 日 1 回ずつ読み、1 週送ると、新しく隣になった週を先に読み、表示に入った週を 1 回読み直す", async () => {
     renderPage();
     await screen.findByRole("button", { name: "11月16日（月）の日表示を開く" });
     const days = (from: string, count: number) => Array.from({ length: count }, (_, index) => formatJstDate(addDays(new Date(`${from}T00:00:00+09:00`), index)));

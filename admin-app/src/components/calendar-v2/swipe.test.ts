@@ -70,6 +70,11 @@ describe("releaseVelocity", () => {
     expect(releaseVelocity([{ x: 300, t: 0 }, { x: 290, t: 16 }, { x: 250, t: 66 }], 70)).toBe(-50 / 66);
   });
 
+  it("止まった後の動きが 1 回しか届かなくても、その区間の平均を速さとする", () => {
+    expect(releaseVelocity([{ x: 300, t: 0 }, { x: 200, t: 80 }, { x: 208, t: 130 }], 135)).toBeCloseTo(0.16);
+    expect(releaseVelocity([{ x: 300, t: 0 }, { x: 270, t: 200 }], 205)).toBeCloseTo(-0.15);
+  });
+
   it("ゆっくり動かしてから払った指は、払い始めてからの速さとする", () => {
     expect(releaseVelocity([{ x: 300, t: 0 }, { x: 295, t: 45 }, { x: 282, t: 120 }, { x: 273, t: 135 }], 145)).toBeCloseTo(-0.6);
   });

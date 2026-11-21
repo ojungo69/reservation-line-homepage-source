@@ -58,7 +58,9 @@ export function swipeStep(dx: number, width: number, velocity = 0): -1 | 0 | 1 {
  * no sign of the finger slowing down. A turn or a still hold within those
  * 100ms counts from where the finger set off again. A moving finger sends a
  * move every frame, so a gap of more than 40ms crossed slower than a flick
- * (0.3px/ms) is a hold too; a faster one is a late frame of a flick.
+ * (0.3px/ms) is a hold too; a faster one is a late frame of a flick. The move
+ * into the last position always counts: when it is the only one after a pause,
+ * its average is the least the finger was moving.
  */
 export function releaseVelocity(samples: readonly Sample[], liftAt: number): number {
   let moved = samples.length - 1;
@@ -72,7 +74,7 @@ export function releaseVelocity(samples: readonly Sample[], liftAt: number): num
     const turned = way !== 0 && Math.sign(first.x - sample.x) === -way;
     const gap = first.t - sample.t;
     const held = sample.x === first.x || (gap > STOPPED_MS && Math.abs(first.x - sample.x) < FLICK_PX_PER_MS * gap);
-    if (end.t - sample.t > VELOCITY_WINDOW_MS || held || turned) break;
+    if (first !== end && (end.t - sample.t > VELOCITY_WINDOW_MS || held || turned)) break;
     first = sample;
   }
   return end.t > first.t ? (end.x - first.x) / (end.t - first.t) : 0;

@@ -104,13 +104,14 @@ export function usePeriodSwipe(
     const place = (dx: number) => {
       for (const pane of panes()) pane.style.transform = dx ? `translateX(${dx}px)` : "";
     };
-    // The strip at rest; the list day shown keeps the scroll it is drawn at.
-    const rest = () => {
+    // The strip at rest; the list day shown keeps the scroll it is drawn at, unless
+    // the page moved to it and set its scroll itself (endSwipe).
+    const rest = (keepScroll = true) => {
       place(0);
       for (const pane of panes()) pane.style.willChange = "";
       const shown = listContents().find((content) => content.parentElement?.dataset.periodSide === "0");
       // A day drawn from its top under a scroll the step has reset comes out below 0.
-      const keep = shown ? Math.max(0, drawnAt(shown)) : null;
+      const keep = keepScroll && shown ? Math.max(0, drawnAt(shown)) : null;
       for (const content of listContents()) shift(content, 0);
       if (keep !== null && keep !== scroller.scrollTop) scroller.scrollTop = keep;
     };
@@ -183,7 +184,7 @@ export function usePeriodSwipe(
       flight = null;
       gesture = null;
       for (const animation of done?.animations ?? []) animation.cancel();
-      rest();
+      rest(false);
     };
     // A sideways touch is a swipe, not a press of the slot or booking under it.
     // Keyboard and assistive technology clicks carry no click count and pass.
