@@ -52,9 +52,9 @@ function closureBands(column: CalendarColumn, settings: CalendarSettings | null)
 /**
  * What 表示する予定 in the sidebar shows (DESIGN.md §5): pending bookings and the
  * blocks from Google Calendar. Every other block (the store's own, a system one)
- * always shows. Free slots never read it (INT-06-02): they come from opening hours
- * and closures only, and the booking form checks the time against the server's
- * free slots.
+ * always shows. The slots offered never change with it (INT-06-02): they come from
+ * opening hours and closures only, and the booking form checks the time against the
+ * server's free slots. A slot under a hidden item only says so in its name.
  */
 export type Layers = Readonly<{ pending: boolean; google: boolean }>;
 export const ALL_LAYERS: Layers = { pending: true, google: true };

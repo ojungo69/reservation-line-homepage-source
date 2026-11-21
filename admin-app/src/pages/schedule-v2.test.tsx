@@ -671,6 +671,25 @@ describe("ScheduleV2Page の表示する予定", () => {
     expect(screen.getByRole("button", { name: "11月20日（金） 17:45 本店に予約を追加" })).toBeTruthy();
   });
 
+  // The band is at the event's own time, not stretched like a short booking: what it
+  // takes presses on is what the slots' names say (10:10-10:15 leaves 10:15 free).
+  it("短い Google の予定を外すと、帯はその時間だけに描き、直後の空き枠はふさがない", async () => {
+    blocksByDay["2026-11-20"] = [
+      ...blocksByDay["2026-11-20"],
+      block("blk-short", { source: "google_calendar", titleSnapshot: "電話", startAt: jst("2026-11-20", "10:10"), endAt: jst("2026-11-20", "10:15") }),
+    ];
+    const shell = fakeShell();
+    const user = userEvent.setup();
+    renderPage({ shell });
+    await screen.findByText("電話、11月20日（金）、10:10から10:15、Googleカレンダー");
+    await user.click(layer(shell, "Googleカレンダーの予定"));
+    const bands = [...(column("2026-11-20:s1")?.querySelectorAll<HTMLElement>("[data-hidden-item]") ?? [])];
+    const short = bands.find((band) => band.style.top === `${610 * PX_PER_MINUTE}px`);
+    expect([short?.style.height, short?.textContent]).toEqual([`${5 * PX_PER_MINUTE}px`, ""]);
+    expect(screen.getByRole("button", { name: "11月20日（金） 10:00 本店に予約を追加（この時間には非表示の予定があります）" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "11月20日（金） 10:15 本店に予約を追加" })).toBeTruthy();
+  });
+
   it("Googleカレンダーの予定を外しても Google 以外の外部のブロックは残し、Google の印も付けない", async () => {
     blocksByDay["2026-11-20"] = [
       ...blocksByDay["2026-11-20"],

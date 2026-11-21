@@ -38,6 +38,13 @@ import { ApiError } from "@/lib/api-client";
 type DetailLayout = "side" | "bottom" | "popover";
 type DetailAnchor = ComponentProps<typeof PopoverAnchor>["virtualRef"];
 
+// INT-12-11: the Escape that ends an IME conversion is the memo's, not the new
+// calendar's close. isComposing is false when the conversion ended just before
+// that keydown, where keyCode is still 229 (MDN, Element: keydown event).
+const keepConversionEscape = (event: KeyboardEvent) => {
+  if (event.isComposing || event.keyCode === 229) event.preventDefault();
+};
+
 type ReservationDetailPanelProps = {
   reservationId: string | null;
   onClose: () => void;
@@ -79,6 +86,7 @@ function DetailFrame({
           collisionPadding={16}
           // On screen even when a refresh moves the booking out of view.
           sticky="always"
+          onEscapeKeyDown={keepConversionEscape}
           aria-label="予約詳細"
           className="flex max-h-(--radix-popover-content-available-height) w-[min(28rem,calc(100vw-2rem))] origin-(--radix-popover-content-transform-origin) flex-col rounded-[20px]"
         >
@@ -98,6 +106,8 @@ function DetailFrame({
       <SheetContent
         side={bottom ? "bottom" : "right"}
         className={bottom ? "max-h-[85dvh] rounded-t-[20px] pb-[max(1.5rem,env(safe-area-inset-bottom))]" : "w-full sm:max-w-md"}
+        // The right sheet of the other screens keeps its Escape as it was.
+        onEscapeKeyDown={bottom ? keepConversionEscape : undefined}
         aria-describedby={undefined}
       >
         <SheetTitle className="sr-only">予約詳細</SheetTitle>

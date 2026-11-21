@@ -12,9 +12,6 @@ import { HeaderV2 } from "./header-v2";
 import { ShellV2Context, type ShellV2 } from "./shell-context";
 import { SidebarV2 } from "./sidebar-v2";
 
-// Only one SidebarV2 is mounted at a time: the docked one (DOCKED_QUERY), or the
-// drawer's while it is open.
-
 /**
  * The admin shell on the calendar switch's on side (spec 008 T004b).
  *
@@ -43,6 +40,8 @@ export default function AppShellV2() {
   const mainRef = useRef<HTMLElement>(null);
   const paletteReturnRef = useRef<HTMLElement | null>(null);
   // The mounted sidebar's places for the page's own parts (ShellV2.sidebarSlots).
+  // One pair: only one SidebarV2 is mounted at a time, the docked one
+  // (DOCKED_QUERY) or the drawer's while it is open.
   const [slotTop, setSlotTop] = useState<HTMLElement | null>(null);
   const [slotEnd, setSlotEnd] = useState<HTMLElement | null>(null);
   const slotRefs = { top: setSlotTop, end: setSlotEnd };

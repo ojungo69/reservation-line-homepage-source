@@ -767,6 +767,28 @@ describe("ReservationDetailPanel の器", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  // INT-12-11: the Escape that ends an IME conversion is the memo's. The browser marks
+  // it with isComposing, or, when the conversion ended just before that keydown, only
+  // with keyCode 229 (MDN, Element: keydown event).
+  it.each([
+    ["小窓", "popover", { isComposing: true }],
+    ["下からのシート", "bottom", { keyCode: 229 }],
+  ] as const)("%sは、変換を終える Esc では閉じず、書きかけの確認も出さない", async (_name, layout, ime) => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<ReservationDetailPanel reservationId="reservation-1" layout={layout} anchor={anchor} onClose={onClose} />);
+    await user.click(screen.getByRole("button", { name: "編集" }));
+    const memo = screen.getByRole("textbox");
+    await user.type(memo, "書きかけ");
+    fireEvent.keyDown(memo, { key: "Escape", ...ime });
+    expect(screen.getByRole("dialog", { name: "予約詳細" })).toBeTruthy();
+    expect(screen.queryByText("書きかけの施術メモがあります")).toBeNull();
+    // An Escape outside a conversion still asks, as before.
+    fireEvent.keyDown(memo, { key: "Escape" });
+    expect(screen.getByText("書きかけの施術メモがあります")).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("狭い画面は下から開くシートにする", () => {
     render(<ReservationDetailPanel reservationId="reservation-1" layout="bottom" onClose={() => {}} />);
     const dialog = screen.getByRole("dialog", { name: "予約詳細" });

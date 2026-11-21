@@ -114,8 +114,8 @@ type ColumnProps = Readonly<{
   column: CalendarColumn;
   dayLabel: string;
   items: readonly CalendarItem[];
-  // What 表示する予定 hides: still taken, so a plain band keeps the time from
-  // looking free and covers its slots, as the item did (spec.md, clarifications).
+  // What 表示する予定 hides: still taken (spec.md, clarifications), so a plain band
+  // at each one's own time keeps it from looking free and takes the presses there.
   hidden: readonly Span[];
   closed: readonly Span[];
   closures: readonly ClosureBand[];
@@ -207,7 +207,8 @@ export function CalendarColumnView({
         />
       ))}
       {hidden.map((span, index) => {
-        const drawn = drawnSpan(span, MIN_EVENT_MINUTES);
+        // Not stretched like a short booking: the slots' names go by the same time.
+        const height = (span.end - span.start) * PX_PER_MINUTE;
         return (
           <div
             key={`hidden-${index}-${span.start}`}
@@ -216,9 +217,9 @@ export function CalendarColumnView({
             // The fill is about 1.1:1 on the surface, so the edge is drawn in the outline
             // color (3:1, as the pending booking's; DESIGN.md §3), dashed to stay apart from it.
             className="absolute inset-x-0 z-10 overflow-hidden rounded-md border border-dashed border-cal-outline bg-cal-text/5 px-1.5 pt-0.5 text-xs text-cal-text-secondary dark:bg-cal-outer"
-            style={{ top: drawn.start * PX_PER_MINUTE, height: (drawn.end - drawn.start) * PX_PER_MINUTE }}
+            style={{ top: span.start * PX_PER_MINUTE, height }}
           >
-            非表示の予定
+            {height >= MIN_EVENT_PX && "非表示の予定"}
           </div>
         );
       })}
