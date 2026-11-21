@@ -1,31 +1,46 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
-import { CalendarColumns, DayHeaderCells, DayList, FALLBACK_OPENING_MINUTE, columnState, openingOf } from "@/components/calendar-v2/body";
+import { Plus } from "lucide-react";
+import {
+  ALL_LAYERS,
+  CalendarColumns,
+  DayHeaderCells,
+  DayList,
+  FALLBACK_OPENING_MINUTE,
+  columnState,
+  openingOf,
+  type Layers,
+} from "@/components/calendar-v2/body";
 import { activeResourceIds, buildColumns, effectiveView, visibleStoreId, type CalendarColumn, type CalendarView } from "@/components/calendar-v2/columns";
 import { PX_PER_MINUTE, mondayWeek } from "@/components/calendar-v2/geometry";
 import { CalendarGrid } from "@/components/calendar-v2/grid";
 import { dayLabel, shortDayLabel, spanLabel, weekHeading } from "@/components/calendar-v2/labels";
 import { CalendarNotices } from "@/components/calendar-v2/notices";
 import { PeriodStrip } from "@/components/calendar-v2/period-strip";
+import { CalendarLayers, CreateReservationButton } from "@/components/calendar-v2/sidebar-parts";
 import { CalendarTopBar, DayHeader, DayHeaderRow } from "@/components/calendar-v2/top-bar";
 import { useCalendarDate, useCalendarDays } from "@/components/calendar-v2/use-calendar-days";
 import { useCalendarLayout } from "@/components/calendar-v2/use-calendar-layout";
+import { stableAnchor } from "@/components/calendar-v2/stable-anchor";
 import { useCalendarView } from "@/components/calendar-v2/use-calendar-view";
 import { usePeriodSwipe } from "@/components/calendar-v2/use-period-swipe";
 import { useReturnFocus } from "@/components/calendar-v2/use-return-focus";
 import { PendingApprovalsCard } from "@/components/schedule/pending-approvals-card";
 import { ReservationCreatePanel } from "@/components/schedule/reservation-create-panel";
 import { ReservationDetailPanel } from "@/components/schedule/reservation-detail-panel";
+import { PRESSABLE } from "@/components/shell-v2/pressable";
 import { useShellV2 } from "@/components/shell-v2/shell-context";
 import { PendingConfirmDialog } from "@/components/ui/pending-confirm-dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useExternalBlockCancel } from "@/hooks/use-external-blocks";
-import { NARROW_QUERY, useMediaQuery } from "@/hooks/use-media-query";
+import { DOCKED_QUERY, NARROW_QUERY, useMediaQuery } from "@/hooks/use-media-query";
 import { usePendingReservations } from "@/hooks/use-reservations";
 import { useSettings } from "@/hooks/use-settings";
 import { useStores } from "@/hooks/use-stores";
 import { addDays, formatFullJstDate, formatJstDate, toJstDate } from "@/lib/timeline";
+import { cn } from "@/lib/utils";
 import type { ExternalBlock } from "@/types/api";
 
 // The pending list's row limit (listPendingReservations in src/admin/reservations.ts).
@@ -75,6 +90,8 @@ export default function ScheduleV2Page() {
   const { stores, selectedStoreId } = useStores();
   const storeId = visibleStoreId(selectedStoreId, stores);
   const narrow = useMediaQuery(NARROW_QUERY);
+  // The sidebar stays on screen: the detail opens beside what was pressed (DESIGN.md §5).
+  const docked = useMediaQuery(DOCKED_QUERY);
   const { requested, choose: chooseView, openDay: showDay } = useCalendarView(narrow, storeId);
   // The 週 button was pressed while all stores are shown: say why the day stays.
   const [weekAsked, setWeekAsked] = useState(false);
@@ -106,6 +123,9 @@ export default function ScheduleV2Page() {
   const [createDefaults, setCreateDefaults] = useState<CreateDefaults | null>(null);
   const [pendingOpen, setPendingOpen] = useState(false);
   const [cancelBlock, setCancelBlock] = useState<ExternalBlock | null>(null);
+  // Not saved: a later visit shows everything again, so hidden pending bookings
+  // are not left out of sight (the bar's 承認待ち count stays either way).
+  const [layers, setLayers] = useState<Layers>(ALL_LAYERS);
 
   const columnsAt = (at: Date) => (view === "list" ? [] : buildColumns(view, at, storeId, stores));
   const columns = columnsAt(date);
@@ -124,6 +144,13 @@ export default function ScheduleV2Page() {
   }, [shell, sheetOpen]);
 
   const opener = useReturnFocus(sheetOpen, scrollerRef);
+  // Made when a detail opens, so one opened from <body> does not take the last one's place.
+  const detailAnchor = useRef<ReturnType<typeof stableAnchor> | null>(null);
+  const openDetail = (id: string, from: HTMLElement) => {
+    opener.current = from;
+    detailAnchor.current = stableAnchor(from);
+    setSelectedReservationId(id);
+  };
 
   // Open at the store's opening time (DESIGN.md §5) when the shown days, the store
   // or the view change; scrollKey names every input read here, so a refresh does
@@ -180,9 +207,12 @@ export default function ScheduleV2Page() {
     opener.current = from;
     setCreateDefaults({ storeId: column.storeId, resourceId: ids.length === 1 ? ids[0] : null, minutes, date: column.date });
   };
-  const onReservation = (id: string, from: HTMLElement) => {
+  // The sidebar's 予約を追加 and the ＋ button: the shown store and day, no time,
+  // as the current calendar's create button.
+  const openCreate = (from: HTMLElement) => {
+    shell?.closeMenu();
     opener.current = from;
-    setSelectedReservationId(id);
+    setCreateDefaults(NO_DEFAULTS);
   };
   const onBlock = (block: ExternalBlock, from: HTMLElement) => {
     opener.current = from;
@@ -232,7 +262,9 @@ export default function ScheduleV2Page() {
     </DayHeaderRow>
   );
   const bodyAt = (at: Date) => {
-    if (view === "list") return <DayList day={dayByKey.get(formatJstDate(at))} storeId={storeId} onDetails={onReservation} />;
+    if (view === "list") {
+      return <DayList day={dayByKey.get(formatJstDate(at))} storeId={storeId} layers={layers} addButton={!docked} onDetails={openDetail} />;
+    }
     const atColumns = columnsAt(at);
     if (atColumns.length === 0) return <NoColumns loading={settingsQuery.isPending} />;
     return (
@@ -244,8 +276,9 @@ export default function ScheduleV2Page() {
           nowMinute={nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes()}
           columnPx={layout.columnPx}
           selectedId={selectedReservationId}
+          layers={layers}
           onSlot={onSlot}
-          onReservation={onReservation}
+          onReservation={openDetail}
           onBlock={blockHandler}
         />
       </CalendarGrid>
@@ -319,8 +352,28 @@ export default function ScheduleV2Page() {
         {strip(bodyAt, "min-h-full")}
       </div>
 
+      {/* The sidebar's parts for this page, before and after its page links (DESIGN.md §5). */}
+      {shell?.sidebarSlots.top && createPortal(<CreateReservationButton onCreate={openCreate} />, shell.sidebarSlots.top)}
+      {shell?.sidebarSlots.end && createPortal(<CalendarLayers layers={layers} onChange={setLayers} />, shell.sidebarSlots.end)}
+      {/* Without the docked sidebar its create button is in the drawer: this one stays on screen. */}
+      {!docked && (
+        <button
+          type="button"
+          aria-label="予約を追加"
+          onClick={(event) => openCreate(event.currentTarget)}
+          className={cn(
+            "glass-thick absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-40 grid size-14 place-items-center rounded-full",
+            PRESSABLE,
+          )}
+        >
+          <Plus className="size-6 text-cal-primary" aria-hidden="true" />
+        </button>
+      )}
+
       <ReservationDetailPanel
         reservationId={selectedReservationId}
+        layout={docked ? "popover" : "bottom"}
+        anchor={detailAnchor}
         onClose={() => setSelectedReservationId(null)}
         onOpenChart={(customerId, reservationId) =>
           navigate(`/customers?customerId=${encodeURIComponent(customerId)}&reservationId=${encodeURIComponent(reservationId)}`, {
@@ -362,7 +415,8 @@ export default function ScheduleV2Page() {
                 const reservation = pendingList.find((item) => item.id === id);
                 if (reservation) setDate(new Date(reservation.startAt));
                 setPendingOpen(false);
-                setSelectedReservationId(id);
+                // Beside the bar's 承認待ち button, which opened the list.
+                openDetail(id, opener.current ?? document.body);
               }}
             />
           </div>

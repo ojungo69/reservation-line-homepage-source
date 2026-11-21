@@ -11,6 +11,12 @@ const PopoverTrigger = PopoverPrimitive.Trigger
 
 const PopoverAnchor = PopoverPrimitive.Anchor
 
+const PopoverClose = PopoverPrimitive.Close
+
+// "surface" is opaque, for places DESIGN.md §3 keeps free of blur; "modal" is
+// the open reservation detail's tier (DESIGN.md §3).
+const MATERIALS = { glass: "glass-mid", surface: "surface", modal: "glass-modal" } as const
+
 function PopoverContent({
   className,
   align = "start",
@@ -18,8 +24,7 @@ function PopoverContent({
   material = "glass",
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content> & {
-  // "surface" is opaque, for places DESIGN.md §3 keeps free of blur.
-  material?: "glass" | "surface"
+  material?: keyof typeof MATERIALS
 }) {
   return (
     <PopoverPrimitive.Portal>
@@ -27,7 +32,7 @@ function PopoverContent({
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          material === "surface" ? "surface" : "glass-mid",
+          MATERIALS[material],
           "z-50 w-auto rounded-md p-0 text-popover-foreground outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
           className
         )}
@@ -37,4 +42,4 @@ function PopoverContent({
   )
 }
 
-export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent }
+export { Popover, PopoverTrigger, PopoverAnchor, PopoverClose, PopoverContent }

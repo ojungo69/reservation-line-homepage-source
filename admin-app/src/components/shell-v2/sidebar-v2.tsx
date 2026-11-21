@@ -73,10 +73,16 @@ function NavGroup({ label, items, pending, onNavigate }: NavGroupProps) {
   );
 }
 
-type SidebarV2Props = Readonly<{ theme: Theme; onThemeChange: (theme: Theme) => void; onNavigate?: () => void }>;
+type SidebarV2Props = Readonly<{
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+  onNavigate?: () => void;
+  // The page's own parts go here, before and after the links (ShellV2.sidebarSlots).
+  slotRefs?: Readonly<{ top: (element: HTMLDivElement | null) => void; end: (element: HTMLDivElement | null) => void }>;
+}>;
 
 /** The V2 shell's sidebar: brand, the same nav and privilege rules as the current Sidebar. */
-export function SidebarV2({ theme, onThemeChange, onNavigate }: SidebarV2Props) {
+export function SidebarV2({ theme, onThemeChange, onNavigate, slotRefs }: SidebarV2Props) {
   const { isPrivileged } = useAuth();
   const { data: pendingData } = usePendingReservations();
   const pending = pendingData?.ok ? pendingData.reservations.length : 0;
@@ -90,6 +96,8 @@ export function SidebarV2({ theme, onThemeChange, onNavigate }: SidebarV2Props) 
         </span>
       </div>
 
+      <div ref={slotRefs?.top} className="shrink-0" />
+
       <nav aria-label="メインナビゲーション" className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         {SECTIONS.map(({ key, label }) => {
           const items = navItemsBySection(key).filter((item) => !item.privileged || isPrivileged);
@@ -98,6 +106,8 @@ export function SidebarV2({ theme, onThemeChange, onNavigate }: SidebarV2Props) 
           return <NavGroup key={key} label={label} items={items} pending={pending} onNavigate={onNavigate} />;
         })}
       </nav>
+
+      <div ref={slotRefs?.end} className="shrink-0" />
 
       <div className="shrink-0 space-y-1 border-t border-cal-grid px-3 py-3">
         <a

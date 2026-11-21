@@ -7,6 +7,12 @@ import { useMemo, useSyncExternalStore } from "react";
 // 解釈できず常に不一致になるので使わない。
 export const NARROW_QUERY = "(max-width: 639.98px)";
 
+// The V2 shell's docked sidebar: Tailwind's lg, in the same unit. Media queries
+// size rem from the browser's default font size, so a px value would part from
+// the lg: classes when that setting is not 16px. Below it the sidebar is a drawer,
+// and the calendar adds its own ways in that the sidebar holds (spec 008 T005).
+export const DOCKED_QUERY = "(min-width: 64rem)";
+
 // フックが MediaQueryList に依存する面だけの最小型。node 環境のテストで
 // fake がこの3メンバーだけ実装すれば済むようにする。
 export type MediaQueryLike = {

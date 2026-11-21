@@ -10,6 +10,14 @@ export type ShellV2 = Readonly<{
   menuButtonRef: Ref<HTMLButtonElement>;
   menuOpen: boolean;
   openMenu: () => void;
+  // One modal at a time (DESIGN.md §3): what the drawer opens closes it first.
+  closeMenu: () => void;
+  /**
+   * Where a page adds its own parts to the sidebar (createPortal): before and
+   * after the page links. Null while no sidebar is mounted (a shut drawer). The
+   * calendar puts its create button and 表示する予定 there (spec 008 T005).
+   */
+  sidebarSlots: Readonly<{ top: HTMLElement | null; end: HTMLElement | null }>;
   // Page move from the page's own bar; focus goes back to opener when it closes.
   openPalette: (opener: HTMLElement) => void;
   /**

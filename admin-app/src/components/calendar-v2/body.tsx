@@ -49,6 +49,20 @@ function closureBands(column: CalendarColumn, settings: CalendarSettings | null)
 }
 
 
+/**
+ * What 表示する予定 in the sidebar shows (DESIGN.md §5): pending bookings and the
+ * blocks from Google Calendar. The store's own blocks always show. Free slots never
+ * read it (INT-06-02): they come from opening hours and closures only, and the
+ * booking form checks the time against the server's free slots.
+ */
+export type Layers = Readonly<{ pending: boolean; google: boolean }>;
+export const ALL_LAYERS: Layers = { pending: true, google: true };
+
+function shown(item: CalendarItem, layers: Layers): boolean {
+  if (item.kind === "reservation") return layers.pending || item.reservation.status !== "pending_approval";
+  return layers.google || item.block.source === "admin_block";
+}
+
 // Where a column starts when its store has no opening that day (the current
 // calendar's fallback).
 export const FALLBACK_OPENING_MINUTE = 9 * 60;
@@ -122,6 +136,7 @@ export function CalendarColumns({
   nowMinute,
   columnPx,
   selectedId,
+  layers,
   onSlot,
   onReservation,
   onBlock,
@@ -132,6 +147,7 @@ export function CalendarColumns({
   nowMinute: number;
   columnPx: number | null;
   selectedId: string | null;
+  layers: Layers;
   onSlot: (column: CalendarColumn, minute: number, opener: HTMLElement) => void;
   onReservation: (id: string, opener: HTMLElement) => void;
   onBlock?: (block: ExternalBlock, opener: HTMLElement) => void;
@@ -145,7 +161,7 @@ export function CalendarColumns({
         key={column.key}
         column={column}
         dayLabel={dayLabel(column.date)}
-        items={state.items}
+        items={state.items.filter((item) => shown(item, layers))}
         closed={state.closed}
         closures={state.closures}
         entryMinute={state.entryMinute}
@@ -220,23 +236,36 @@ export function DayHeaderCells({
 export function DayList({
   day,
   storeId,
+  layers,
+  addButton,
   onDetails,
-}: Readonly<{ day: DayData | undefined; storeId: string | null; onDetails: (id: string, opener: HTMLElement) => void }>) {
+}: Readonly<{
+  day: DayData | undefined;
+  storeId: string | null;
+  layers: Layers;
+  // The floating ＋ button is on screen: the last card stays scrollable above it.
+  addButton: boolean;
+  onDetails: (id: string, opener: HTMLElement) => void;
+}>) {
   // The shared card does not pass on which button was pressed, and Safari does not
   // focus buttons on click, so the press is caught on its way down.
   const pressed = useRef<HTMLElement | null>(null);
-  const rows = [...(day?.reservations ?? [])]
+  const all = [...(day?.reservations ?? [])]
     .filter((reservation) => isScheduleVisibleReservationStatus(reservation.status) && (!storeId || reservation.storeId === storeId))
     .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
+  const rows = layers.pending ? all : all.filter((reservation) => reservation.status !== "pending_approval");
+  const hidden = all.length - rows.length;
   const loading = !day || day.reservationsStatus === "pending";
-  // A capped or failed list may be missing bookings: never call it empty (UX-21).
-  const empty = day?.reservationsStatus === "ready" && rows.length === 0;
+  // A capped or failed list may be missing bookings: never call it empty (UX-21),
+  // nor a day whose bookings 表示する予定 hides.
+  const empty = day?.reservationsStatus === "ready" && all.length === 0;
   return (
-    <section aria-label="選択日の予約" className="px-4 py-3">
+    <section aria-label="選択日の予約" className={cn("px-4 pt-3", addButton ? "pb-24" : "pb-3")}>
       {/* Always there, so a screen reader hears the day's state after 前/次. */}
-      <output className={cn("block text-sm", (loading || empty) && "mb-2")}>
+      <output className={cn("block text-sm", (loading || empty || hidden > 0) && "mb-2")}>
         {loading && "予定を読み込み中…"}
         {empty && <span className="block rounded-md border border-cal-grid p-6 text-center">この日の予約はありません</span>}
+        {hidden > 0 && `承認待ちの予約${hidden}件を「表示する予定」で隠しています。`}
       </output>
       {rows.length > 0 && (
         <ul className="space-y-2">

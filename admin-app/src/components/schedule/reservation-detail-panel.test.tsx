@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReservationDetail } from "@/types/api";
@@ -718,5 +718,60 @@ describe("ReservationDetailPanel のリソース行・操作名・来店履歴",
     render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
     await user.click(screen.getByRole("button", { name: "完了に戻す" }));
     expect(screen.getByRole("alertdialog").textContent ?? "").not.toContain("来店履歴");
+  });
+});
+
+// 新しい予定表（spec 008 T005）: 広い画面は押した予約の隣の小窓、狭い画面は下からのシート。
+describe("ReservationDetailPanel の器", () => {
+  const anchor = { current: { getBoundingClientRect: () => new DOMRect(200, 100, 40, 20) } };
+
+  it("小窓は「予約詳細」として開き、閉じるボタンで閉じる", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<ReservationDetailPanel reservationId="reservation-1" layout="popover" anchor={anchor} onClose={onClose} />);
+    const dialog = screen.getByRole("dialog", { name: "予約詳細" });
+    expect(within(dialog).getByText("予約 花子")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "閉じる" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // 閉じる経路が 3 つとも、シートと同じ下書きの守りを通る。
+  it("小窓でも、書きかけのメモがあれば閉じるボタン・Esc・外側の押下で黙って閉じない", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<ReservationDetailPanel reservationId="reservation-1" layout="popover" anchor={anchor} onClose={onClose} />);
+    await user.click(screen.getByRole("button", { name: "編集" }));
+    await user.type(screen.getByRole("textbox"), "書きかけ");
+
+    await user.click(screen.getByRole("button", { name: "閉じる" }));
+    expect(screen.getByText("書きかけの施術メモがあります")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "編集に戻る" }));
+
+    await user.keyboard("{Escape}");
+    expect(screen.getByText("書きかけの施術メモがあります")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "編集に戻る" }));
+
+    // Radix closes on the click that follows an outside press. fireEvent, because
+    // the modal popover makes the rest pointer-events: none, which user-event refuses.
+    fireEvent.pointerDown(document.body);
+    fireEvent.click(document.body);
+    expect(screen.getByText("書きかけの施術メモがあります")).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "破棄して閉じる" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("狭い画面は下から開くシートにする", () => {
+    render(<ReservationDetailPanel reservationId="reservation-1" layout="bottom" onClose={() => {}} />);
+    const dialog = screen.getByRole("dialog", { name: "予約詳細" });
+    expect(within(dialog).getByText("予約 花子")).toBeTruthy();
+    expect(dialog.className).toMatch(/(^|\s)bottom-0(\s|$)/);
+  });
+
+  it("指定が無ければ、今の右から開くシートのまま", () => {
+    render(<ReservationDetailPanel reservationId="reservation-1" onClose={() => {}} />);
+    const dialog = screen.getByRole("dialog", { name: "予約詳細" });
+    expect(dialog.className).toMatch(/(^|\s)right-0(\s|$)/);
   });
 });

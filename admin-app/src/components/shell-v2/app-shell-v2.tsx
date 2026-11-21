@@ -4,7 +4,7 @@ import { CommandPalette } from "@/components/command-palette";
 import { CHUNK_RELOAD_FLAG } from "@/components/error-boundary";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useAdminPushReconcile } from "@/hooks/use-admin-push";
-import { useMediaQuery } from "@/hooks/use-media-query";
+import { DOCKED_QUERY, useMediaQuery } from "@/hooks/use-media-query";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { StoreProvider } from "@/providers/store-provider";
@@ -12,11 +12,8 @@ import { HeaderV2 } from "./header-v2";
 import { ShellV2Context, type ShellV2 } from "./shell-context";
 import { SidebarV2 } from "./sidebar-v2";
 
-// The docked sidebar's breakpoint: Tailwind's lg, in the same unit. Media queries
-// size rem from the browser's default font size, so a px value would part from the
-// lg: classes when that setting is not 16px. Only one SidebarV2 is mounted at a
-// time: the docked one, or the drawer's while it is open.
-export const DOCKED_QUERY = "(min-width: 64rem)";
+// Only one SidebarV2 is mounted at a time: the docked one (DOCKED_QUERY), or the
+// drawer's while it is open.
 
 /**
  * The admin shell on the calendar switch's on side (spec 008 T004b).
@@ -45,6 +42,10 @@ export default function AppShellV2() {
   const menuButton = () => barMenuRef.current ?? headerMenuRef.current;
   const mainRef = useRef<HTMLElement>(null);
   const paletteReturnRef = useRef<HTMLElement | null>(null);
+  // The mounted sidebar's places for the page's own parts (ShellV2.sidebarSlots).
+  const [slotTop, setSlotTop] = useState<HTMLElement | null>(null);
+  const [slotEnd, setSlotEnd] = useState<HTMLElement | null>(null);
+  const slotRefs = { top: setSlotTop, end: setSlotEnd };
 
   // Re-binds the shared device's push subscription to the signed-in admin.
   useAdminPushReconcile();
@@ -130,6 +131,8 @@ export default function AppShellV2() {
       menuButtonRef: barMenuRef,
       menuOpen: drawerOpen,
       openMenu: () => setDrawerOpen(true),
+      closeMenu: () => setDrawerOpen(false),
+      sidebarSlots: { top: slotTop, end: slotEnd },
       // onPaletteOpenChange reads only refs and setters, so the first render's copy is current.
       openPalette: (opener) => onPaletteOpenChange(true, opener),
       setOwnTopBar,
@@ -137,7 +140,7 @@ export default function AppShellV2() {
         paletteBlocked.current = blocked;
       },
     }),
-    [docked, drawerOpen],
+    [docked, drawerOpen, slotTop, slotEnd],
   );
 
   return (
@@ -154,7 +157,7 @@ export default function AppShellV2() {
           // Docked sidebar: the prototype's faux glass, an opaque gradient and a
           // hairline with no blur and no shadow (DESIGN.md §3).
           <aside className="w-64 shrink-0 overflow-hidden rounded-3xl bg-linear-to-b from-cal-surface to-cal-detail ring-1 ring-inset ring-cal-grid dark:from-cal-detail dark:to-cal-surface">
-            <SidebarV2 theme={theme} onThemeChange={setTheme} />
+            <SidebarV2 theme={theme} onThemeChange={setTheme} slotRefs={slotRefs} />
           </aside>
         ) : (
           <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
@@ -181,7 +184,7 @@ export default function AppShellV2() {
               }}
             >
               <SheetTitle className="sr-only">メニュー</SheetTitle>
-              <SidebarV2 theme={theme} onThemeChange={setTheme} onNavigate={() => setDrawerOpen(false)} />
+              <SidebarV2 theme={theme} onThemeChange={setTheme} onNavigate={() => setDrawerOpen(false)} slotRefs={slotRefs} />
             </SheetContent>
           </Sheet>
         )}
