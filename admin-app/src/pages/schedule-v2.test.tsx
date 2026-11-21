@@ -608,8 +608,9 @@ describe("ScheduleV2Page の作成の入口", () => {
     await waitFor(() => expect(document.activeElement).toBe(create));
   });
 
-  // The scroller keeps room below for it, so the grid's last hour scrolls clear of it.
+  // The body's strip keeps room below for it, so the grid's last hour scrolls clear of it.
   const PLUS_ROOM = "pb-[calc(6rem+env(safe-area-inset-bottom))]";
+  const bodyStrip = () => document.querySelector("[data-calendar-scroll] > [data-swipe-pane]");
 
   it("＋ボタンはサイドバーが引き出しのときに出し、同じ作成画面を開く", async () => {
     docked = false;
@@ -617,14 +618,14 @@ describe("ScheduleV2Page の作成の入口", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "予約を追加" }));
     expect(captured.create).toMatchObject({ defaultStoreId: "s1", defaultResourceId: null, defaultMinutes: null });
-    expect(document.querySelector("[data-calendar-scroll]")?.classList.contains(PLUS_ROOM)).toBe(true);
+    expect(bodyStrip()?.classList.contains(PLUS_ROOM)).toBe(true);
   });
 
   it("サイドバーを常に出す幅では＋ボタンを出さない", async () => {
     renderPage();
     await eventButton(/^山田 花子、/);
     expect(screen.queryByRole("button", { name: "予約を追加" })).toBeNull();
-    expect(document.querySelector("[data-calendar-scroll]")?.classList.contains(PLUS_ROOM)).toBe(false);
+    expect(bodyStrip()?.classList.contains(PLUS_ROOM)).toBe(false);
   });
 });
 
