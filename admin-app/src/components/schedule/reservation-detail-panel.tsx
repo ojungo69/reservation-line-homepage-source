@@ -77,6 +77,8 @@ function DetailFrame({
           align="start"
           sideOffset={8}
           collisionPadding={16}
+          // On screen even when a refresh moves the booking out of view.
+          sticky="always"
           aria-label="予約詳細"
           className="flex max-h-(--radix-popover-content-available-height) w-[min(28rem,calc(100vw-2rem))] origin-(--radix-popover-content-transform-origin) flex-col rounded-[20px]"
         >

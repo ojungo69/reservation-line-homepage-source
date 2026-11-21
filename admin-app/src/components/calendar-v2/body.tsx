@@ -163,6 +163,7 @@ export function CalendarColumns({
         column={column}
         dayLabel={dayLabel(column.date)}
         items={state.items.filter((item) => shown(item, layers))}
+        hidden={state.items.filter((item) => !shown(item, layers)).map((item) => item.span)}
         closed={state.closed}
         closures={state.closures}
         entryMinute={state.entryMinute}

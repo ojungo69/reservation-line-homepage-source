@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { stableAnchor } from "./stable-anchor";
 
 const rect = (x: number, y: number) => new DOMRect(x, y, 40, 20);
@@ -7,6 +7,7 @@ const xywh = ({ x, y, width, height }: DOMRect) => ({ x, y, width, height });
 
 afterEach(() => {
   document.body.replaceChildren();
+  vi.unstubAllGlobals();
 });
 
 describe("stableAnchor", () => {
@@ -81,6 +82,28 @@ describe("stableAnchor", () => {
     document.body.append(button);
     button.getBoundingClientRect = () => new DOMRect(520, 100, 120, 60);
     expect(xywh(stableAnchor(button).getBoundingClientRect())).toEqual({ x: 520, y: 100, width: 120, height: 60 });
+  });
+
+  // A popover kept open while the window narrows (the page keeps its container).
+  it("on a screen too narrow to start at the booking, opens at the furthest point the popover still fits", () => {
+    vi.stubGlobal("innerWidth", 768);
+    const button = document.createElement("button");
+    document.body.append(button);
+    button.getBoundingClientRect = () => new DOMRect(363, 100, 300, 60);
+    // 768px: the popover needs 448 + 24 = 472px, so it can start no further right than 296.
+    expect(xywh(stableAnchor(button).getBoundingClientRect())).toEqual({ x: 296, y: 100, width: 0, height: 60 });
+  });
+
+  it("fits a gone booking's last place to the screen as it is now", () => {
+    const button = document.createElement("button");
+    document.body.append(button);
+    // Room on the right at 1024px (474px), on neither side at 768px.
+    button.getBoundingClientRect = () => new DOMRect(430, 100, 120, 60);
+    const anchor = stableAnchor(button);
+    expect(xywh(anchor.getBoundingClientRect())).toEqual({ x: 430, y: 100, width: 120, height: 60 });
+    button.remove();
+    vi.stubGlobal("innerWidth", 768);
+    expect(xywh(anchor.getBoundingClientRect())).toEqual({ x: 296, y: 100, width: 0, height: 60 });
   });
 
   it("uses the middle of the screen for an element that was gone before it was measured", () => {

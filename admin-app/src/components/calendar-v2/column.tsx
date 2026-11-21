@@ -114,6 +114,9 @@ type ColumnProps = Readonly<{
   column: CalendarColumn;
   dayLabel: string;
   items: readonly CalendarItem[];
+  // What 表示する予定 hides: still taken, so a plain band keeps the time from
+  // looking free and covers its slots, as the item did (spec.md, clarifications).
+  hidden: readonly Span[];
   closed: readonly Span[];
   closures: readonly ClosureBand[];
   // The slot that takes Tab until the user moves: the opening time, where work starts.
@@ -137,6 +140,7 @@ export function CalendarColumnView({
   column,
   dayLabel,
   items,
+  hidden,
   closed,
   closures,
   entryMinute,
@@ -199,6 +203,20 @@ export function CalendarColumnView({
           style={{ top: minute * PX_PER_MINUTE, height: SLOT_MINUTES * PX_PER_MINUTE }}
         />
       ))}
+      {hidden.map((span, index) => {
+        const drawn = drawnSpan(span, MIN_EVENT_MINUTES);
+        return (
+          <div
+            key={`hidden-${index}-${span.start}`}
+            aria-hidden="true"
+            data-hidden-item=""
+            className="absolute inset-x-0 z-10 overflow-hidden rounded-md bg-cal-text/5 px-1.5 pt-0.5 text-xs text-cal-text-secondary dark:bg-cal-outer"
+            style={{ top: drawn.start * PX_PER_MINUTE, height: (drawn.end - drawn.start) * PX_PER_MINUTE }}
+          >
+            非表示の予定
+          </div>
+        );
+      })}
       {placed.map(({ item, start, end, lane, lanes, span }) => {
         const top = start * PX_PER_MINUTE;
         const height = (end - start) * PX_PER_MINUTE;

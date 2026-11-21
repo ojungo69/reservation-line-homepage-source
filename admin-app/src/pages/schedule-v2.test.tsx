@@ -7,6 +7,7 @@ import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient } from "@/test-utils/query-client";
 import { FRAME_MS, frameAt } from "@/components/calendar-v2/swipe";
+import { PX_PER_MINUTE } from "@/components/calendar-v2/geometry";
 import { ShellV2Context, type ShellV2 } from "@/components/shell-v2/shell-context";
 import { DOCKED_QUERY } from "@/hooks/use-media-query";
 import { addDays, formatJstDate } from "@/lib/timeline";
@@ -636,8 +637,15 @@ describe("ScheduleV2Page の表示する予定", () => {
     expect(screen.queryByRole("button", { name: /^佐藤 一郎、/ })).toBeNull();
     expect(screen.getByRole("button", { name: /^山田 花子、/ })).toBeTruthy();
     expect(slotsIn("2026-11-20:s1")).toBe(slots);
+    // Its time does not look free: a plain band covers the slots there (10:30-11:30),
+    // as the booking did.
+    const bands = column("2026-11-20:s1")?.querySelectorAll<HTMLElement>("[data-hidden-item]") ?? [];
+    expect([...bands].map((band) => [band.textContent, band.style.top, band.style.height])).toEqual([
+      ["非表示の予定", `${630 * PX_PER_MINUTE}px`, `${60 * PX_PER_MINUTE}px`],
+    ]);
     await user.click(layer(shell, "承認待ち"));
     expect(screen.getByRole("button", { name: /^佐藤 一郎、/ })).toBeTruthy();
+    expect(column("2026-11-20:s1")?.querySelectorAll("[data-hidden-item]")).toHaveLength(0);
   });
 
   it("Googleカレンダーの予定を外すと Google の予定だけを隠し、店のブロックは残す", async () => {

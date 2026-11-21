@@ -8,10 +8,13 @@ function roomBeside(): number {
 
 // With no room on either side of a wide booking (one store's day), the popover
 // opens beside its first part, over the rest of it, instead of off the screen.
+// On a screen too narrow even for that (one kept open while the window narrows),
+// it starts at the furthest point where it still fits.
 function besideOrOver(rect: DOMRect): DOMRect {
   const room = roomBeside();
   if (rect.left >= room || window.innerWidth - rect.right >= room) return rect;
-  return new DOMRect(rect.left, rect.top, Math.max(0, window.innerWidth - room - rect.left), rect.height);
+  const left = Math.min(rect.left, window.innerWidth - room);
+  return new DOMRect(left, rect.top, Math.max(0, window.innerWidth - room - left), rect.height);
 }
 
 /**
@@ -20,18 +23,19 @@ function besideOrOver(rect: DOMRect): DOMRect {
  * gone: a booking corrected to 来店なし leaves the grid while its detail stays
  * open, and a removed element measures as a zero box in the top-left corner. The
  * place is taken when the detail opens, in case the element goes before the
- * first measure. With nothing pressed (<body>, or an element already gone), the
- * screen's middle. contextElement lets the positioning watch the element, so the
- * popover follows a booking that a refresh moves.
+ * first measure, and fitted to the screen as it is at each measure. With nothing
+ * pressed (<body>, or an element already gone), the screen's middle.
+ * contextElement lets the positioning watch the element, so the popover follows
+ * a booking that a refresh moves.
  */
 export function stableAnchor(element: HTMLElement | null) {
   const pressed = element === document.body ? null : element;
-  let last = pressed?.isConnected ? besideOrOver(pressed.getBoundingClientRect()) : null;
+  let last = pressed?.isConnected ? pressed.getBoundingClientRect() : null;
   return {
     contextElement: pressed ?? undefined,
     getBoundingClientRect(): DOMRect {
-      if (pressed?.isConnected) last = besideOrOver(pressed.getBoundingClientRect());
-      return last ?? new DOMRect(window.innerWidth / 2, window.innerHeight / 2, 0, 0);
+      if (pressed?.isConnected) last = pressed.getBoundingClientRect();
+      return besideOrOver(last ?? new DOMRect(window.innerWidth / 2, window.innerHeight / 2, 0, 0));
     },
   };
 }
