@@ -731,6 +731,9 @@ describe("ReservationDetailPanel の器", () => {
     render(<ReservationDetailPanel reservationId="reservation-1" layout="popover" anchor={anchor} onClose={onClose} />);
     const dialog = screen.getByRole("dialog", { name: "予約詳細" });
     expect(within(dialog).getByText("予約 花子")).toBeTruthy();
+    // Modal like the sheets: the calendar under it cannot open another booking
+    // (which would drop an unsaved note without asking).
+    expect(document.body.style.pointerEvents).toBe("none");
     await user.click(within(dialog).getByRole("button", { name: "閉じる" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
