@@ -39,6 +39,18 @@ describe("stableAnchor", () => {
     expect(xywh(stableAnchor(document.body).getBoundingClientRect())).toEqual(xywh(middle));
   });
 
+  it("keeps the latest place, not the first, once a booking that moved is gone", () => {
+    const button = document.createElement("button");
+    document.body.append(button);
+    let at = rect(10, 20);
+    button.getBoundingClientRect = () => at;
+    const anchor = stableAnchor(button);
+    at = rect(30, 60);
+    anchor.getBoundingClientRect();
+    button.remove();
+    expect(xywh(anchor.getBoundingClientRect())).toEqual(xywh(rect(30, 60)));
+  });
+
   it("keeps the place it had when the detail opened, if the element goes before the first measure", () => {
     const button = document.createElement("button");
     document.body.append(button);
