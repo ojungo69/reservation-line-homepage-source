@@ -1719,6 +1719,23 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
   });
 
+  it("スクロールした一覧で戻り途中の帯を掴んでも、隣の日は上から見せたままにする", async () => {
+    narrow = true;
+    renderPage();
+    await screen.findByRole("region", { name: "選択日の予約" });
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => 375 });
+    scroller().scrollTop = 300;
+    swipe(scroller(), -40);
+    expect(xOf(flights()[0].keyframes.at(-1))).toBe(0);
+    point("pointerDown", scroller(), 300, 400);
+    expect(heading()).toBe("11/20（金）");
+    const contents = [...document.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
+    expect(contents.map((content) => content.style.transform)).toEqual(["translateY(300px)", "", "translateY(300px)"]);
+    point("pointerUp", scroller(), 300, 400);
+    act(() => flights()[0].finish());
+    expect(contents.map((content) => content.style.transform)).toEqual(["", "", ""]);
+  });
+
   it("前後の日は先に 1 回だけ読み、繰り返し取りに行かない（INT-11-06）", async () => {
     narrow = true;
     const { client } = renderPage();

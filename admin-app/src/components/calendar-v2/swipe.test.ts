@@ -62,6 +62,12 @@ describe("releaseVelocity", () => {
 
   it("止めてから払った指は、動き出す直前からの速さとする", () => {
     expect(releaseVelocity([{ x: 300, t: 0 }, { x: 300, t: 130 }, { x: 270, t: 150 }], 160)).toBe(-1.5);
+    expect(releaseVelocity([{ x: 300, t: 0 }, { x: 300, t: 50 }, { x: 276, t: 70 }], 75)).toBe(-1.2);
+  });
+
+  it("折り返した所で止まってから戻した指は、戻し始めてからの速さとする", () => {
+    const track = [{ x: 300, t: 0 }, { x: 220, t: 70 }, { x: 200, t: 80 }, { x: 200, t: 140 }, { x: 205, t: 150 }];
+    expect(releaseVelocity(track, 160)).toBe(0.5);
   });
 
   it("横に止まってから縦にだけ動いた指は、横に止まった時から数える", () => {

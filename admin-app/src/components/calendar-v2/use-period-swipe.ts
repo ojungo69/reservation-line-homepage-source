@@ -153,10 +153,10 @@ export function usePeriodSwipe(
       if (done.direction !== 0 && offset * done.direction < 0) {
         step(done.direction);
         offset += done.direction * done.width;
+        // shortcut: a scrolled list's day that is leaving shows from its top while
+        // held; give each day its own scroll if that is noticed.
+        for (const content of listContents()) content.style.transform = "";
       }
-      // shortcut: a scrolled list's day that is leaving shows from its top while
-      // held; give each day its own scroll if that is noticed.
-      for (const content of listContents()) content.style.transform = "";
       place(offset);
       return offset;
     };

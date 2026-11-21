@@ -55,8 +55,8 @@ export function swipeStep(dx: number, width: number, velocity = 0): -1 | 0 | 1 {
  * last moved sideways: 0 when that last sideways move was more than 40ms before
  * the lift (it had stopped, even if it drifted up or down since). The lift only
  * ends the track: it often comes a frame or two after the last move, which is
- * no sign of the finger slowing down. A turn within those 100ms counts from
- * where the finger turned.
+ * no sign of the finger slowing down. A turn or a still hold within those
+ * 100ms counts from where the finger set off again.
  */
 export function releaseVelocity(samples: readonly Sample[], liftAt: number): number {
   let moved = samples.length - 1;
@@ -67,7 +67,8 @@ export function releaseVelocity(samples: readonly Sample[], liftAt: number): num
   for (let index = moved - 1; index >= 0; index--) {
     const sample = samples[index];
     const way = Math.sign(end.x - first.x);
-    if (end.t - sample.t > VELOCITY_WINDOW_MS || (way !== 0 && Math.sign(first.x - sample.x) === -way)) break;
+    const turned = way !== 0 && Math.sign(first.x - sample.x) === -way;
+    if (end.t - sample.t > VELOCITY_WINDOW_MS || sample.x === first.x || turned) break;
     first = sample;
   }
   return end.t > first.t ? (end.x - first.x) / (end.t - first.t) : 0;
