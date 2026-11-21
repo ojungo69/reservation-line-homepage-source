@@ -1569,6 +1569,58 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(paneTransforms()).toEqual(["", ""]);
   });
 
+  it("指で帯を動かしたまま本文の幅だけが変わったら、すべらせずにすぐ元へ戻す（INT-10-04）", async () => {
+    const resized: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resized.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    let width = 375;
+    Object.defineProperty(scroller(), "clientWidth", { configurable: true, get: () => width });
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 200, 400);
+    width = 345;
+    act(() => {
+      for (const callback of resized) callback([], {} as ResizeObserver);
+    });
+    expect(flights()).toHaveLength(0);
+    expect(paneTransforms()).toEqual(["", ""]);
+    point("pointerUp", scroller(), 200, 400);
+    expect(heading()).toBe("11月20日（金）");
+  });
+
+  it("すべっている間と、指で帯を動かしている間は、wheel を受け付けず、元の位置にあるときは受け付ける", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    wide();
+    flick(-100, 80);
+    expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(false);
+    expect(fireEvent.wheel(scroller(), { deltaX: 200 })).toBe(false);
+    act(() => flights()[0].finish());
+    expect(heading()).toBe("11月21日（土）");
+    point("pointerDown", scroller(), 300, 400);
+    point("pointerMove", scroller(), 250, 400);
+    expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(false);
+    point("pointerUp", scroller(), 250, 400);
+    act(() => flights()[0]?.finish());
+    expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(true);
+    // A finger only resting on the body leaves the wheel to scroll.
+    point("pointerDown", scroller(), 300, 400);
+    expect(fireEvent.wheel(scroller(), { deltaY: 120 })).toBe(true);
+    point("pointerUp", scroller(), 300, 400);
+  });
+
   it("すべっている途中に本文の幅だけが変わっても、すぐに着地させる", async () => {
     const resized: ResizeObserverCallback[] = [];
     vi.stubGlobal(
@@ -1911,15 +1963,21 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     await screen.findByRole("region", { name: "選択日の予約" });
     await waitFor(() => expect(answers).toHaveLength(2));
     reservationsByDay["2026-11-21"] = [reservation("res-m", "2026-11-21", "10:00", "11:00", { customerDisplayName: "移動 四郎" })];
+    blocksByDay["2026-11-21"] = [block("blk-m", { startAt: jst("2026-11-21", "15:00"), endAt: jst("2026-11-21", "16:00") })];
     await act(() => client.invalidateQueries({ queryKey: ["reservations"] }));
     swipe(scroller(), -80);
     act(() => flights()[0]?.finish());
     expect(heading()).toBe("11/21（土）");
+    await waitFor(() => expect([reservationReads("2026-11-21"), blockReads("2026-11-21")]).toEqual([2, 2]));
+    expect(await within(shownBody()).findByText(/移動 四郎/)).toBeTruthy();
+    const blocksShown = () => client.getQueryData<{ externalBlocks: { id: string }[] }>(["external-blocks", "2026-11-21"])?.externalBlocks.map((row) => row.id);
+    await waitFor(() => expect(blocksShown()).toEqual(["blk-m"]));
+    // The old answers arrive last and change nothing.
     await act(async () => {
       for (const answer of answers) answer();
     });
-    await waitFor(() => expect([reservationReads("2026-11-21"), blockReads("2026-11-21")]).toEqual([2, 2]));
-    expect(await within(shownBody()).findByText(/移動 四郎/)).toBeTruthy();
+    expect(within(shownBody()).getByText(/移動 四郎/)).toBeTruthy();
+    expect(blocksShown()).toEqual(["blk-m"]);
   });
 
   it("本番と同じ再試行 1 回では、隣のままの日の先読みは失敗しても 1 回だけ読み直し、表示に入ったら表示として読んで失敗を知らせる", async () => {

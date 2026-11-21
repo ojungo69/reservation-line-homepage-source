@@ -325,6 +325,12 @@ export function usePeriodSwipe(
     // Its first input fixes its axis (INT-03-08); a sideways one moves one period
     // at most, once the signed sum of all its sideways input reaches 80px.
     const onWheel = (event: WheelEvent) => {
+      // INT-04-06: while the strip is off rest under a finger or gliding, a wheel
+      // neither scrolls (each list day is drawn at the scroll it had) nor steps.
+      if (flight || gesture?.offset) {
+        if (event.cancelable) event.preventDefault();
+        return;
+      }
       // INT-05-04: ctrl + wheel is the trackpad's pinch zoom.
       if (event.ctrlKey) return;
       window.clearTimeout(wheelTimer);
@@ -364,8 +370,8 @@ export function usePeriodSwipe(
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(() => {
-            if (gesture && scroller.clientWidth !== gesture.width) stop();
-            if (flight && scroller.clientWidth !== flight.width) land();
+            const width = scroller.clientWidth;
+            if ((gesture && width !== gesture.width) || (flight && width !== flight.width)) onResize();
           });
     sizes?.observe(scroller);
     // Not passive: a sideways gesture is kept from the browser's history swipe.

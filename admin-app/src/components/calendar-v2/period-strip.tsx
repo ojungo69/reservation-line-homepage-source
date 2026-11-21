@@ -20,19 +20,19 @@ export function PeriodStrip({
   className,
 }: Readonly<{ prev: PeriodPane; current: PeriodPane; next: PeriodPane; fromTop?: boolean; className?: string }>) {
   const panes = [
-    { pane: prev, side: -1 },
+    { pane: prev, side: -1, edge: "right-full" },
     { pane: current, side: 0 },
-    { pane: next, side: 1 },
+    { pane: next, side: 1, edge: "left-full" },
   ];
   return (
     <div data-swipe-pane="" data-swipe-from-top={fromTop ? "" : undefined} className={cn("relative", className)}>
-      {panes.map(({ pane, side }) => (
+      {panes.map(({ pane, side, edge }) => (
         <div
           key={pane.key}
           data-period-side={side}
           inert={side !== 0}
           aria-hidden={side === 0 ? undefined : true}
-          className={side === 0 ? undefined : cn("absolute inset-y-0 w-full overflow-hidden", side < 0 ? "right-full" : "left-full")}
+          className={edge && cn("absolute inset-y-0 w-full overflow-hidden", edge)}
         >
           {pane.content}
         </div>
