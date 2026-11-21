@@ -1,0 +1,42 @@
+admin-app/src/components/calendar-v2/body.tsx
+  s_d52c2d995f51c6::t_a43868209fea04 64
+  s_d52c2d995f51c6::t_e9943120b5e6b9 54-57
+admin-app/src/components/calendar-v2/column.tsx
+  s_d52c2d995f51c6::t_f1efc8dac070c2 97-98,103,109
+admin-app/src/components/calendar-v2/stable-anchor.ts
+  s_d52c2d995f51c6::t_161e31bbb9195c 1-16,21-25,29,31,33
+admin-app/src/components/schedule/reservation-detail-panel.tsx
+  s_d52c2d995f51c6::t_ebf491cda23bab 3
+  s_d52c2d995f51c6::t_f8c17db53c3dc3 71
+  s_d52c2d995f51c6::t_3126f70f010512 69-70,72
+admin-app/src/pages/schedule-v2.tsx
+  s_d52c2d995f51c6::t_be72da406b74e9 149-151,155
+  s_d52c2d995f51c6::t_8c4128fe175bf0 362-365
+  s_d52c2d995f51c6::t_b50e17818d903d 382
+admin-app/src/components/calendar-v2/stable-anchor.test.tsx
+  s_d52c2d995f51c6::t_4833163427cc3b 42-73
+admin-app/src/components/schedule/reservation-detail-panel.test.tsx
+  s_d52c2d995f51c6::t_c5b3654d7dc0bc 735-736,738
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_c8af4ad9472014 554-568,655-667
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_98247d79e250db 33
+specs/008-admin-calendar-ux/verify-tasks-report.md
+  s_d52c2d995f51c6::t_4fb1680197dd91 108,110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "24cb260dd8422ca322e4bc31ebd05d8e5e6bcdbd",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
