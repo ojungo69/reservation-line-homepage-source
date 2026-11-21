@@ -1,0 +1,64 @@
+admin-app/src/components/calendar-v2/top-bar.tsx
+  s_d52c2d995f51c6::t_8fb62a2732db4c 187-191,194-203
+admin-app/src/components/calendar-v2/swipe.test.ts
+  s_d52c2d995f51c6::t_b68807b475b651 38-101
+  s_d52c2d995f51c6::t_0f8b6679f9eae5 2
+  s_d52c2d995f51c6::t_37e4433a845065 102-104
+admin-app/src/components/calendar-v2/swipe.ts
+  s_d52c2d995f51c6::t_f868deb6a7e994 8-16,21-25,37-42,44-46,48-49,53-82,85,92
+  s_d52c2d995f51c6::t_e5713d61c5edb3 83-84,86-91,93
+admin-app/src/pages/schedule-v2.tsx
+  s_d52c2d995f51c6::t_5f38cd7434d935 220-223,225,232,234-238,241,253-257,259-264
+  s_d52c2d995f51c6::t_f2717ebbb57e24 90-91,93-96,98-99
+  s_d52c2d995f51c6::t_b361b1c2e52730 318-319
+  s_d52c2d995f51c6::t_77bec484ad2dca 1
+  s_d52c2d995f51c6::t_a6af2bff556434 110-111
+  s_d52c2d995f51c6::t_32337e748b069f 219
+  s_d52c2d995f51c6::t_618c1105155d75 258
+  s_d52c2d995f51c6::t_e6eb964af00ac1 9-10
+admin-app/src/components/calendar-v2/use-calendar-days.ts
+  s_d52c2d995f51c6::t_6e2ebe8d31ca5a 15-18
+  s_d52c2d995f51c6::t_eb44063a06f5c7 44-45,47,49-52
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_ceca90a31ab1aa 9,11
+  s_d52c2d995f51c6::t_936a960ed7af84 1255-1500
+  s_d52c2d995f51c6::t_87d1213a8f3cb7 228-230,292,333,369,375,795,805,837,1501-1504
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_fc4598590b0aff 36-37
+admin-app/src/components/calendar-v2/use-period-swipe.ts
+  s_d52c2d995f51c6::t_4437f9589c1e1e 1,3,16-17,19-33,50-56,62,64,66-74,80,88-90,95-97,99,108-116,120,122-152,154-163,181,183,199-200,202-212,217-218,221-229,231,233,237,243-248,251,253,255,258-264,343-344,346
+  s_d52c2d995f51c6::t_b8c1b007301d9b 232
+  s_d52c2d995f51c6::t_56c8510e29200a 249
+  s_d52c2d995f51c6::t_45af26e97ae4bd 117-119,121
+  s_d52c2d995f51c6::t_8eaae554b391d5 98
+  s_d52c2d995f51c6::t_06457b6f277963 153
+  s_d52c2d995f51c6::t_bb39632228457b 230
+  s_d52c2d995f51c6::t_1ac04c61a0b7ed 250
+  s_d52c2d995f51c6::t_7b099a939e1fbb 240-241
+admin-app/src/components/calendar-v2/period-strip.tsx
+  s_d52c2d995f51c6::t_84056d4e222131 1-11,14-18,20,22-27,29-42
+  s_d52c2d995f51c6::t_54ed4726432ef1 12-13,19,21
+  s_d52c2d995f51c6::t_0fc22193ef38a8 28
+DESIGN.md
+  s_d52c2d995f51c6::t_5d4cf1a73e1bfb 135
+admin-app/src/components/calendar-v2/use-return-focus.ts
+  s_d52c2d995f51c6::t_f75116d7a80ede 23-24
+specs/008-admin-calendar-ux/interactions.md
+  s_d52c2d995f51c6::t_87dfd8139382d4 31,64,66,204,248,253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7566f87c1a850d551243b7368b7e25f008e34e2e",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
