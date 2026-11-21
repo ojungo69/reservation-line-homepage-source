@@ -106,6 +106,41 @@ describe("stableAnchor", () => {
     expect(xywh(anchor.getBoundingClientRect())).toEqual({ x: 296, y: 100, width: 0, height: 60 });
   });
 
+  it("fits a booking gone from the right edge to a window that then narrows", () => {
+    const button = document.createElement("button");
+    document.body.append(button);
+    // At 1024px the popover opens on its left; at 768px that place is off the screen.
+    button.getBoundingClientRect = () => new DOMRect(900, 100, 100, 60);
+    const anchor = stableAnchor(button);
+    expect(xywh(anchor.getBoundingClientRect())).toEqual({ x: 900, y: 100, width: 100, height: 60 });
+    button.remove();
+    vi.stubGlobal("innerWidth", 768);
+    // On its left with the gap, ending 16px from the edge: 760 - 8 = 752.
+    expect(xywh(anchor.getBoundingClientRect())).toEqual({ x: 760, y: 100, width: 0, height: 60 });
+  });
+
+  // Whatever the screen and wherever the booking (off the screen too), the 28rem
+  // popover with its 8px gap fits on one side of what the anchor returns, 16px
+  // inside the screen's edges.
+  it.each([320, 375, 768, 1024, 1366])("leaves room for the popover on one side at %ipx", (width) => {
+    vi.stubGlobal("innerWidth", width);
+    const popover = Math.min(448, width - 32);
+    const misses: string[] = [];
+    for (const x of [-600, -100, 0, 8, 100, 300, 472, 600, 900, 1300, 2000]) {
+      for (const w of [0, 40, 120, 654, 1500]) {
+        const button = document.createElement("button");
+        document.body.append(button);
+        button.getBoundingClientRect = () => new DOMRect(x, 100, w, 60);
+        const at = stableAnchor(button).getBoundingClientRect();
+        const onRight = at.right + 8 >= 16 && at.right + 8 + popover <= width - 16;
+        const onLeft = at.left - 8 - popover >= 16 && at.left - 8 <= width - 16;
+        if (!onRight && !onLeft) misses.push(`x=${x} w=${w} -> ${at.left}..${at.right}`);
+        button.remove();
+      }
+    }
+    expect(misses).toEqual([]);
+  });
+
   it("uses the middle of the screen for an element that was gone before it was measured", () => {
     const button = document.createElement("button");
     button.getBoundingClientRect = () => rect(10, 20);

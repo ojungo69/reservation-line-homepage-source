@@ -643,9 +643,16 @@ describe("ScheduleV2Page の表示する予定", () => {
     expect([...bands].map((band) => [band.textContent, band.style.top, band.style.height])).toEqual([
       ["非表示の予定", `${630 * PX_PER_MINUTE}px`, `${60 * PX_PER_MINUTE}px`],
     ]);
+    // The band is not read out: the slots it covers say so, and only those.
+    const covered = "11月20日（金） 10:30 本店に予約を追加（この時間には非表示の予定があります）";
+    expect(screen.getByRole("button", { name: covered })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "11月20日（金） 11:15 本店に予約を追加（この時間には非表示の予定があります）" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "11月20日（金） 10:15 本店に予約を追加" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "11月20日（金） 11:30 本店に予約を追加" })).toBeTruthy();
     await user.click(layer(shell, "承認待ち"));
     expect(screen.getByRole("button", { name: /^佐藤 一郎、/ })).toBeTruthy();
     expect(column("2026-11-20:s1")?.querySelectorAll("[data-hidden-item]")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "11月20日（金） 10:30 本店に予約を追加" })).toBeTruthy();
   });
 
   it("Googleカレンダーの予定を外すと Google の予定だけを隠し、店のブロックは残す", async () => {
@@ -658,6 +665,8 @@ describe("ScheduleV2Page の表示する予定", () => {
     expect(screen.queryByText("外部予定、11月20日（金）、18:00から19:00、Googleカレンダー")).toBeNull();
     expect(screen.getByRole("button", { name: /^研修、/ })).toBeTruthy();
     expect(slotsIn("2026-11-20:s1")).toBe(slots);
+    expect(screen.getByRole("button", { name: "11月20日（金） 18:00 本店に予約を追加（この時間には非表示の予定があります）" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "11月20日（金） 17:45 本店に予約を追加" })).toBeTruthy();
   });
 
   it("Googleカレンダーの予定を外しても Google 以外の外部のブロックは残し、Google の印も付けない", async () => {

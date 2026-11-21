@@ -188,7 +188,10 @@ export function CalendarColumnView({
           type="button"
           tabIndex={minute === tabStop ? 0 : -1}
           data-slot-minutes={minute}
-          aria-label={`${dayLabel} ${clock(minute)} ${column.storeName}に予約を追加`}
+          // The band below is not read out, so the slot says what it covers.
+          aria-label={`${dayLabel} ${clock(minute)} ${column.storeName}に予約を追加${
+            hidden.some((span) => minute < span.end && minute + SLOT_MINUTES > span.start) ? "（この時間には非表示の予定があります）" : ""
+          }`}
           onClick={(event) => onSlot(column, minute, event.currentTarget)}
           onFocus={() => setTabMinute(minute)}
           onKeyDown={moveSlotFocus}
