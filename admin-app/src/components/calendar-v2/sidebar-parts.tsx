@@ -47,7 +47,8 @@ export function CalendarLayers({ layers, onChange }: Readonly<{ layers: Layers; 
               onChange={(event) => onChange({ ...layers, [row.key]: event.target.checked })}
             />
             <span aria-hidden="true" className={cn("size-3 shrink-0 rounded-sm", row.swatch)} />
-            <span className="min-w-0">{row.label}</span>
+            {/* wrap-anywhere: with very large text, "Google" too breaks within the drawer. */}
+            <span className="min-w-0 wrap-anywhere">{row.label}</span>
           </label>
         ))}
       </fieldset>
