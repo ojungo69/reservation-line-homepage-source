@@ -1,0 +1,89 @@
+admin-app/src/components/shell-v2/shell-context.ts
+  s_d52c2d995f51c6::t_98ed98eae59881 13-20
+admin-app/src/components/ui/popover.tsx
+  s_d52c2d995f51c6::t_7aebb4c4d4e7f8 14-19,27,35
+  s_d52c2d995f51c6::t_376a72724ab072 45
+admin-app/src/components/calendar-v2/stable-anchor.ts
+  s_d52c2d995f51c6::t_981336c87d7de7 1-17
+admin-app/src/pages/schedule-v2.test.tsx
+  s_d52c2d995f51c6::t_4f6334c859aa56 142-143
+  s_d52c2d995f51c6::t_4b65ff8f738a87 505-522
+  s_d52c2d995f51c6::t_42d8da6655a440 642-651
+  s_d52c2d995f51c6::t_9572689585b268 21-26
+  s_d52c2d995f51c6::t_561f7afc36652f 311
+  s_d52c2d995f51c6::t_0be2b2c49eb1f9 541-570
+  s_d52c2d995f51c6::t_e8f2010320b736 11
+  s_d52c2d995f51c6::t_dbeff32915dfa3 571-614
+  s_d52c2d995f51c6::t_c8a38b3cd53ef5 292,300
+  s_d52c2d995f51c6::t_e00e58f88b3704 226-238,246-247
+admin-app/src/components/shell-v2/sidebar-v2.tsx
+  s_d52c2d995f51c6::t_aef59b661489be 99-100
+  s_d52c2d995f51c6::t_51b4610233e25a 76-82,85
+  s_d52c2d995f51c6::t_7eca6ac99db336 110-111
+admin-app/src/components/calendar-v2/stable-anchor.test.tsx
+  s_d52c2d995f51c6::t_6d496de58cb270 1-45
+admin-app/src/components/schedule/reservation-detail-panel.tsx
+  s_d52c2d995f51c6::t_40cfe394bd78b6 79
+  s_d52c2d995f51c6::t_7b007427bdf587 2-4
+  s_d52c2d995f51c6::t_1e4b8a7845261e 231-232
+  s_d52c2d995f51c6::t_a822281cc901f5 37-39,45-48,51-78,80-101
+  s_d52c2d995f51c6::t_47ee74edc0aaa9 102
+  s_d52c2d995f51c6::t_157c7e1d4563c5 410-412,423-439,441-443,445-450,452,454-462,464,466-482,484-485,488,490-514,516-519,521-526,531-532,534-539,541-542,544-684,687-719
+admin-app/src/components/schedule/reservation-detail-panel.test.tsx
+  s_d52c2d995f51c6::t_b60ce32e586f3a 723-739,741-753,758-777
+  s_d52c2d995f51c6::t_cc4d0f57c1ff7e 740
+  s_d52c2d995f51c6::t_edade251138856 1
+  s_d52c2d995f51c6::t_a9fc9a8ab6483c 754-757
+admin-app/src/components/shell-v2/app-shell-v2.tsx
+  s_d52c2d995f51c6::t_2f8ca9a6b6e132 187
+  s_d52c2d995f51c6::t_9a670ba6460534 45-48
+  s_d52c2d995f51c6::t_9e1362a705cfd8 15-16
+  s_d52c2d995f51c6::t_6512d27073163e 7
+  s_d52c2d995f51c6::t_3e0e9f9f113d56 134-135,143
+  s_d52c2d995f51c6::t_0a44a4e50af903 160
+admin-app/src/components/shell-v2/app-shell-v2.test.tsx
+  s_d52c2d995f51c6::t_36b9636db7efcc 56-57
+  s_d52c2d995f51c6::t_426bf09861d7d0 2,585-624
+admin-app/src/pages/schedule-v2.tsx
+  s_d52c2d995f51c6::t_e79da76ce4fcb2 147-153
+  s_d52c2d995f51c6::t_03d1f0828f53a4 279
+  s_d52c2d995f51c6::t_53109f9c85623f 126-128
+  s_d52c2d995f51c6::t_66835b71b0535f 418-419
+  s_d52c2d995f51c6::t_ea32a381b8f1cb 2,4-14
+  s_d52c2d995f51c6::t_fcbe7930506a13 38
+  s_d52c2d995f51c6::t_b0b9607031f989 43
+  s_d52c2d995f51c6::t_dc89ee9bda2ff8 210-213,215
+  s_d52c2d995f51c6::t_19e8be7bc959f6 265-267
+  s_d52c2d995f51c6::t_95cf3dbc1cc591 355-372
+  s_d52c2d995f51c6::t_750cd132def927 25
+  s_d52c2d995f51c6::t_6c71a65ae2acb8 375-376
+  s_d52c2d995f51c6::t_fb4e70c288d089 21
+  s_d52c2d995f51c6::t_756f46543a1e64 281
+  s_d52c2d995f51c6::t_99195bea801cb7 93-94
+  s_d52c2d995f51c6::t_2c2edc4d0ecd9b 32
+admin-app/src/components/calendar-v2/body.tsx
+  s_d52c2d995f51c6::t_fafdd22404282f 239-240,242-249,253,256-257,259-261,263,265,268
+  s_d52c2d995f51c6::t_84842b3de8c89c 139,150
+  s_d52c2d995f51c6::t_db2d71beaae998 164
+  s_d52c2d995f51c6::t_ea02826d071639 52-65
+admin-app/src/components/calendar-v2/sidebar-parts.tsx
+  s_d52c2d995f51c6::t_69df2f3d58d895 1-55
+admin-app/src/hooks/use-media-query.ts
+  s_d52c2d995f51c6::t_ea0640b35ddbbd 10-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dc459076405d3ba1777e49adbc04fe62dcfd11e3",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
