@@ -1,0 +1,49 @@
+specs/008-admin-calendar-ux/adr-0001-result-unknown.md
+  s_d52c2d995f51c6::t_0fdb66b672381d 1-75
+specs/008-admin-calendar-ux/contracts/reservation-interactions.md
+  s_52c3955e48bff4::t_37fe2c48d610ed 5,18,84,86,116,120,122-125,130,164-165,167,172,176,178-180,182,184,186,208-209,217,221-223,230-231,253,263-270,293-306
+specs/008-admin-calendar-ux/interactions.md
+  s_d52c2d995f51c6::t_9010e3db292c26 161-162,165,171,174,273,284
+specs/008-admin-calendar-ux/tasks.md
+  s_d52c2d995f51c6::t_51afeea37d181f 15-16,22,24-25,38-39,41,44,50-51,53,55,66
+specs/008-admin-calendar-ux/plan.md
+  s_7a479fb6e895e8::t_17ebb99ae47450 28
+specs/008-admin-calendar-ux/quickstart.md
+  s_7a479fb6e895e8::t_efaeb75b1d116a 40,54
+specs/008-admin-calendar-ux/research.md
+  s_7a479fb6e895e8::t_9158009d80f8cb 77,80-95
+specs/008-admin-calendar-ux/verify-tasks-report.md
+  s_7a479fb6e895e8::t_4750eb61390725 111-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0f11d89c56b8e0086aec9c9656aa12076aa793db",
+  "prompts": {},
+  "sessions": {
+    "s_52c3955e48bff4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71325e2b-fe13-4768-9035-42503a99e9fb",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    },
+    "s_7a479fb6e895e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a202b1-276e-7c91-86af-98ed52c07bb2",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    },
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
