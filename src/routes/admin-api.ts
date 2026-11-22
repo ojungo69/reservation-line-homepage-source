@@ -58,8 +58,11 @@ import { MAX_TOTAL_SERVICE_DURATION_MINUTES, RESERVATION_INTERVAL_MINUTES } from
 import { autoCompleteReservations } from "../reservations/auto-complete";
 import { isNonEmptyString } from "../admin/reservation-time-utils";
 import {
+  previewAdminRescheduleReservation,
+  RESCHEDULE_PREVIEW_CONTRACT,
   rescheduleAdminReservation,
   isReschedulableReservation,
+  type AdminReschedulePreviewRequest,
   type AdminRescheduleReservationRequest
 } from "../admin/reservation-reschedule";
 import {
@@ -446,6 +449,37 @@ const parseAdminRescheduleReservationRequest = (
     startAt,
     treatmentMinutes
   };
+};
+
+const parseAdminReschedulePreviewRequest = (body: unknown):
+  | { ok: true; request: AdminReschedulePreviewRequest }
+  | { ok: false; reason: "invalid_request" | "unsupported_contract" } => {
+  const invalid = { ok: false, reason: "invalid_request" } as const;
+  if (!isObject(body) || Object.keys(body).length !== 3) return invalid;
+  const { contractVersion, expectedVersion, intent } = body;
+  if (
+    typeof contractVersion !== "string" ||
+    typeof expectedVersion !== "number" || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1 ||
+    !isObject(intent) || Object.keys(intent).length !== 2
+  ) return invalid;
+
+  const requestIntent = parseAdminReschedulePreviewIntent(intent);
+  if (!requestIntent) return invalid;
+  if (contractVersion !== RESCHEDULE_PREVIEW_CONTRACT) return { ok: false, reason: "unsupported_contract" };
+  return { ok: true, request: { contractVersion, expectedVersion, intent: requestIntent } };
+};
+
+const parseAdminReschedulePreviewIntent = (intent: Record<string, unknown>): AdminReschedulePreviewRequest["intent"] | undefined => {
+  if (intent.kind === "move" && isNonEmptyString(intent.startAt, 64)) {
+    return { kind: "move", startAt: intent.startAt };
+  }
+  if (intent.kind === "resize" && typeof intent.treatmentMinutes === "number") {
+    return { kind: "resize", treatmentMinutes: intent.treatmentMinutes };
+  }
+  if (intent.kind === "undo" && isNonEmptyString(intent.inverseOfOperationId, 128)) {
+    return { kind: "undo", inverseOfOperationId: intent.inverseOfOperationId };
+  }
+  return undefined;
 };
 
 const parseAdminCreateExternalBlockRequest = (body: unknown): AdminCreateExternalBlockRequest | undefined => {
@@ -3254,6 +3288,40 @@ adminApiRoutes.post("/reservations/:id/reschedule", async (c) => {
   }
 
   return c.json(result, statusForAdminRescheduleReservationResult(result));
+});
+
+const RESCHEDULE_PREVIEW_FAILURE_STATUS = {
+  invalid_request: 400,
+  forbidden: 403,
+  not_found: 404,
+  feature_disabled: 404,
+  version_conflict: 409,
+  invalid_transition: 409,
+  undo_not_available: 409,
+  invalid_time: 400,
+  no_change: 409,
+  outside_business_hours: 400,
+  store_closed: 400,
+  slot_unavailable: 409,
+  customer_time_conflict: 409,
+} as const;
+
+adminApiRoutes.post("/reservations/:id/reschedule/preview", async (c) => {
+  const gate = await authenticateAdminWithDb(c, ADMIN_PRIVATE_HEADERS);
+  if (!gate.ok) return gate.response;
+  const parsed = await parseJsonBody(c, ADMIN_PRIVATE_HEADERS);
+  if (!parsed.ok) return parsed.response;
+  const request = parseAdminReschedulePreviewRequest(parsed.body);
+  if (!request.ok) return c.json(request, 400, ADMIN_PRIVATE_HEADERS);
+
+  const result = await previewAdminRescheduleReservation({
+    db: gate.db,
+    admin: gate.admin,
+    reservationId: c.req.param("id"),
+    request: request.request,
+    featureEnabled: isAdminCalendarV2Enabled(c.env),
+  });
+  return c.json(result, result.ok ? 200 : RESCHEDULE_PREVIEW_FAILURE_STATUS[result.reason], ADMIN_PRIVATE_HEADERS);
 });
 
 // D1 の一過性障害は operator が再実行できる 503、それ以外は従来どおり 500。

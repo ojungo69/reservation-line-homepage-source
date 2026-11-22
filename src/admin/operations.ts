@@ -763,7 +763,7 @@ export async function listAdminReservations(input: {
       range: AdminReservationListRange;
       startAt: string;
       endAt: string;
-      reservations: AdminReservationListItem[];
+      reservations: Array<AdminReservationListItem & { version: number }>;
     }
   | AdminReservationListFailure
 > {
@@ -804,7 +804,7 @@ export async function listAdminReservations(input: {
     range: input.range,
     startAt: day.startAt,
     endAt: day.endAt,
-    reservations: (result.results ?? []).map(mapReservationRow)
+    reservations: (result.results ?? []).map((row) => ({ ...mapReservationRow(row), version: row.version }))
   };
 }
 

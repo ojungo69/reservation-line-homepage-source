@@ -1,5 +1,7 @@
 export type Reservation = {
   id: string;
+  // 日付別一覧の旧 Worker 応答では省略される。詳細は常に version を返す。
+  version?: number;
   status: string;
   source: string;
   createdAt?: string | null;
