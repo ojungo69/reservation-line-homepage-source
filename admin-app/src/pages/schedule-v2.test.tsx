@@ -536,10 +536,18 @@ describe("ScheduleV2Page の予約と外部予定", () => {
     renderPage();
     const event = await eventButton(/^山田 花子、/);
     expect(event.getAttribute("aria-expanded")).toBe("false");
+    expect(event.classList.contains("ring-cal-primary")).toBe(false);
     await user.click(event);
-    expect((await eventButton(/^山田 花子、/)).getAttribute("aria-expanded")).toBe("true");
+    const selected = await eventButton(/^山田 花子、/);
+    const other = await eventButton(/^佐藤 一郎、/);
+    expect(selected.getAttribute("aria-expanded")).toBe("true");
+    expect(selected.classList.contains("ring-cal-primary")).toBe(true);
+    expect(other.getAttribute("aria-expanded")).toBe("false");
+    expect(other.classList.contains("ring-cal-primary")).toBe(false);
     act(() => captured.detail?.onClose());
-    expect((await eventButton(/^山田 花子、/)).getAttribute("aria-expanded")).toBe("false");
+    const closed = await eventButton(/^山田 花子、/);
+    expect(closed.getAttribute("aria-expanded")).toBe("false");
+    expect(closed.classList.contains("ring-cal-primary")).toBe(false);
   });
 
   it("サイドバーを常に出す広い画面では、押した予約の隣に小窓で開く", async () => {
@@ -1133,7 +1141,8 @@ describe("ScheduleV2Page の一覧 (Codex の指摘)", () => {
     );
     renderPage();
     expect(await screen.findByText(/11月20日（金）の予定が表示できる上限の件数に達しました。/)).toBeTruthy();
-    expect(within(shownBody()).queryByText("この日の予約はありません")).toBeNull();
+    const list = within(screen.getByRole("region", { name: "選択日の予約" }));
+    expect(list.queryByText("この日の予約はありません")).toBeNull();
   });
 
   it("フォーカスが移らない押し方でも、詳細を閉じると押した「詳細」へ戻す", async () => {
@@ -1147,6 +1156,60 @@ describe("ScheduleV2Page の一覧 (Codex の指摘)", () => {
     screen.getByRole("button", { name: "詳細の中のボタン" }).focus();
     act(() => captured.detail?.onClose());
     await waitFor(() => expect(document.activeElement).toBe(details));
+  });
+});
+
+describe("ScheduleV2Page の一覧と時間軸の状態 (UX-21)", () => {
+  it("一覧で予約の初回取得に失敗した日は、エラーを示し予約ゼロとは表示しない", async () => {
+    narrow = true;
+    failingDays.add("2026-11-20");
+    renderPage();
+
+    const failure = await screen.findByText("11月20日（金）の予約の読み込みに失敗しました。");
+    expect(failure.closest('[role="alert"]')).not.toBeNull();
+    const list = within(screen.getByRole("region", { name: "選択日の予約" }));
+    expect(list.queryByText("この日の予約はありません")).toBeNull();
+    expect(list.queryByRole("button", { name: "詳細" })).toBeNull();
+  });
+
+  it("予約の更新に失敗すると、時間軸と一覧に前の予約と更新エラーを表示し、空き枠は出さない", async () => {
+    const user = userEvent.setup();
+    const { client } = renderPage();
+    await eventButton(/^山田 花子、/);
+    await waitFor(() => expect(slotsIn("2026-11-20:s1")).toBeGreaterThan(0));
+
+    failingDays.add("2026-11-20");
+    await act(() => client.invalidateQueries({ queryKey: ["reservations", "2026-11-20"], exact: true }));
+    const failure = "11月20日（金）の予約の更新に失敗しました。";
+    expect(await screen.findByText(failure)).toBeTruthy();
+    expect(screen.queryByText("11月20日（金）の予約の読み込みに失敗しました。")).toBeNull();
+    expect(within(shownBody()).getByRole("button", { name: /^山田 花子、/ })).toBeTruthy();
+    expect(slotsIn("2026-11-20:s1")).toBe(0);
+
+    await user.click(screen.getByRole("button", { name: "一覧" }));
+    const list = within(screen.getByRole("region", { name: "選択日の予約" }));
+    expect(list.getByText(/山田 花子/)).toBeTruthy();
+    expect(screen.getByText(failure)).toBeTruthy();
+    expect(list.queryByText("この日の予約はありません")).toBeNull();
+  });
+
+  it("取得できた予約ゼロの日は、一覧では予約なしと示し、時間軸では空き枠を出す", async () => {
+    narrow = true;
+    reservationsByDay["2026-11-20"] = [];
+    const user = userEvent.setup();
+    renderPage();
+
+    const list = within(screen.getByRole("region", { name: "選択日の予約" }));
+    expect(await list.findByText("この日の予約はありません")).toBeTruthy();
+    expect(list.queryByRole("button", { name: "詳細" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "日" }));
+    const timeline = within(shownBody());
+    expect(await timeline.findByRole("button", { name: "11月20日（金） 10:00 本店に予約を追加" })).toBeTruthy();
+    expect(timeline.getByRole("button", { name: /^研修、/ })).toBeTruthy();
+    expect(timeline.queryByRole("button", { name: /^山田 花子、|^佐藤 一郎、/ })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/の予定が表示できる上限の件数に達しました/)).toBeNull();
   });
 });
 
@@ -1625,6 +1688,92 @@ const reservationReads = (date: string) =>
   mocks.api.get.mock.calls.filter(([url]) => url === `/api/admin/reservations?range=date&date=${date}`).length;
 const blocksUrl = (date: string) => `/api/admin/external-blocks?from=${date}&to=${date}&status=active`;
 const blockReads = (date: string) => mocks.api.get.mock.calls.filter(([url]) => url === blocksUrl(date)).length;
+
+describe("ScheduleV2Page の期間取得の応答順序 (INT-11)", () => {
+  function holdResponses(...urls: string[]) {
+    const held = new Set(urls);
+    const answers: Array<() => void> = [];
+    mocks.api.get.mockImplementation((url: string) => {
+      if (!held.delete(url)) return respond(url);
+      const old = respond(url);
+      return new Promise((resolve) => answers.push(() => resolve(old)));
+    });
+    return answers;
+  }
+
+  async function deliverLateAnswers(answers: readonly (() => void)[]) {
+    // Flush query notifications inside act before checking what is still shown.
+    notifyManager.setScheduler((callback) => callback());
+    try {
+      await act(async () => {
+        for (const answer of answers) answer();
+      });
+    } finally {
+      notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+    }
+  }
+
+  it("前の日の予約とブロックが後から届いても、移動先の予定だけを表示する", async () => {
+    storeState.selected = null;
+    reservationsByDay["2026-11-21"] = [
+      reservation("res-next", "2026-11-21", "10:00", "11:00", { customerDisplayName: "土曜 五郎" }),
+    ];
+    blocksByDay["2026-11-20"] = [block("blk-old", {
+      titleSnapshot: "前の日の夜間作業",
+      startAt: jst("2026-11-20", "23:00"),
+      endAt: jst("2026-11-21", "01:00"),
+    })];
+    blocksByDay["2026-11-21"] = [block("blk-next", {
+      titleSnapshot: "土曜の研修",
+      startAt: jst("2026-11-21", "15:00"),
+      endAt: jst("2026-11-21", "16:00"),
+    })];
+    const answers = holdResponses("/api/admin/reservations?range=date&date=2026-11-20", blocksUrl("2026-11-20"));
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(answers).toHaveLength(2));
+    await user.click(screen.getByRole("button", { name: "次の日" }));
+    await eventButton(/^土曜 五郎、/);
+    await eventButton(/^土曜の研修、/);
+
+    await deliverLateAnswers(answers);
+
+    expect(heading()).toBe("11月21日（土）");
+    const current = within(shownBody());
+    expect(current.getByRole("button", { name: /^土曜 五郎、/ })).toBeTruthy();
+    expect(current.getByRole("button", { name: /^土曜の研修、/ })).toBeTruthy();
+    expect(current.queryByRole("button", { name: /^山田 花子、|^前の日の夜間作業、/ })).toBeNull();
+  });
+
+  it("前の日で送った店舗設定の更新が後から届いても、移動先では新しい営業時間を使う", async () => {
+    storeState.selected = null;
+    const user = userEvent.setup();
+    const { client } = renderPage();
+    await screen.findByRole("button", { name: "11月20日（金） 10:00 本店に予約を追加" });
+
+    // The settings endpoint is shared across days. Hold one refresh from Friday
+    // while another refresh from Saturday returns the changed hours first.
+    businessHours = weekOfHours("s1", "12:00", "13:00");
+    const answers = holdResponses("/api/admin/settings");
+    act(() => {
+      void client.refetchQueries({ queryKey: ["settings"] });
+    });
+    await waitFor(() => expect(answers).toHaveLength(1));
+    await user.click(screen.getByRole("button", { name: "次の日" }));
+    businessHours = weekOfHours("s1", "14:00", "15:00");
+    await act(() => client.refetchQueries({ queryKey: ["settings"] }));
+    const latestSlot = "11月21日（土） 14:00 本店に予約を追加";
+    await screen.findByRole("button", { name: latestSlot });
+
+    await deliverLateAnswers(answers);
+
+    expect(heading()).toBe("11月21日（土）");
+    const current = within(shownBody());
+    expect(current.getByRole("button", { name: latestSlot })).toBeTruthy();
+    expect(current.queryByRole("button", { name: "11月21日（土） 12:00 本店に予約を追加" })).toBeNull();
+  });
+});
+
 // The production client tries a failed read once more (lib/query-client.ts); here at once.
 const retryOnce = () => new QueryClient({ defaultOptions: { queries: { retry: 1, retryDelay: 0 }, mutations: { retry: false } } });
 
