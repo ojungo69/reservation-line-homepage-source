@@ -743,6 +743,9 @@ describe("ScheduleV2Page の表示する予定", () => {
     const again = fakeShell();
     renderPage({ shell: again });
     await eventButton(/^山田 花子、/);
+    // The store's block comes in the same answer as the Google event, so the
+    // Google event is judged only once that answer is in.
+    await eventButton(/^研修、/);
     expect([layer(again, "承認待ち"), layer(again, "Googleカレンダーの予定")].map((box) => (box as HTMLInputElement).checked)).toEqual(boxes);
     expect([
       screen.queryByRole("button", { name: /^佐藤 一郎、/ }) !== null,
