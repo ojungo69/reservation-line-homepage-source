@@ -1,0 +1,19 @@
+src/admin/reservation-reschedule.ts
+  s_437d786489d0d9::t_8a7774284bf88f 555,1039,1183,1186,1188,1197,1201,1207-1208,1215,1243-1244,1246-1247,1251,1266-1267,1269-1272,1293-1298
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c3b5f4169bfa706dfc5b21eac70ae80d2b5500ed",
+  "prompts": {},
+  "sessions": {
+    "s_437d786489d0d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_437d786489d0d9",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
