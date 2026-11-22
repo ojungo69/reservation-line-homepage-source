@@ -1,0 +1,21 @@
+specs/008-admin-calendar-ux/adr-0001-result-unknown.md
+  s_506b05c76efc7e::t_33ec1ae4aaeb77 24,75
+specs/008-admin-calendar-ux/contracts/reservation-interactions.md
+  s_506b05c76efc7e::t_89fc9fa3ad4096 266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "18200ce2b11b4b0dc8c8c0940fae889b78ba81e2",
+  "prompts": {},
+  "sessions": {
+    "s_506b05c76efc7e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_506b05c76efc7e",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
