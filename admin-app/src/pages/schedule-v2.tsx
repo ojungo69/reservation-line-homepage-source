@@ -101,7 +101,7 @@ export default function ScheduleV2Page() {
   const navigate = useNavigate();
   const shell = useShellV2();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const dateBandRef = useRef<HTMLDivElement>(null);
+  const dateBandRef = useRef<HTMLFieldSetElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const periodOf = (at: Date) => (week ? mondayWeek(at) : [at]);

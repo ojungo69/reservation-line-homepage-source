@@ -52,7 +52,7 @@ export function CalendarTopBar({
   // Focus lands here when the control that had it goes away (a day header in the
   // week, a retry button once its alert clears).
   headingRef: Ref<HTMLHeadingElement>;
-  dateBandRef: Ref<HTMLDivElement>;
+  dateBandRef: Ref<HTMLFieldSetElement>;
   date: Date;
   onPickDate: (date: Date) => void;
   view: CalendarView;
@@ -96,9 +96,9 @@ export function CalendarTopBar({
               <Menu className="size-5" aria-hidden="true" />
             </button>
           )}
-          <div
+          {/* A fieldset is a named group; min-w-0, as a fieldset is never narrower than its content by default. */}
+          <fieldset
             ref={dateBandRef}
-            role="group"
             aria-label="日付の移動"
             className="flex min-w-0 touch-pan-y touch-pinch-zoom items-center gap-1 rounded-full bg-cal-text/5"
           >
@@ -139,7 +139,7 @@ export function CalendarTopBar({
                 />
               </PopoverContent>
             </Popover>
-          </div>
+          </fieldset>
         </div>
         <p className="sr-only" aria-live="polite">
           {spoken}
