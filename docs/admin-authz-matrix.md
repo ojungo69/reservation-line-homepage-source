@@ -65,6 +65,7 @@
 | `POST /api/admin/reservations/:id/restore-completed` | ❌ 403 | ✅ | ✅ | `requireOwnerWithDb` (認証直後・body 読取前) + `validateCorrectionRole` でも owner+ を再確認 | ✅ 2026-08-25 追加 |
 | `POST /api/admin/reservations/:id/reschedule` | ✅ 自店舗のみ (全期間) | ✅ | ✅ | `rescheduleAdminReservation` の store scope (reservation-reschedule.ts)。2026-07-14 に当日ガード撤廃。空き枠取得は `resolveRescheduleAvailabilityContext` (admin-api.ts) で予約の店舗・状態を確認し、`getAvailableSlots` (operations.ts) で営業時間/空き判定を行う | ✅ 2026-07-14 更新 |
 | `POST /api/admin/reservations/:id/reschedule/preview` | ✅ 自店舗のみ (全期間) | ✅ | ✅ | `authenticateAdminWithDb` で認証し、`previewAdminRescheduleReservation` が対象予約の店舗を主DBで確認する。認可後に切り替えがオフなら `feature_disabled`。予約変更候補の検証は読み取り専用 | ✅ 2026-11-22 追加 |
+| `POST /api/admin/reservations/:id/reschedule/commit` | ✅ 自店舗のみ (全期間) | ✅ | ✅ | `authenticateAdminWithDb` と `commitAdminRescheduleReservation` で現在の権限・店舗を照合する。通常保存・Undo・`?mode=check` に適用し、結果を返す前と、`adminWriteGuard` または操作行の条件付き書込で再確認する | ✅ 2026-11-23 追加 |
 | `PUT /api/admin/reservations/:id/cancellation-fee` | ✅ 自店舗のみ | ✅ | ✅ | route で `isAdminPrivileged` 以外は `store_id` 照合 (admin-api.ts)。no_show 時の未納フラグ set/clear。version は増やさない | ✅ 2026-08-09 追記 |
 | `POST /api/admin/reservations/auto-complete-overdue` | ❌ | ✅ | ✅ | `authenticateAdminWithDb` + `requireOwnerWithDb` (admin-api.ts)。期限超過の確定予約を一括完了する backfill (`autoCompleteReservations` graceMs=0)。日次 cron と同一の副作用・冪等・全店舗横断のため owner 限定 | ✅ 2026-07-21 追加 |
 
