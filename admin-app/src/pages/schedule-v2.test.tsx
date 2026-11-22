@@ -728,6 +728,47 @@ describe("ScheduleV2Page の表示する予定", () => {
     expect(within(shownBody()).queryByText("この日の予約はありません")).toBeNull();
     expect(within(shownBody()).getByText("承認待ちの予約1件を「表示する予定」で隠しています。")).toBeTruthy();
   });
+
+  // 2026-11-22 owner decision: remembered per device, like the view.
+  it("表示する予定を端末に覚え、開き直しても隠したまま開く", async () => {
+    const user = userEvent.setup();
+    const shell = fakeShell();
+    const first = renderPage({ shell });
+    await eventButton(/^佐藤 一郎、/);
+    await user.click(layer(shell, "承認待ち"));
+    first.unmount();
+    const again = fakeShell();
+    renderPage({ shell: again });
+    await eventButton(/^山田 花子、/);
+    expect(screen.queryByRole("button", { name: /^佐藤 一郎、/ })).toBeNull();
+    expect([layer(again, "承認待ち"), layer(again, "Googleカレンダーの予定")].map((box) => (box as HTMLInputElement).checked)).toEqual([false, true]);
+  });
+
+  it.each([
+    // 0 would hide pending bookings if it were read as a choice.
+    ["読めない値", () => localStorage.setItem("admin-calendar-layers", "{\"pending\":0,\"google\":true}")],
+    ["使えない保存", () => {
+      vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        throw new Error("blocked");
+      });
+      vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    }],
+  ])("%sのときは、すべて表示で開いて切り替えられる", async (_, arrange) => {
+    arrange();
+    try {
+      const user = userEvent.setup();
+      const shell = fakeShell();
+      renderPage({ shell });
+      await eventButton(/^佐藤 一郎、/);
+      expect([layer(shell, "承認待ち"), layer(shell, "Googleカレンダーの予定")].map((box) => (box as HTMLInputElement).checked)).toEqual([true, true]);
+      await user.click(layer(shell, "承認待ち"));
+      expect(screen.queryByRole("button", { name: /^佐藤 一郎、/ })).toBeNull();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
 });
 
 describe("ScheduleV2Page の上部バー", () => {

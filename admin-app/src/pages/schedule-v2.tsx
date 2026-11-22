@@ -3,14 +3,12 @@ import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 import { Plus } from "lucide-react";
 import {
-  ALL_LAYERS,
   CalendarColumns,
   DayHeaderCells,
   DayList,
   FALLBACK_OPENING_MINUTE,
   columnState,
   openingOf,
-  type Layers,
 } from "@/components/calendar-v2/body";
 import { activeResourceIds, buildColumns, effectiveView, visibleStoreId, type CalendarColumn, type CalendarView } from "@/components/calendar-v2/columns";
 import { PX_PER_MINUTE, mondayWeek } from "@/components/calendar-v2/geometry";
@@ -23,6 +21,7 @@ import { CalendarTopBar, DayHeader, DayHeaderRow } from "@/components/calendar-v
 import { useCalendarDate, useCalendarDays } from "@/components/calendar-v2/use-calendar-days";
 import { useCalendarLayout } from "@/components/calendar-v2/use-calendar-layout";
 import { stableAnchor } from "@/components/calendar-v2/stable-anchor";
+import { useCalendarLayers } from "@/components/calendar-v2/use-calendar-layers";
 import { useCalendarView } from "@/components/calendar-v2/use-calendar-view";
 import { usePeriodSwipe } from "@/components/calendar-v2/use-period-swipe";
 import { useReturnFocus } from "@/components/calendar-v2/use-return-focus";
@@ -123,9 +122,7 @@ export default function ScheduleV2Page() {
   const [createDefaults, setCreateDefaults] = useState<CreateDefaults | null>(null);
   const [pendingOpen, setPendingOpen] = useState(false);
   const [cancelBlock, setCancelBlock] = useState<ExternalBlock | null>(null);
-  // Not saved: a later visit shows everything again, so hidden pending bookings
-  // are not left out of sight (the bar's 承認待ち count stays either way).
-  const [layers, setLayers] = useState<Layers>(ALL_LAYERS);
+  const [layers, setLayers] = useCalendarLayers();
 
   const columnsAt = (at: Date) => (view === "list" ? [] : buildColumns(view, at, storeId, stores));
   const columns = columnsAt(date);
