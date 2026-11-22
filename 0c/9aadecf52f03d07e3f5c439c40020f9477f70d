@@ -1,0 +1,21 @@
+admin-app/src/components/calendar-v2/top-bar.tsx
+  s_d52c2d995f51c6::t_5e0eb38e061bb9 55,99-100,142
+admin-app/src/pages/schedule-v2.tsx
+  s_d52c2d995f51c6::t_6e9722facf83a0 104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0c9aadecf52f03d07e3f5c439c40020f9477f70d",
+  "prompts": {},
+  "sessions": {
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
