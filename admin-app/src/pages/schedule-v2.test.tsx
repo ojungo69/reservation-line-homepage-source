@@ -730,18 +730,24 @@ describe("ScheduleV2Page の表示する予定", () => {
   });
 
   // 2026-11-22 owner decision: remembered per device, like the view.
-  it("表示する予定を端末に覚え、開き直しても隠したまま開く", async () => {
+  it.each([
+    ["承認待ち", [false, true], [false, true]],
+    ["Googleカレンダーの予定", [true, false], [true, false]],
+  ])("表示する予定の%sを端末に覚え、開き直しても外したまま開く", async (name, boxes, shown) => {
     const user = userEvent.setup();
     const shell = fakeShell();
     const first = renderPage({ shell });
     await eventButton(/^佐藤 一郎、/);
-    await user.click(layer(shell, "承認待ち"));
+    await user.click(layer(shell, name));
     first.unmount();
     const again = fakeShell();
     renderPage({ shell: again });
     await eventButton(/^山田 花子、/);
-    expect(screen.queryByRole("button", { name: /^佐藤 一郎、/ })).toBeNull();
-    expect([layer(again, "承認待ち"), layer(again, "Googleカレンダーの予定")].map((box) => (box as HTMLInputElement).checked)).toEqual([false, true]);
+    expect([layer(again, "承認待ち"), layer(again, "Googleカレンダーの予定")].map((box) => (box as HTMLInputElement).checked)).toEqual(boxes);
+    expect([
+      screen.queryByRole("button", { name: /^佐藤 一郎、/ }) !== null,
+      screen.queryByText("外部予定、11月20日（金）、18:00から19:00、Googleカレンダー") !== null,
+    ]).toEqual(shown);
   });
 
   it.each([
