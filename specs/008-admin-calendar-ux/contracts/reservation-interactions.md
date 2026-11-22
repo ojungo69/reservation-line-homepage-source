@@ -2,7 +2,7 @@
 
 ## 文書の位置づけ
 
-この文書は `008-admin-calendar-ux` の提案契約であり、新しいAPI、入力項目、競合制御、Undoは未実装である。現在の動作は、公開ソース `ojungo69/reservation-line-homepage-source` の `main`、commit `3f65c69e64fd3999e415c83c14f5c6dfa928c13d` を読み取って確認した。実装・テスト実行・本番動作確認の結果を示す文書ではない。
+この文書は `008-admin-calendar-ux` の提案契約であり、新しいAPI、入力項目、競合制御、Undoは未実装である。現在の動作は、公開ソース `ojungo69/reservation-line-homepage-source` の `main`、commit `2697d89308e3021c3c6703612b8dc756eb0a32b2` を読み取って確認した。実装・テスト実行・本番動作確認の結果を示す文書ではない。
 
 ドラッグや長さ変更は、変更候補の作成、サーバー検証、小さな確認画面、明示的な確定の順に扱う。スクロールやパンでは予約を書き換えない。新しい画面のドラッグ、長さ変更、フォームからの変更、Undoは、すべて本書の版を条件とする確定APIを通す。
 
@@ -15,7 +15,7 @@
 | 時間変更 | `POST /api/admin/reservations/:id/reschedule`。`idempotencyKey`、`startAt`、任意の `treatmentMinutes` を受け取る | 旧URIを互換用に残し、新画面は後述の `/reschedule/commit` を使う |
 | 版の条件 | 旧変更APIに `expectedVersion` はない。サーバーの読取後から書込までの競合をguardするが、古い画面からの送信を拒否する契約はない | `expectedVersion` を必須とし、予約更新SQLで原子的に照合する |
 | 未知の入力 | 旧parserは必要な項目を取り出す。追加した `expectedVersion` を必須検証しない | 別URIと契約識別子で新旧を区別する。旧APIへの自動fallbackは禁止 |
-| 予約の取得 | `GET /api/admin/reservations?range=date&date=YYYY-MM-DD` の一覧にversionはない。`GET /api/admin/reservations/:id` の詳細にversionがある | 新画面は検証済みのversionを取得してから変更候補を確定する。一覧へのversion追加は任意の最適化であり、値がなければ詳細を取得する |
+| 予約の取得 | 詳細 `GET /api/admin/reservations/:id` と承認待ち一覧 `GET /api/admin/reservations/pending` はversionを返す。日付別一覧 `GET /api/admin/reservations?range=date&date=YYYY-MM-DD` はSQLで取得したversionを応答で省く | フォームは詳細のversionを使う。日付別一覧へのversion追加は任意で、値がなければ詳細を取得して、確認内容とversionをそろえる |
 | 空き候補 | `GET /api/admin/reservations/available-slots?storeId=...&date=...&excludeReservationId=...`。候補列挙は15分間隔。既存予約のリソース・顧客・占有時間をサーバー導出 | 新しいpreviewで任意の5分境界と変更後の占有時間を検証する |
 | 担当・店舗 | 変更先のstore/resource/staffは受け取らず、予約の保存済み店舗・リソースを使う | 引き続き固定。別リソース列・別店舗への移動は対象外 |
 | 権限 | staffは自店舗の予約を全期間操作可。owner/system_adminは店舗制限なし | 既存権限を維持し、preview・commit・replay・Undoの全経路で再確認する |
@@ -81,9 +81,9 @@ moveは保存済み占有時間を保って開始を移動する。resizeは保�
 - 変更しない店舗、担当リソース、承認状態。
 - `notificationPlan`。`time_changed` または `none` と、その理由。理由は `pending_approval`、`no_line_identity`、`start_unchanged` など、実際の条件に対応させる。
 - `calendarPlan: "enqueue_upsert"`。Google反映完了を意味しない。
-- `previewFingerprint`。正規化した変更前後、予約version、通知・同期予定に対応する照合値。
+- `previewFingerprint`。契約識別子、対象予約、操作者、予約version、正規化したintentと変更前後、通知・同期予定から算出する照合値。同じ内容なら同じ値になり、発行時刻や期限を含めない。
 
-`previewFingerprint` は、確認した内容とcommit時の計算結果を照合するための値である。認可や空き枠保証の代わりにしない。サーバーはクライアントの `after` や通知予定をそのまま信用せず、保存済み予約とintentから計算する。署名や保存方式は実装設計で決め、単なる照合値を予約枠のhold tokenと呼ばない。
+`previewFingerprint` は確認した内容とcommit時の計算結果を照合するための値である。新規の通常commitではサーバーが現在の予約とintentから再計算し、入力の照合値と比較する。認可と空き枠は別に検査する。previewは操作キーを発行・確保せず、予約枠を保持しない。
 
 保存済み占有5分の旧予約は、moveでは占有5分を保持し、計算上の施術部分0分をそのまま区別して返す。入力制約に合わせて勝手に占有10分へ伸ばさない。新しいresize入力に0分を許可する意味ではない。
 
@@ -113,21 +113,21 @@ type CommitRequest = PreviewRequest & {
 };
 ```
 
-このURIでは `expectedVersion`、正しい契約識別子、冪等キー、preview照合値を必須とする。省略・型不一致・未知のintent・別店舗や別リソースを指定する追加項目を拒否する。旧画面のフォームは旧URIを使用し続けられるが、新画面のフォームもdrag/resizeと同じcommitに統一する。
+このURIでは `expectedVersion`、正しい契約識別子、冪等キー、preview照合値を必須とする。省略・型不一致・未知のintent・別店舗や別リソースを指定する追加項目を拒否する。初回の確定はクエリを付けずに送る。結果不明時の「確認する」は同じ本体を `?mode=check` で送る（第6章）。未知・重複の `mode` は拒否する。旧画面のフォームは旧URIを使用し続けられるが、新画面のフォームもdrag/resizeと同じcommitに統一する。
 
 ### 処理順序
 
-1. **認証と入力形式の検証。** 既存の認証・CSRF・変更回数制限の経路を維持する。ISO表現を同じinstantへ正規化し、要求hashは契約識別子、予約ID、expectedVersion、intent、preview照合値から作る。再送時に変わり得る現在の予約行からhashを作り直さない。
+1. **認証と入力形式の検証。** 既存の認証・CSRF・変更回数制限の経路を維持する。ISO表現を同じinstantへ正規化し、要求hashは契約識別子、予約ID、expectedVersion、intent、preview照合値から作る。`mode` と現在の予約行はhashに含めない。
 2. **現在の認可。** 対象予約の店舗を取得し、現在も有効な操作者か、staffが自店舗の対象を扱っているかを確認する。成功済みキーでも、認可より先に結果や予約情報を返さない。Undoの元操作も同じ対象予約・許可された店舗に属することを確認する。
-3. **冪等結果の解決。** 同じキー・同じhashの成功記録があれば、新たな状態遷移や通知を行わずreplayする。別hashなら `idempotency_conflict`、有効な処理中記録なら `idempotency_in_progress` を返す。認可が通っていて成功済みなら、すでに進んだ予約versionを理由に元操作のreplayを拒否しない。サーバーの切り替え（plan.md「導入制御と配備の制約」）がオフなら、ここまでの応答（replay・`idempotency_conflict`・`idempotency_in_progress`）以外を `feature_disabled` として終え、手順4以降へ進まない。Undoは同じcommitを使うので同じ判断に従う。previewは冪等キーを持たないため、認可の後に `feature_disabled` を返す。
-4. **新しい操作の検証。** 未適用の場合だけ、最新予約のversionをexpectedVersionと照合し、状態、未来時刻、営業帯、休業、全占有範囲、顧客競合を検証する。previewと通知予定を含む確認内容が変わっていれば `preview_stale` とし、再確認を求める。日時・占有が全く変わらない要求は `no_change` として副作用なしで終了する。
-5. **D1の原子的な変更。** batchの先頭で既存の `adminWriteGuard` を実行する。冪等キーをclaimし、予約UPDATEの条件へ `version = expectedVersion`、対象店舗、許可状態、`checked_in_at IS NULL` を含める。更新が1件適用されたと確認してから旧ロック解放と新ロック作成を進める。認可guardをUPDATEとその `changes()` を読むguardの間へ挟まない。検証後の休業・設定変更や競合にも対応するDB側の検証を維持・補完し、不一致ではbatch全体をrollbackする。
-6. **同じbatch内で結果を保存。** ロック・顧客ロック・監査履歴に加え、適用前後、`operationId`、`beforeVersion`、`appliedVersion`、通知・Googleジョブの作成結果、冪等成功記録を保存する。成功結果の保存方式には追加実装が必要であり、既存の `target_id` だけで十分とはしない。
+3. **冪等結果の解決と切り替えの判定。** 認可と要求の形の検査の後、`env.DB` で元のキーを読む。同じキー・hashの `succeeded` はreplayし、別hashは `idempotency_conflict` とする。切り替えがオフなら、replay・`idempotency_conflict`・`idempotency_in_progress` 以外を、業務検査や書込に進まず `feature_disabled` で終える。オンの場合はキーと入力の `previewFingerprint` の組み合わせを検査し、照合値がキーと一致しなければ `idempotency_conflict` とする。`mode=check` なら第6章の照合だけを行う。オンの通常commitは、同じhashの `not_applied` を `operation_not_applied`、`started` を `idempotency_in_progress` として返す。previewは切り替えがオフなら認可の後に `feature_disabled` を返す。
+4. **新しい操作の検証。** オンの通常commitに新規のキーが来た場合だけ、現在のversionと `expectedVersion` を照合し、状態、未来時刻、営業帯、休業、全占有範囲、顧客競合を検証する。版が一致しなければ、`version_conflict` を返す前に同じキーを `env.DB` で読み直し、同じhashで成功済みならreplayする。現在の予約とintentから `previewFingerprint` を再計算して不一致なら `preview_stale` とし、確認し直す。日時・占有が変わらない要求は `no_change` で終える。
+5. **キーの確保とD1の原子的な変更。** `started` を `INSERT … ON CONFLICT DO NOTHING` で確保する。衝突時は `env.DB` で行を読み直し、別hashなら `idempotency_conflict`、同じhashなら状態に応じてreplay・`operation_not_applied`・`idempotency_in_progress` を返す。確保できた要求だけが予約変更batchへ進む。既存の `adminWriteGuard` で認可を再確認する。予約UPDATEの `WHERE` に `version = expectedVersion`、自分が確保した同じキー・hashの `started` 行の `EXISTS`、対象店舗、許可状態、`checked_in_at IS NULL` を含める。後続のロック、履歴、ジョブ、成功記録にも、予約が `expectedVersion + 1` でこの操作の印がある条件を置く。通知INSERTなどが0行でも後続文は版と印で判断する。予約UPDATEが0行なら後続も何も書かず、batch結果を受け取った確保元だけが同じ `started` 行を条件付きで `not_applied` にできる。batchの結果が分からないときは操作行を書き換えず、結果不明を返す。（[ADRの不変条件](../adr-0001-result-unknown.md#不変条件)）
+6. **同じbatch内で結果を保存。** ロック・顧客ロック・監査履歴に加え、適用前後、`operationId`、`beforeVersion`、`appliedVersion`、通知・Googleジョブの作成結果を新表に `succeeded` として保存する。初回の予約更新、ジョブ作成、成功結果が一緒に確定する。
 7. **DB確定後の返却と非同期処理。** 既存のqueue起動経路を使う。外部配信完了を待ってDB成功を取り消したり、同期失敗を理由に予約を元時刻へ自動変更しない。
 
 現行処理は状態・営業時間等を検証した後に冪等記録を確認している。本提案では、認可を維持した上で、**新しい操作向けのversion・状態検証より前に成功済みreplayを解決する順序へ新経路を設計する**。これは未実装の変更点である。成功応答喪失後に自分の変更でversionが増えたことを、再送の失敗理由にしないために必要となる。[現行の変更処理][current-reschedule] [既存の書込認可guard][current-auth-guard] [遷移文の順序][current-transitions]
 
-旧APIの開始移動用hashを新形式に置換しない。新契約は識別子を含むhashとキーの識別方法を持ち、旧操作の24時間TTL内のreplayを維持する。具体的なテーブル・カラム追加は実装設計で決めるが、成功結果とジョブ作成の原子性は必須とする。
+新契約の名前空間と保存の形は [ADR 0001](../adr-0001-result-unknown.md) に従う。旧APIは既存の `idempotency_keys`、開始移動用hash、長さ変更用hash、24時間TTL内のreplayを維持する。
 
 ### 提案する成功応答
 
@@ -161,36 +161,29 @@ type CommitRequest = PreviewRequest & {
 | 400 | `invalid_time` / `outside_business_hours` / `store_closed` | 候補が保存されていないことと該当理由を表示。必要な設定・空きを再取得 |
 | 409 | `no_change` | 書込・通知なしとして候補を終了する |
 | 409 | `idempotency_conflict` | 同じキーを別入力へ使っている不整合を示す。新キーでの自動再送は禁止 |
-| 409 | `idempotency_in_progress` | 同じキー・同じ入力を保持。案内された待機後に結果を再確認 |
+| 409 | `idempotency_in_progress` | 同じキー・同じ入力を保持。続けて確認する場合は「確認する」を押す |
+| 409 | `operation_not_applied` | 同じキーの未適用が確定した状態。「保存されていない（この後も保存されない）」を表示し、最新の予約を取得する |
 | 404 | `feature_disabled` | 新しい変更機能を無効にして閲覧を続ける。この応答を返した要求は、予約・ロック・予約履歴・通知と同期のジョブ・冪等記録を書き込んでいない（既存の認証と回数制限の記録・応答はそのまま）。結果不明の操作の再送でこの応答を受けても、元の操作が保存されたかは示さない（第6章）。旧writeへfallbackしない |
-| 409 | `operation_expired` / `undo_not_available` | 元操作の保管期限やUndo条件を説明し、勝手に逆変更を実行しない |
+| 409 | `undo_not_available` | Undoができない理由を示し、最新の予約を取得する |
 | 500または503 | `write_failed` 等 | 明確に未適用と断定できなければ結果不明として扱い、同じキーで確認する |
 
 認可後の競合応答には、返却可能な場合のみ最新の予約versionと状態を含める。詳細な競合相手の名前、電話番号、他店舗の予約内容をエラーに載せない。ロールバック済みと返せるエラーは予約・ロック・履歴・ジョブを一切残さないことを保証する。HTTP 500や接続切断だけを「未保存」の証拠にしない。
 
-これらの拒否が未適用を意味するのは、結果が不明でない操作の最初の要求への応答だけである。結果不明の操作の再送が受けた拒否（`version_conflict`・`preview_stale`・`slot_unavailable` など）は、元の操作の結果を決めない。画面は第6章の結果不明のまま扱う。
+初回要求への確定的な拒否は、その要求が未適用であることを示す。結果不明の操作に対する `version_conflict`・`preview_stale`・`slot_unavailable` などは、元の操作の結果を決めない。第6章の成功応答か `operation_not_applied` で元の操作を確定する。
 
 ## 6. 応答喪失、replay、結果不明
 
-一つの確定操作は一つの冪等キーと正規化済み入力に対応する。成功を確認するまで、その予約について別の確定操作・Undoを重ねない（スタッフが結果不明を閉じた後に、取り直した版で始める新しい操作を除く。下の未決事項）。ダイアログを閉じる、日付を変える、画面を再描画することでキーを失わない。再読み込み後の回復を提供する場合も、元の入力とキーを復元して同じ操作を確認する。認証主体の切替時は以前の操作を自動送信しない。
+[ADR 0001](../adr-0001-result-unknown.md) の方式 (b) を使う。通信切断や応答喪失で結果が分からない場合は「保存できたか確認できていません」と表示し、元のキー・正規化済み入力を保持する。「確認する」を押したときだけ、同じ本体を `POST /api/admin/reservations/:id/reschedule/commit?mode=check` へ送る。自動の照合、再保存、巻戻しを行わない。送信中・結果不明の間は同じ予約に別の確定操作・Undoを重ねない。
 
-通信切断後に元表示へ描き直すだけで「保存を取り消した」と表示しない。結果不明のまま別キーを作り、同じ移動を新しい操作として実行しない。回復操作は、同じcommitへ同じキー・同じ入力を送り、成功済みならreplay、未適用なら条件付き変更、処理中なら待機という結果を得る。再送期間（起点と終点）と打ち切り、停止を知った後の扱いは、下の未決事項のADRで決める。
+- **保存済み。** 同じキー・hashの成功をreplayする。現在の予約が既に変わっていても、元の適用結果と最新の予約を分けて返す。ロック・予約履歴・LINE通知・Google同期ジョブは再作成しない。
+- **保存されていない（この後も保存されない）。** 切り替えがオンのとき、同じキー・hashの行がなければ `not_applied` の挿入を試み、`started` なら単独の条件付きUPDATEで `not_applied` にする。先に保存が確定した場合はUPDATEが0行になり、主DBから読み直してreplayする。未適用を確定した場合だけ `operation_not_applied` を返す。この後は、検証やキーの確保を済ませた要求も予約を書き換えられない。
+- **結果不明の継続。** 処理中、通信やDBの障害、認可を確認できない場合、または停止で確定できない場合は結果を断定しない。日時が現在の予約と一致するだけでは、保存の証拠にならない。
 
-成功replayでは既存のロック・通知・同期ジョブを再作成しない。要求時のversionが現在より古くても、そのキーの成功記録が一致し、現在の認可が通れば元操作の結果を返せる。現在の予約がさらに更新・完了・取消されている場合は、元操作の成功と現在状態を別々に返す。
+停止中は第4章の手順3に従う。replay・`idempotency_conflict`・`idempotency_in_progress` 以外は `feature_disabled` で終え、予約・ロック・予約履歴・通知と同期のジョブ・冪等記録を書き込まない。停止前に受け付けた元の要求は、キーの確保前でも後から確定し得る。`feature_disabled` を受けた画面は、変更機能が停止中で保存結果は不明と伝え、最新の予約を示す。送信中か結果不明の間は今の画面へ差し替えず、新しい変更を止める。停止を知った後も、期限内の「確認する」で同じ照合だけを行う。再有効化しても自動で照合・保存を始めない。確定するかスタッフが最新の予約を見て閉じたら、最後に確認した切り替え状態に従う（`plan.md:28`）。
 
-切り替えがオフのとき、サーバーは受け取ったcommitに、成功記録があればreplay、処理中なら `idempotency_in_progress`、同じキーの別入力なら `idempotency_conflict` を返し、それ以外は `feature_disabled` を返す（第4章の手順3）。`feature_disabled` が保証するのは、その再送が予約・ロック・予約履歴・通知と同期のジョブ・冪等記録を書き込まなかったことだけである。停止の前の版で受け付けた元の要求が、冪等キーを確保する前の段階でまだ処理を続けている場合があり、後から確定し得るため、元の操作を未保存と断定しない。画面は「変更機能が停止中で、この操作が保存されたかは確認できていない」と示して最新の予約を表示し、同じキー・同じ入力を結果不明のまま保持する。停止を知った後に再送するか、いつ打ち切るかは、その後に切り替えが再びオンになった場合も含めて、下の未決事項のADRで決める。停止中に新しい操作として再実行せず、旧画面の書込へ移し替えて自動送信もしない。commit送信中か結果不明の操作が残っている間は、切り替えのオフを知っても今の画面へ差し替えない（plan.md「導入制御と配備の制約」）。
+照合では認証・現在の店舗と操作権限・要求の形・回数制限を確認し、操作行への書込条件でも現在の権限と対象予約の店舗を確認する。版・空き枠などの業務検査は行わない。判断に使う読み書きは複製に当たることがある `readDb` を経由せず、主DBの `env.DB` を使う。予約が削除されるまで操作行も結果の列も保持する。新契約の受付と保存結果は経過時間で変わらない。
 
-冪等記録は少なくともサポートする再送期間を保持する。現行TTLは24時間であり、保存期間延長や成功結果の保持には追加設計が必要となる。再送期限を過ぎた不明操作を新しい操作へ自動変換しない。期限切れとして最新予約を取得し、利用者が再確認する。同じ日時へ見えるという理由だけで、元操作が成功したと断定しない。
-
-### 未決事項: 結果不明の確定方法
-
-応答を失った操作が保存されたかを、サーバーが確実に答える方法は未決である。T008〜T010に着手する前にADRで決めてレビューを通し、決定を契約と受入条件に反映する（T003）。
-
-- 守る性質: 保存された操作を未保存と、保存されていない操作を保存済みと表示しない。サーバーが「保存されていない」と答えた後に、同じ操作が保存されることがない。
-- 決まるまでの扱い: commitの成功応答かreplayを受けたら、INT-09-05のとおり保存の成功を示して結果不明を閉じる。それ以外では、スタッフが最新の予約を確かめて閉じたときだけ閉じ、保存されたともされなかったとも表示しない。閉じた後は、取り直した版で同じ予約の新しい操作を始めてよい。新しいcommitで再編集する場合は、元の操作が後から保存されても、版の条件で新しい操作が上書きすることはない。今の画面へ差し替えた後の旧画面の保存は版の条件を持たないため、この保証の外にある。元の要求や停止の直前の再送が、後から保存される場合があることを、画面の文言と手順書に書く。
-- 候補（未選択）: (a) previewの期限をサーバーが判定する方式、(b) 照合で「未適用で確定」をキーに記録し、後のcommitを塞ぐ方式、(c) previewとサーバーが発行する操作キーを結び付ける方式。組み合わせも比べる。
-- ADRで確かめる問い: 切り替えの停止は再送まで止める必要があるか、新しいpreviewを止めるだけで足りるか。停止を知った後に再送するか。再送期間の起点と終点。
-- 受入条件に入れる順序（計画レビューで見つかったもの）: 再送の手順3と手順4の間に元のcommitが確定して再送が `version_conflict` を受ける場合、検証を通った要求の書込が遅れる場合、端末やDBの時計がずれる・戻る場合、同じキーを別のpreviewと組み合わせる場合、冪等記録の保持期限の境目、停止と再有効化を挟む場合、停止を知った後に再送を続ける場合。
+画面は最初のcommitを送るときから `performance.now()` で経過を測り、同じ画面で24時間に達するまで手動照合を受け付ける。ダイアログ開閉、日付変更、再描画をまたいでメモリ内に保持し、画面の開き直し・再読み込み・認証主体の変更では引き継がない。24時間に達したときやスタッフが閉じたときは最新の予約を取得する。その後の別の変更には取得し直した版を使う。旧APIへの自動fallbackは行わない。
 
 ## 7. 通知とGoogle同期
 
@@ -212,8 +205,8 @@ type CommitRequest = PreviewRequest & {
 
 Undoはローカルの表示巻戻しではなく、保存済み操作を参照する新しい変更である。新しい冪等キー、権限確認、preview、明示的な確認、commitを必要とする。Undo専用にDBの履歴や通知を削除しない。
 
-1. UIが成功を確認した最後の操作を候補にする。結果不明の操作はUndoしない。
-2. `inverseOfOperationId` が指す保存済み操作から変更前の開始・占有時間を取得する。クライアントが任意に組み立てた過去値をそのまま復元しない。
+1. UIが成功を確認した最後の操作のうち、`succeeded` と読めたものを候補にする。`started`・`not_applied`・結果不明では最新の予約を表示する。
+2. `inverseOfOperationId` が指す同じ予約の `succeeded` 行から変更前の開始・占有時間を取得する。commitの書込時にも元操作の状態と帰属を検証する。クライアントが任意に組み立てた過去値をそのまま復元しない。
 3. 現在の予約versionと要求のexpectedVersionが、元操作の `appliedVersion` に一致することを要求する。後続の変更があれば逆変更しない。強制適用や新しいversionへの自動差替えは提供しない。
 4. 元の時間が現在では過去、枠が他予約で埋まった、来店・完了・取消済み、権限が失われた、といった場合は通常の変更ルールで拒否する。時間と状態を無視した復元権限を作らない。
 5. 逆変更の通知予定を再計算して確認画面へ示す。confirmedかつLINE連携ありの開始戻しでは、再び時間変更通知が必要になる。長さだけ戻す場合は既存の開始不変ルールを適用する。
@@ -221,18 +214,20 @@ Undoはローカルの表示巻戻しではなく、保存済み操作を参照�
 
 占有5分の旧予約を長さ変更した後に戻す場合は、元操作の信頼できる変更前スナップショットの占有5分へ戻せる互換処理が必要である。任意入力として `treatmentMinutes: 0` を許す方法では実装しない。この例外を実装できない段階では、該当するUndoを明示的に利用不可にし、別の長さへ黙って丸めない。旧予約の開始移動自体は引き続き占有5分を保つ。
 
-Undoの提示期間は画面仕様で定めるが、期間内でも成功は保証しない。operation記録の保持期間内で、現在の版と業務制約が一致する場合だけ実行する。
+Undoの入口は画面仕様に従う。現在の版と業務制約が一致する場合だけ実行する。
 
 ## 9. 互換導入順と公開ゲート
 
-1. **サーバーの準備。** 第6章の未決事項のADRがレビューを通り、決定が契約と受入条件に反映されてから着手する。適用結果の保存、原子的なversion条件、既存認可guard、同じキーのreplay、5分preview、逆変更を実装・検証する。旧URI、旧入力、旧hash、TTL内の旧replayを維持する。
-2. **読取・新URIの先行公開。** 新APIを利用できる状態にし、version・契約識別子・構造化結果を返す。旧clientは従来どおり動作できる。旧clientの変更も予約versionを進めるため、新clientは古い版での保存を拒否できる。
-3. **新画面のフォームを接続。** フォームからの移動・長さ変更も新commitを使い、競合・結果不明・replayの動作を確認する。新画面の一部だけを旧writeへ戻さない。
+1. **DBの先行準備。** [ADR 0001](../adr-0001-result-unknown.md) と本契約のレビュー後に、新表と索引をWorker変更と別PRで先に入れる。既存Workerで予約の読取・旧APIの保存とreplay・予約の削除が通ることを確認する。
+2. **読取・新URIの追加。** 既存の認可guard、原子的なversion条件、適用結果の保存、5分preview、commitと照合を追加し、version・契約識別子・構造化結果を返す。旧URI、旧入力、旧hash、TTL内の旧replayを維持する。旧クライアントの変更も予約versionを進めるため、新クライアントは古い版での保存を拒否できる。
+3. **新予定表のフォームを接続。** 新予定表からの移動・長さ変更は、詳細の版を使う新commitへつなぎ、競合・結果不明・replayを確認する。共有の詳細を使う旧予定表・予約一覧・顧客詳細の書込先は維持する。新予定表のフォームは旧writeへ自動fallbackしない。
 4. **直接操作を有効化。** 新しいpreviewと条件付きcommitの対応が確認され、以下の受入条件が通ってからdrag/resizeを公開する。直接操作とUndoの公開前にサーバー側の版条件が必須となる。
 5. **Undoを有効化。** 適用結果の保管、逆変更の版条件、再通知の説明、旧占有5分の扱いまで確認して公開する。
 6. **旧経路を段階移行。** 旧画面・旧clientの利用と互換期間を確認した後に、旧経路の移行・廃止を別途判断する。本仕様だけで旧APIを廃止しない。
 
 本番では、サーバーの切り替えがオンになるまで、previewは認可の後に `feature_disabled` を返し、commit（Undoを含む）は第4章の手順3の応答（replay・`idempotency_conflict`・`idempotency_in_progress`）だけを返して、それ以外は `feature_disabled` を返す。
+
+新予定表のフォームを有効にする前に、版の検証と元のcommitの競合、照合とbatchの前後関係、予約UPDATEが0行のbatch、通知INSERTが0行の正常なbatch、通信失敗、別previewとのキーの組み合わせ、主DBでの照合、操作行の保持と画面だけの24時間、停止と再有効化を API-25〜31 で検証する。
 
 新APIが404/405、未対応契約、必要なversion・結果項目の欠落を返した場合、変更機能は無効にして閲覧を続ける。旧 `/reschedule` へ自動fallbackしない。preview直後にサーバーが旧版へrollbackした場合も同様とする。機能フラグだけで旧parserの読み捨てを防げると考えず、別URIと必須検証を実際の防止境界にする。
 
@@ -255,7 +250,7 @@ Undoの提示期間は画面仕様で定めるが、期間内でも成功は保�
 | API-11 | resource/store/staff横断の要求を新APIで拒否する。リソース列をまたいだ見た目だけの移動を確定扱いにしない |
 | API-12 | inactiveリソースの既存予約を時間変更できる。占有5分の旧予約のmoveで占有を勝手に延ばさない。新規作成のactive制約は緩めない |
 | API-13 | ドロップが元の開始・占有と同じなら送信しない。APIへ同内容が到達しても `no_change` でロック履歴・通知・同期ジョブを増やさない |
-| API-14 | DB成功後に応答を失っても、同じキー・入力の再送で成功を確認できる。自分の更新でversionが進んだことを理由にreplayを拒否せず、ジョブを重複作成しない |
+| API-14 | DB成功後に応答を失っても、同じキー・入力で「確認する」と成功をreplayする。自分の更新でversionが進んだことを理由にreplayを拒否せず、ジョブを重複作成しない |
 | API-15 | 成功後に別操作が入った状態でreplayすると、元操作の適用結果と現在予約を別返却する。UIは現在予約を古い成功値へ巻き戻さない |
 | API-16 | 同じキーで別入力は `idempotency_conflict` となる。処理中・通信切断・5xx時に新キーを自動発行しない。旧形式キーのTTL内replayも回帰しない |
 | API-17 | 旧成功記録や新操作の成功結果を、現在認可がない利用者へreplayしない。エラーに他店舗や競合相手の個人情報を含めない |
@@ -265,8 +260,14 @@ Undoの提示期間は画面仕様で定めるが、期間内でも成功は保�
 | API-21 | Undoの開始戻しが通知対象なら再通知を明示して確認する。既送信通知や既存ジョブの取消を約束せず、逆変更の監査・同期を新たに記録する |
 | API-22 | 占有5分の旧予約へUndoする場合は保存済みの正確な値を使う。対応前は該当Undoを利用不可にし、任意の0分施術入力や10分への丸めで代用しない |
 | API-23 | previewに予約枠の保持効果がなく、commitが原子的に再検証することを確認する。preview照合値の不一致は再確認に戻し、暗黙に別候補を保存しない |
-| API-24 | 新画面のフォーム、drag/resize、Undoが同じ条件付きcommitを使う。キー・入力・結果不明状態はダイアログ開閉や日付切替で失われず、認証主体の変更時に自動再送されない |
-| API-25 | サーバーの切り替えがオフのとき、previewは現在の認可の後に `feature_disabled` を返す。commit（Undoを含む）は現在の認可の後、成功済みreplay・`idempotency_conflict`・`idempotency_in_progress` 以外を `feature_disabled` で終え、予約・ロック・予約履歴・通知と同期のジョブ・冪等記録を変更しない（既存の認証と回数制限はそのまま働く）。停止の前に適用済みだった操作は、同じキー・同じ入力の再送で結果を確認でき、ロック・通知・同期ジョブを再作成しない。`feature_disabled` を受けた画面は、元の操作を保存済みとも未保存とも表示しない。commit送信中か結果不明の操作が残っている間は、今の画面へ差し替えない。旧画面の保存は停止の前後で変わらない。結果不明の確定に関する受入条件は、第6章の未決事項のADRで足す |
+| API-24 | 新画面のフォーム、drag/resize、Undoが同じ条件付きcommitを使う。キー・入力・結果不明状態はダイアログ開閉、日付切替、再描画をまたいで保持する。再読み込み・画面の開き直し・認証主体の切替では引き継がない |
+| API-25 | 切り替えがオフなら、previewは現在の認可の後に `feature_disabled` を返す。通常commit・照合（Undoを含む）は現在の認可の後、成功済みreplay・`idempotency_conflict`・`idempotency_in_progress` 以外を `feature_disabled` で終える。`not_applied` の確定も含め、予約・ロック・予約履歴・通知と同期のジョブ・冪等記録を変更しない。既存の認証・回数制限・旧画面の保存は維持する |
+| API-26 | 再送の手順3の読取と手順4の検証の間に元のcommitを確定させる。手順4で版の不一致を検出したら、`env.DB` で同じキーを再読取して成功をreplayする。予約の版・空き枠が変わった後でも、照合はそれらを再検査せず元の成功を返す。複製に古い行があっても結果判定は主DBに従う |
+| API-27 | 照合を元のcommitのキー確保前と確保後・batch前に入れる。いずれも `operation_not_applied` の後は予約・ロック・履歴・ジョブを変更しない。別操作が先に同じ版を進めて予約UPDATEが0行になる場合も、このbatchの後続文は何も書かず、batch結果を受け取った確保元だけが未適用を確定できる。元のcommitのbatchが先なら照合が成功をreplayする。LINE連携なしで通知INSERTが0行でも適用結果とGoogleジョブは残る。batch応答が失われたときは結果不明を返し、未適用を書き込まない。予約UPDATEが0行だったbatchの応答は成功にしない。後続の文が外れて予約だけ新しい版になる場合は、最後の確認の文がエラーで取引ごと戻すことを確かめる。旧 `/reschedule` と新しいcommitが同じ予約へ同時に届いた場合も、適用されるのはどちらか一方で、LINEのジョブは適用された1操作分だけ増える。旧経路の通知・同期のジョブは条件なしの `INSERT OR IGNORE` で、予約IDとテンプレートと適用版の `dedupe_key` が同じ版の重なりを防ぐ（`src/admin/reservation-reschedule.ts:489–539`）。新経路のジョブも同じ `dedupe_key` を使い、予約の更新に繋いだ文でだけ書く。旧経路が新経路に負けたときは、勝った側と同じ版のキーになるので重ならない |
+| API-28 | オンのとき、同じキーに異なる照合値のpreviewを添えた要求は、キーの確保前も確保後も `idempotency_conflict` となる。確保後は照合値が同じでも要求hashが異なれば同じ拒否となる。現在の認可に失敗した照合は結果を開示・確定しない |
+| API-29 | 新契約の操作受付・結果判定はサーバーの時刻や記録時刻に依存しない。24時間を超えて届いた照合でも主DBの行から正しい結果を返す。対象予約が存在する限り操作行と結果列を保持し、予約を物理削除したときだけ連動して操作行が消える。画面は最初のcommit送信からの経過を `performance.now()` で測り、24時間の直前まで「確認する」を受け付け、ちょうど24時間で最新の予約の確認へ切り替える |
+| API-30 | 元の要求をキー確保前で止め、停止中に「確認する」と `feature_disabled` を返す。その後に元が適用された場合は手動照合でreplayする。未適用のまま再有効化した場合は次の手動照合で `not_applied` を確定できる。停止中の `idempotency_in_progress` と `idempotency_conflict` も検証し、照合が結果を変えないことを確認する |
+| API-31 | 停止を知った後の「確認する」も同じ入力で照合だけを送り、新しい保存や旧APIを呼ばない。停止中に判定できなければ結果不明のまま最新予約を表示し、閉じるまでは画面を差し替えない。画面の照合期間が終わったとき、開き直したとき、認証主体が変わったときは最新予約だけを取得し、照合を復元しない。自動の再確認・再保存・巻戻しは行わない |
 
 既存の回帰確認先は `test/admin-reschedule-reservation.test.ts`、`test/admin-available-slots.test.ts`、`test/admin-create-reservation.test.ts`、`admin-app/src/hooks/use-reservations.test.tsx`、`admin-app/src/lib/reschedule-idempotency.test.ts`、`admin-app/src/components/schedule/reservation-duration-dialog.test.tsx`、`admin-app/src/pages/schedule.test.tsx`。新URIの入力検証、二つのclientによる競合、replayと権限変更、実入力のスクロール・drag競合には追加の検証が必要となる。
 
@@ -289,17 +290,17 @@ Undoの提示期間は画面仕様で定めるが、期間内でも成功は保�
 - [既存の冪等性TTL][current-idempotency]
 - [既存の予約変更APIテスト][current-tests]
 
-[current-reschedule]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/src/admin/reservation-reschedule.ts
-[current-routes]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/src/routes/admin-api.ts
-[current-status]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/src/routes/shared.ts
-[current-operations]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/src/admin/operations.ts
-[current-types]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/admin-app/src/types/api.ts
-[current-slots]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/src/reservations/slot-times.ts
-[current-hours]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/src/reservations/business-hours.ts
-[current-transitions]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/src/reservations/transitions.ts
-[current-auth-guard]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/src/admin/write-authorization.ts
-[current-dialog]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/admin-app/src/components/schedule/reservation-reschedule-dialog.tsx
-[current-duration-dialog]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/admin-app/src/components/schedule/reservation-duration-dialog.tsx
-[current-key]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/admin-app/src/lib/reschedule-idempotency.ts
-[current-idempotency]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/src/admin/settings-common.ts
-[current-tests]: https://github.com/ojungo69/reservation-line-homepage-source/blob/3f65c69e64fd3999e415c83c14f5c6dfa928c13d/test/admin-reschedule-reservation.test.ts
+[current-reschedule]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/src/admin/reservation-reschedule.ts
+[current-routes]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/src/routes/admin-api.ts
+[current-status]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/src/routes/shared.ts
+[current-operations]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/src/admin/operations.ts
+[current-types]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/admin-app/src/types/api.ts
+[current-slots]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/src/reservations/slot-times.ts
+[current-hours]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/src/reservations/business-hours.ts
+[current-transitions]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/src/reservations/transitions.ts
+[current-auth-guard]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/src/admin/write-authorization.ts
+[current-dialog]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/admin-app/src/components/schedule/reservation-reschedule-dialog.tsx
+[current-duration-dialog]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/admin-app/src/components/schedule/reservation-duration-dialog.tsx
+[current-key]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/admin-app/src/lib/reschedule-idempotency.ts
+[current-idempotency]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/src/admin/settings-common.ts
+[current-tests]: https://github.com/ojungo69/reservation-line-homepage-source/blob/2697d89308e3021c3c6703612b8dc756eb0a32b2/test/admin-reschedule-reservation.test.ts
