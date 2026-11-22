@@ -58,6 +58,7 @@ export const ADMIN_PATH_TEMPLATES: readonly PathTemplate[] = [
   { pattern: new RegExp(`^/api/admin/reservations/${ID}/restore-completed$`), template: "/api/admin/reservations/:id/restore-completed" },
   { pattern: new RegExp(`^/api/admin/reservations/${ID}/reschedule$`),    template: "/api/admin/reservations/:id/reschedule" },
   { pattern: new RegExp(`^/api/admin/reservations/${ID}/reschedule/preview$`), template: "/api/admin/reservations/:id/reschedule/preview" },
+  { pattern: new RegExp(`^/api/admin/reservations/${ID}/reschedule/commit$`), template: "/api/admin/reservations/:id/reschedule/commit" },
   { pattern: new RegExp(`^/api/admin/reservations/${ID}/cancellation-fee$`), template: "/api/admin/reservations/:id/cancellation-fee" },
   { pattern: new RegExp(`^/api/admin/reservations/${ID}$`),               template: "/api/admin/reservations/:id" },
 

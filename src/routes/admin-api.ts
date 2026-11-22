@@ -58,10 +58,12 @@ import { MAX_TOTAL_SERVICE_DURATION_MINUTES, RESERVATION_INTERVAL_MINUTES } from
 import { autoCompleteReservations } from "../reservations/auto-complete";
 import { isNonEmptyString } from "../admin/reservation-time-utils";
 import {
+  commitAdminRescheduleReservation,
   previewAdminRescheduleReservation,
   RESCHEDULE_PREVIEW_CONTRACT,
   rescheduleAdminReservation,
   isReschedulableReservation,
+  type AdminRescheduleCommitRequest,
   type AdminReschedulePreviewRequest,
   type AdminRescheduleReservationRequest
 } from "../admin/reservation-reschedule";
@@ -473,13 +475,31 @@ const parseAdminReschedulePreviewIntent = (intent: Record<string, unknown>): Adm
   if (intent.kind === "move" && isNonEmptyString(intent.startAt, 64)) {
     return { kind: "move", startAt: intent.startAt };
   }
-  if (intent.kind === "resize" && typeof intent.treatmentMinutes === "number") {
+  if (intent.kind === "resize" && typeof intent.treatmentMinutes === "number" && Number.isFinite(intent.treatmentMinutes)) {
     return { kind: "resize", treatmentMinutes: intent.treatmentMinutes };
   }
   if (intent.kind === "undo" && isNonEmptyString(intent.inverseOfOperationId, 128)) {
     return { kind: "undo", inverseOfOperationId: intent.inverseOfOperationId };
   }
   return undefined;
+};
+
+const CALENDAR_IDEMPOTENCY_KEY = /^calendar-v1:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}:[0-9a-f]{64}$/;
+const PREVIEW_FINGERPRINT = /^[0-9a-f]{64}$/;
+
+const parseAdminRescheduleCommitRequest = (body: unknown):
+  | { ok: true; request: AdminRescheduleCommitRequest }
+  | { ok: false; reason: "invalid_request" | "unsupported_contract" } => {
+  if (!isObject(body) || Object.keys(body).length !== 5) return { ok: false, reason: "invalid_request" };
+  const { idempotencyKey, previewFingerprint, ...preview } = body;
+  if (
+    typeof idempotencyKey !== "string" || !CALENDAR_IDEMPOTENCY_KEY.test(idempotencyKey) ||
+    typeof previewFingerprint !== "string" || !PREVIEW_FINGERPRINT.test(previewFingerprint)
+  ) return { ok: false, reason: "invalid_request" };
+
+  const parsed = parseAdminReschedulePreviewRequest(preview);
+  if (!parsed.ok) return parsed;
+  return { ok: true, request: { ...parsed.request, idempotencyKey, previewFingerprint } };
 };
 
 const parseAdminCreateExternalBlockRequest = (body: unknown): AdminCreateExternalBlockRequest | undefined => {
@@ -3322,6 +3342,41 @@ adminApiRoutes.post("/reservations/:id/reschedule/preview", async (c) => {
     featureEnabled: isAdminCalendarV2Enabled(c.env),
   });
   return c.json(result, result.ok ? 200 : RESCHEDULE_PREVIEW_FAILURE_STATUS[result.reason], ADMIN_PRIVATE_HEADERS);
+});
+
+const RESCHEDULE_COMMIT_FAILURE_STATUS = {
+  ...RESCHEDULE_PREVIEW_FAILURE_STATUS,
+  idempotency_conflict: 409,
+  idempotency_in_progress: 409,
+  operation_not_applied: 409,
+  preview_stale: 409,
+  write_failed: 500,
+} as const;
+
+adminApiRoutes.post("/reservations/:id/reschedule/commit", async (c) => {
+  const gate = await authenticateAdminWithDb(c, ADMIN_PRIVATE_HEADERS);
+  if (!gate.ok) return gate.response;
+  const modes = c.req.queries("mode") ?? [];
+  if (modes.length > 0 && (modes.length !== 1 || modes[0] !== "check")) {
+    return c.json({ ok: false, reason: "invalid_request" }, 400, ADMIN_PRIVATE_HEADERS);
+  }
+  const parsed = await parseJsonBody(c, ADMIN_PRIVATE_HEADERS);
+  if (!parsed.ok) return parsed.response;
+  const request = parseAdminRescheduleCommitRequest(parsed.body);
+  if (!request.ok) return c.json(request, 400, ADMIN_PRIVATE_HEADERS);
+
+  const result = await commitAdminRescheduleReservation({
+    db: gate.db,
+    admin: gate.admin,
+    reservationId: c.req.param("id"),
+    request: request.request,
+    featureEnabled: isAdminCalendarV2Enabled(c.env),
+    check: modes[0] === "check",
+  });
+  if (result.ok && !result.replayed) {
+    scheduleQueueKicks(c, { google: true, line: Boolean(result.effects.notification.jobId) });
+  }
+  return c.json(result, result.ok ? 200 : RESCHEDULE_COMMIT_FAILURE_STATUS[result.reason], ADMIN_PRIVATE_HEADERS);
 });
 
 // D1 の一過性障害は operator が再実行できる 503、それ以外は従来どおり 500。

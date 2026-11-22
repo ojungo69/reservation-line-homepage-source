@@ -9,20 +9,21 @@
  * (The Phase 3 customer change-request approve flavor — actor.kind
  * "change_request" with a full version/start_at/end_at snapshot pin — was
  * removed with the change-request feature retirement: reschedule 2026-07-24,
- * cancel 2026-08-01. Only the "admin" status-only-guard flavor remains.)
+ * cancel 2026-08-01.)
  *
  * Statement ordering contract (PR #1 plan section 2):
  *   transition[0] === reservation UPDATE.
  *
- *   Admin caller contract (src/admin/reservations.ts cancel branch,
+ *   Legacy admin caller contract (src/admin/reservations.ts cancel branch,
  *   src/admin/reservation-reschedule.ts): splice the existing
  *   guard{Reservation,Reschedule}TransitionApplied between transition[0]
  *   and transition.slice(1). The guard inspects changes() of the UPDATE
  *   and writes a follow-up idempotency_keys row. Do not reorder.
+ *   Versioned reschedule callers insert the operation's audit mark after the
+ *   update and pass its SQL condition to the lock and history statements.
  *
  * Bind-parameter budget (D1 limit per query = 100):
- *   - per-slot INSERT (admin): fixed 7-8 binds per statement
- *   - all other statements stay well below 20 binds.
+ *   - per-slot INSERT: 7-8 binds plus the versioned condition, if supplied.
  */
 
 import { generateSlotTimes } from "./slot-times";
@@ -47,11 +48,17 @@ const buildExpectedStatusPlaceholders = (
   return placeholders;
 };
 
+type RescheduleCondition = { sql: string; bindings: ReadonlyArray<string | number | null> };
+
+const andCondition = (condition?: RescheduleCondition) => condition ? `AND (${condition.sql})` : "";
+const conditionBindings = (condition?: RescheduleCondition) => condition?.bindings ?? [];
+
 const buildSlotLockReleaseHistoryStatement = (input: {
   db: D1Database;
   reservationId: string;
   adminId: string;
   reason: string;
+  condition?: RescheduleCondition;
 }): D1PreparedStatement =>
   input.db
     .prepare(
@@ -82,13 +89,15 @@ const buildSlotLockReleaseHistoryStatement = (input: {
         FROM slot_locks
         WHERE owner_type = 'reservation'
           AND owner_id = ?
+          ${andCondition(input.condition)}
       `
     )
-    .bind(input.adminId, input.reason, input.reservationId);
+    .bind(input.adminId, input.reason, input.reservationId, ...conditionBindings(input.condition));
 
 const buildSlotLocksDeleteStatement = (
   db: D1Database,
-  reservationId: string
+  reservationId: string,
+  condition?: RescheduleCondition
 ): D1PreparedStatement =>
   db
     .prepare(
@@ -96,13 +105,15 @@ const buildSlotLocksDeleteStatement = (
         DELETE FROM slot_locks
         WHERE owner_type = 'reservation'
           AND owner_id = ?
+          ${andCondition(condition)}
       `
     )
-    .bind(reservationId);
+    .bind(reservationId, ...conditionBindings(condition));
 
 const buildCustomerTimeLocksDeleteStatement = (
   db: D1Database,
-  reservationId: string
+  reservationId: string,
+  condition?: RescheduleCondition
 ): D1PreparedStatement =>
   db
     .prepare(
@@ -110,9 +121,10 @@ const buildCustomerTimeLocksDeleteStatement = (
         DELETE FROM customer_time_locks
         WHERE owner_type = 'reservation'
           AND owner_id = ?
+          ${andCondition(condition)}
       `
     )
-    .bind(reservationId);
+    .bind(reservationId, ...conditionBindings(condition));
 
 // ============================================================================
 // CANCEL
@@ -216,6 +228,11 @@ type RescheduleCommon = {
 export type AdminRescheduleInput = RescheduleCommon & {
   actor: { kind: "admin"; adminId: string };
   // The caller supplies the actor guard; this update preserves the target store.
+  versioned?: {
+    update: RescheduleCondition;
+    applied: RescheduleCondition;
+    updatedBy: string;
+  };
 };
 
 const validateRescheduleSlots = (
@@ -239,6 +256,8 @@ const buildAdminRescheduleStatements = (
   slotTimesIso: ReadonlyArray<string>
 ): D1PreparedStatement[] => {
   const statusPlaceholders = buildExpectedStatusPlaceholders(input.expectedStatusList);
+  const applied = input.versioned?.applied;
+  const insertCondition = applied ? `WHERE ${applied.sql}` : "";
   const updateStmt = input.db
     .prepare(
       `
@@ -254,17 +273,19 @@ const buildAdminRescheduleStatements = (
           AND store_id = ?
           AND status IN (${statusPlaceholders})
           AND checked_in_at IS NULL
+          ${andCondition(input.versioned?.update)}
       `
     )
     .bind(
       input.newStartAt,
       input.newEndAt,
       input.newDurationMinutes,
-      input.actor.adminId,
+      input.versioned?.updatedBy ?? input.actor.adminId,
       input.nowIso,
       input.reservationId,
       input.storeId,
-      ...input.expectedStatusList
+      ...input.expectedStatusList,
+      ...conditionBindings(input.versioned?.update)
     );
 
   const statements: D1PreparedStatement[] = [
@@ -273,10 +294,11 @@ const buildAdminRescheduleStatements = (
       db: input.db,
       reservationId: input.reservationId,
       adminId: input.actor.adminId,
-      reason: "admin_reschedule"
+      reason: "admin_reschedule",
+      condition: applied
     }),
-    buildSlotLocksDeleteStatement(input.db, input.reservationId),
-    buildCustomerTimeLocksDeleteStatement(input.db, input.reservationId)
+    buildSlotLocksDeleteStatement(input.db, input.reservationId, applied),
+    buildCustomerTimeLocksDeleteStatement(input.db, input.reservationId, applied)
   ];
 
   for (const slotAt of slotTimesIso) {
@@ -287,7 +309,7 @@ const buildAdminRescheduleStatements = (
           `
             INSERT INTO slot_locks (
               id, store_id, resource_id, slot_at, owner_type, owner_id, lock_status, expires_at
-            ) VALUES (?, ?, ?, ?, 'reservation', ?, ?, ?)
+            ) SELECT ?, ?, ?, ?, 'reservation', ?, ?, ? ${insertCondition}
           `
         )
         .bind(
@@ -297,14 +319,15 @@ const buildAdminRescheduleStatements = (
           slotAt,
           input.reservationId,
           input.newLockStatus,
-          input.newLockExpiresAt
+          input.newLockExpiresAt,
+          ...conditionBindings(applied)
         ),
       input.db
         .prepare(
           `
             INSERT INTO customer_time_locks (
               id, customer_id, slot_at, owner_type, owner_id, lock_status, expires_at, phone_hash
-            ) VALUES (?, ?, ?, 'reservation', ?, ?, ?, ${CUSTOMER_TIME_LOCK_PHONE_HASH_SQL})
+            ) SELECT ?, ?, ?, 'reservation', ?, ?, ?, ${CUSTOMER_TIME_LOCK_PHONE_HASH_SQL} ${insertCondition}
           `
         )
         .bind(
@@ -314,14 +337,15 @@ const buildAdminRescheduleStatements = (
           input.reservationId,
           input.newLockStatus,
           input.newLockExpiresAt,
-          input.reservationId
+          input.reservationId,
+          ...conditionBindings(applied)
         ),
       input.db
         .prepare(
           `
             INSERT INTO slot_lock_history (
               id, slot_lock_id, store_id, resource_id, new_slot_at, new_owner_id, action, actor_type, actor_id, reason
-            ) VALUES (?, ?, ?, ?, ?, ?, 'created', 'staff', ?, 'admin_reschedule')
+            ) SELECT ?, ?, ?, ?, ?, ?, 'created', 'staff', ?, 'admin_reschedule' ${insertCondition}
           `
         )
         .bind(
@@ -331,7 +355,8 @@ const buildAdminRescheduleStatements = (
           input.resourceId,
           slotAt,
           input.reservationId,
-          input.actor.adminId
+          input.actor.adminId,
+          ...conditionBindings(applied)
         )
     );
   }

@@ -15,7 +15,7 @@ import {
 } from "../reservations/transitions";
 import { classifyReservationWriteError } from "../reservations/write-error";
 import { captureBatchWriteFailure } from "../sentry-helpers";
-import { adminWriteGuard, adminWriteWasRevoked } from "./write-authorization";
+import { adminWriteGuard, adminWriteSnapshot, adminWriteWasRevoked } from "./write-authorization";
 
 export type AdminRescheduleReservationRequest = {
   idempotencyKey: string;
@@ -32,6 +32,11 @@ export type AdminReschedulePreviewRequest = {
     | { kind: "move"; startAt: string }
     | { kind: "resize"; treatmentMinutes: number }
     | { kind: "undo"; inverseOfOperationId: string };
+};
+
+export type AdminRescheduleCommitRequest = AdminReschedulePreviewRequest & {
+  idempotencyKey: string;
+  previewFingerprint: string;
 };
 
 type AdminRescheduleReservationSuccess = {
@@ -101,7 +106,8 @@ type ReservationResultRow = {
   end_at: string;
 };
 
-const fetchReservation = async (db: D1Database, reservationId: string) => {
+const fetchReservation = async (db: D1Database, reservationId: string, admin?: AdminUser) => {
+  const authorization = admin && adminWriteSnapshot(admin);
   return await db
     .prepare(
       `
@@ -118,22 +124,25 @@ const fetchReservation = async (db: D1Database, reservationId: string) => {
           reservations.pending_expires_at,
           reservations.version,
           reservations.checked_in_at,
-          stores.timezone
+          stores.timezone${authorization ? `, ${authorization.sql} AS actor_authorized` : ""}
         FROM reservations
         JOIN stores ON stores.id = reservations.store_id
         WHERE reservations.id = ?
         LIMIT 1
       `
     )
-    .bind(reservationId)
-    .first<ReservationRow>();
+    .bind(...(authorization?.bindings ?? []), reservationId)
+    .first<ReservationRow & { actor_authorized?: number }>();
 };
 
-const fetchAuthorizedRescheduleReservation = async (db: D1Database, admin: AdminUser, reservationId: string) => {
-  const reservation = await fetchReservation(db, reservationId);
+const fetchAuthorizedRescheduleReservation = async (
+  db: D1Database, admin: AdminUser, reservationId: string, checkCurrentActor = false
+) => {
+  const reservation = await fetchReservation(db, reservationId, checkCurrentActor ? admin : undefined);
   if (!reservation) return { ok: false, reason: "not_found" } as const;
   // Staff can change reservations at their own store on any date.
-  if (admin.role === "staff" && (!admin.store_id || reservation.store_id !== admin.store_id)) {
+  if ((checkCurrentActor && !reservation.actor_authorized) ||
+    (admin.role === "staff" && (!admin.store_id || reservation.store_id !== admin.store_id))) {
     return { ok: false, reason: "forbidden" } as const;
   }
   return { ok: true, reservation } as const;
@@ -396,6 +405,12 @@ const describeRescheduleWindow = (startAt: Date, endAt: Date, occupancyMinutes: 
   };
 };
 
+const notificationJobKey = (reservationId: string, version: number) =>
+  `reservation:${reservationId}:template:reservation_time_changed:revision:${version}`;
+
+const calendarJobKey = (reservationId: string, version: number) =>
+  `reservation:${reservationId}:google:upsert:revision:${version}`;
+
 type AdminReschedulePreviewResult = {
   ok: true;
   contractVersion: typeof RESCHEDULE_PREVIEW_CONTRACT;
@@ -422,14 +437,35 @@ type AdminReschedulePreviewResult = {
   status: ReservationRow["status"] | "checked_in";
 };
 
-// The start and occupancy a preview intent asks for, checked as the write path checks them.
-const resolvePreviewChange = (reservation: ReservationRow, intent: AdminReschedulePreviewRequest["intent"], nowMs: number) => {
-  // Undo requires a successful operation to restore, which is introduced by T013.
-  if (intent.kind === "undo") return { ok: false, reason: "undo_not_available" } as const;
+type RescheduleProposal = Extract<AdminReschedulePreviewResult, { ok: true }>;
+type RescheduleWindow = RescheduleProposal["before"];
+
+const SUCCEEDED_UNDO_SOURCE_SQL = "operation_id = ? AND reservation_id = ? AND status = 'succeeded'";
+
+const readUndoSource = (db: D1Database, reservationId: string, operationId: string) => db.prepare(`
+  SELECT applied_version, before_snapshot_json FROM reservation_change_operations WHERE ${SUCCEEDED_UNDO_SOURCE_SQL}
+`).bind(operationId, reservationId).first<{ applied_version: number; before_snapshot_json: string }>();
+
+const undoSourceCondition = (reservationId: string, intent: AdminReschedulePreviewRequest["intent"], version?: number) => {
+  if (intent.kind !== "undo") return { sql: "", bindings: [] };
+  const bindings: (string | number)[] = [intent.inverseOfOperationId, reservationId];
+  if (version !== undefined) bindings.push(version);
+  return {
+    sql: `AND EXISTS (SELECT 1 FROM reservation_change_operations WHERE ${SUCCEEDED_UNDO_SOURCE_SQL}
+      ${version === undefined ? "" : "AND applied_version = ?"})`,
+    bindings,
+  };
+};
+
+// Resolve the start and occupancy using the same validation for preview and commit.
+const resolvePreviewChange = (
+  reservation: ReservationRow, intent: AdminReschedulePreviewRequest["intent"], nowMs: number,
+  undo?: RescheduleWindow
+) => {
   if (intent.kind === "resize" && !isValidRescheduleTreatmentMinutes(intent.treatmentMinutes)) {
     return { ok: false, reason: "invalid_request" } as const;
   }
-  const rawStartAt = intent.kind === "move" ? intent.startAt : reservation.start_at;
+  const rawStartAt = intent.kind === "move" ? intent.startAt : undo?.startAt ?? reservation.start_at;
   if (intent.kind === "move" && parseStrictIsoOffsetInstantMs(rawStartAt) === null) {
     return { ok: false, reason: "invalid_time" } as const;
   }
@@ -437,7 +473,7 @@ const resolvePreviewChange = (reservation: ReservationRow, intent: AdminReschedu
   if (!startAt) return { ok: false, reason: "invalid_time" } as const;
   const durationMinutes = intent.kind === "resize"
     ? intent.treatmentMinutes + RESERVATION_INTERVAL_MINUTES
-    : reservation.duration_minutes;
+    : undo?.occupancyMinutes ?? reservation.duration_minutes;
   const time = validateRescheduleTime(reservation, startAt, durationMinutes, nowMs);
   if (!time.ok) return time;
   if (time.startUnchanged && durationMinutes === reservation.duration_minutes) {
@@ -445,6 +481,9 @@ const resolvePreviewChange = (reservation: ReservationRow, intent: AdminReschedu
   }
   return { ok: true, startAt, durationMinutes, time } as const;
 };
+
+const ACTIVE_EXTERNAL_BLOCK_OVERLAP_SQL = `SELECT 1 FROM external_blocks
+  WHERE store_id = ? AND resource_id = ? AND status = 'active' AND start_at < ? AND end_at > ?`;
 
 // Reads only: the overlaps the write path's unique locks reject, plus active external blocks (contract ch.3).
 const findPreviewConflict = async (
@@ -461,9 +500,7 @@ const findPreviewConflict = async (
       AND slot_at IN (${slotPlaceholders})
       AND NOT (owner_type = 'reservation' AND owner_id = ?)
     UNION ALL
-    SELECT 1 FROM external_blocks
-    WHERE store_id = ? AND resource_id = ? AND status = 'active'
-      AND start_at < ? AND end_at > ?
+    ${ACTIVE_EXTERNAL_BLOCK_OVERLAP_SQL}
     LIMIT 1
   `).bind(
     reservation.store_id, reservation.resource_id, ...slotTimes, reservation.id,
@@ -490,28 +527,41 @@ export async function previewAdminRescheduleReservation(input: {
   featureEnabled: boolean;
 }): Promise<AdminReschedulePreviewResult> {
   if (!isNonEmptyString(input.reservationId, 128)) return { ok: false, reason: "invalid_request" };
-  const target = await fetchAuthorizedRescheduleReservation(input.db, input.admin, input.reservationId);
+  const target = await fetchAuthorizedRescheduleReservation(input.db, input.admin, input.reservationId, true);
   if (!target.ok) return target;
   if (!input.featureEnabled) return { ok: false, reason: "feature_disabled" };
+  return validateRescheduleProposal(input.db, input.admin, target.reservation, input.request);
+}
 
-  const { reservation } = target;
-  const { contractVersion, expectedVersion, intent } = input.request;
+const rescheduleVersionConflict = (reservation: ReservationRow) => ({
+  ok: false,
+  reason: "version_conflict",
+  version: reservation.version,
+  status: reservation.status === "confirmed" && reservation.checked_in_at ? "checked_in" : reservation.status
+} as const);
+
+async function validateRescheduleProposal(
+  db: D1Database, admin: AdminUser, reservation: ReservationRow, request: AdminReschedulePreviewRequest
+): Promise<AdminReschedulePreviewResult> {
+  const { contractVersion, expectedVersion, intent } = request;
   if (reservation.version !== expectedVersion) {
-    return {
-      ok: false,
-      reason: "version_conflict",
-      version: reservation.version,
-      status: reservation.status === "confirmed" && reservation.checked_in_at ? "checked_in" : reservation.status
-    };
+    return rescheduleVersionConflict(reservation);
   }
   if (!isReschedulableReservation(reservation)) return { ok: false, reason: "invalid_transition" };
 
-  const change = resolvePreviewChange(reservation, intent, Date.now());
+  let undo: RescheduleWindow | undefined;
+  if (intent.kind === "undo") {
+    const source = await readUndoSource(db, reservation.id, intent.inverseOfOperationId);
+    if (!source || source.applied_version !== expectedVersion) return { ok: false, reason: "undo_not_available" };
+    undo = JSON.parse(source.before_snapshot_json) as RescheduleWindow;
+  }
+
+  const change = resolvePreviewChange(reservation, intent, Date.now(), undo);
   if (!change.ok) return change;
   const { startAt, durationMinutes, time } = change;
-  const businessTimeError = await ensureBusinessTime(input.db, reservation.store_id, reservation.timezone, startAt, time.endAt);
+  const businessTimeError = await ensureBusinessTime(db, reservation.store_id, reservation.timezone, startAt, time.endAt);
   if (businessTimeError) return businessTimeError;
-  const conflict = await findPreviewConflict(input.db, reservation, time.slotTimes, startAt, time.endAt);
+  const conflict = await findPreviewConflict(db, reservation, time.slotTimes, startAt, time.endAt);
   if (conflict) return { ok: false, reason: conflict };
 
   const confirmation = {
@@ -525,7 +575,7 @@ export async function previewAdminRescheduleReservation(input: {
   } as const;
   const previewFingerprint = await sha256Hex(JSON.stringify({
     ...confirmation,
-    actorId: input.admin.id,
+    actorId: admin.id,
     expectedVersion
   }));
   return {
@@ -698,7 +748,7 @@ const buildRescheduleStatements = (input: {
         )
         .bind(
           crypto.randomUUID(),
-          `reservation:${input.reservation.id}:template:reservation_time_changed:revision:${nextVersion}`,
+          notificationJobKey(input.reservation.id, nextVersion),
           input.reservation.customer_id,
           input.reservation.id
         )
@@ -722,7 +772,7 @@ const buildRescheduleStatements = (input: {
       )
       .bind(
         crypto.randomUUID(),
-        `reservation:${input.reservation.id}:google:upsert:revision:${nextVersion}`,
+        calendarJobKey(input.reservation.id, nextVersion),
         input.reservation.id,
         input.nowIso
       ),
@@ -859,4 +909,379 @@ export async function rescheduleAdminReservation(input: {
   }
 
   return readReservationResult(input.db, reservation.id, false);
+}
+
+type RescheduleEffects = {
+  notification: RescheduleProposal["notificationPlan"] & { jobId?: string; status?: string };
+  calendar: { kind: "enqueue_upsert"; jobId: string; status?: string };
+};
+type RescheduleOperation = {
+  operation_id: string;
+  reservation_id: string;
+  request_hash: string;
+} & ({ status: "started" | "not_applied" } | {
+  status: "succeeded";
+  before_version: number;
+  applied_version: number;
+  before_snapshot_json: string;
+  after_snapshot_json: string;
+  effects_json: string;
+});
+
+type RescheduleCommitResult = Exclude<AdminReschedulePreviewResult, { ok: true }> | {
+  ok: false;
+  reason: "idempotency_conflict" | "idempotency_in_progress" | "operation_not_applied" | "preview_stale" | "write_failed";
+} | {
+  ok: true;
+  contractVersion: typeof RESCHEDULE_PREVIEW_CONTRACT;
+  replayed: boolean;
+  operationId: string;
+  change: { beforeVersion: number; appliedVersion: number; before: RescheduleWindow; after: RescheduleWindow };
+  reservation: {
+    id: string; version: number; status: ReservationRow["status"] | "checked_in"; storeId: string; resourceId: string;
+    startAt: string; endAt: string; occupancyMinutes: number;
+  };
+  effects: RescheduleEffects;
+};
+
+type RescheduleCommitInput = {
+  db: D1Database;
+  admin: AdminUser;
+  reservationId: string;
+  request: AdminRescheduleCommitRequest;
+  featureEnabled: boolean;
+  check: boolean;
+};
+type RescheduleCommit = RescheduleCommitInput & { requestHash: string };
+
+const readChangeOperation = ({ db, admin, request }: RescheduleCommitInput) => db.prepare(`
+  SELECT operation_id, reservation_id, request_hash, status, before_version, applied_version,
+         before_snapshot_json, after_snapshot_json, effects_json
+  FROM reservation_change_operations WHERE actor_id = ? AND idempotency_key = ?
+`).bind(admin.id, request.idempotencyKey).first<RescheduleOperation>();
+
+const readCommitTarget = ({ db, admin, reservationId }: RescheduleCommitInput) =>
+  fetchAuthorizedRescheduleReservation(db, admin, reservationId, true);
+
+const startedOperationCondition = (input: RescheduleCommit, operationId: string) => ({
+  sql: `operation_id = ? AND reservation_id = ? AND actor_id = ?
+    AND idempotency_key = ? AND request_hash = ? AND status = 'started'`,
+  bindings: [operationId, input.reservationId, input.admin.id, input.request.idempotencyKey, input.requestHash],
+});
+
+const readChangeSuccess = async (
+  input: RescheduleCommit, operation: Extract<RescheduleOperation, { status: "succeeded" }>, replayed: boolean
+): Promise<RescheduleCommitResult> => {
+  const target = await readCommitTarget(input);
+  if (!target.ok) return target;
+
+  const { reservation } = target;
+  const effects = JSON.parse(operation.effects_json) as RescheduleEffects;
+  const statuses = await input.db.prepare(`
+    SELECT (SELECT status FROM notification_jobs WHERE id = ?) AS notification,
+           (SELECT status FROM calendar_sync_jobs WHERE id = ?) AS calendar
+  `).bind(effects.notification.jobId ?? null, effects.calendar.jobId).first<{
+    notification: string | null; calendar: string | null;
+  }>();
+  if (statuses?.notification) effects.notification.status = statuses.notification;
+  if (statuses?.calendar) effects.calendar.status = statuses.calendar;
+
+  return {
+    ok: true,
+    contractVersion: RESCHEDULE_PREVIEW_CONTRACT,
+    replayed,
+    operationId: operation.operation_id,
+    change: {
+      beforeVersion: operation.before_version,
+      appliedVersion: operation.applied_version,
+      before: JSON.parse(operation.before_snapshot_json) as RescheduleWindow,
+      after: JSON.parse(operation.after_snapshot_json) as RescheduleWindow,
+    },
+    reservation: {
+      id: reservation.id,
+      version: reservation.version,
+      status: reservation.status === "confirmed" && reservation.checked_in_at ? "checked_in" : reservation.status,
+      storeId: reservation.store_id,
+      resourceId: reservation.resource_id,
+      startAt: reservation.start_at,
+      endAt: reservation.end_at,
+      occupancyMinutes: reservation.duration_minutes,
+    },
+    effects,
+  };
+};
+
+const resolveChangeOperation = async (
+  input: RescheduleCommit, operation: RescheduleOperation | null
+): Promise<RescheduleCommitResult | undefined> => {
+  if (!operation) return undefined;
+  if (operation.reservation_id !== input.reservationId || operation.request_hash !== input.requestHash) {
+    return { ok: false, reason: "idempotency_conflict" };
+  }
+  if (operation.status === "succeeded") return readChangeSuccess(input, operation, true);
+  if (operation.status === "started") {
+    if (input.featureEnabled && input.check) return undefined;
+    return { ok: false, reason: "idempotency_in_progress" };
+  }
+  if (input.featureEnabled) return { ok: false, reason: "operation_not_applied" };
+  return undefined;
+};
+
+const changeWriteAuthorization = (input: RescheduleCommit, reservation: ReservationRow) => {
+  const actor = adminWriteSnapshot(input.admin);
+  const undo = undoSourceCondition(reservation.id, input.request.intent);
+  return {
+    sql: `${actor.sql} AND EXISTS (SELECT 1 FROM reservations WHERE id = ? AND store_id = ?) ${undo.sql}`,
+    bindings: [...actor.bindings, reservation.id, reservation.store_id, ...undo.bindings],
+  };
+};
+
+const insertChangeOperation = async (
+  input: RescheduleCommit, reservation: ReservationRow, operationId: string, status: "started" | "not_applied"
+) => {
+  const authorization = changeWriteAuthorization(input, reservation);
+  const { intent, idempotencyKey } = input.request;
+  const nowIso = toIso(new Date());
+  return input.db.prepare(`
+    INSERT INTO reservation_change_operations (
+      operation_id, reservation_id, actor_id, idempotency_key, request_hash, kind, inverse_of_operation_id,
+      status, created_at, updated_at
+    ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${authorization.sql}
+    ON CONFLICT (actor_id, idempotency_key) DO NOTHING
+  `).bind(operationId, reservation.id, input.admin.id, idempotencyKey, input.requestHash, intent.kind,
+    intent.kind === "undo" ? intent.inverseOfOperationId : null, status, nowIso, nowIso,
+    ...authorization.bindings).run();
+};
+
+const setChangeNotApplied = (input: RescheduleCommit, reservation: ReservationRow, operationId: string) => {
+  const authorization = changeWriteAuthorization(input, reservation);
+  const started = startedOperationCondition(input, operationId);
+  return input.db.prepare(`
+    UPDATE reservation_change_operations SET status = 'not_applied', updated_at = ?
+    WHERE ${started.sql} AND ${authorization.sql}
+  `).bind(toIso(new Date()), ...started.bindings, ...authorization.bindings).run();
+};
+
+const readAfterChangeWrite = async (input: RescheduleCommit): Promise<RescheduleCommitResult> => {
+  const authorized = await readCommitTarget(input);
+  if (!authorized.ok) return authorized;
+  return await resolveChangeOperation({ ...input, check: false }, await readChangeOperation(input))
+    ?? { ok: false, reason: "write_failed" };
+};
+
+const checkChangeOperation = async (
+  input: RescheduleCommit, reservation: ReservationRow, operation: RescheduleOperation | null
+): Promise<RescheduleCommitResult> => {
+  const { intent } = input.request;
+  if (intent.kind === "undo" && !await readUndoSource(input.db, reservation.id, intent.inverseOfOperationId)) {
+    return { ok: false, reason: "undo_not_available" };
+  }
+  if (!operation) {
+    const inserted = await insertChangeOperation(input, reservation, crypto.randomUUID(), "not_applied");
+    if (inserted.meta.changes === 1) return { ok: false, reason: "operation_not_applied" };
+
+    const authorized = await readCommitTarget(input);
+    if (!authorized.ok) return authorized;
+    operation = await readChangeOperation(input);
+    const existing = await resolveChangeOperation(input, operation);
+    if (existing) return existing;
+  }
+  if (operation?.status !== "started") return { ok: false, reason: "write_failed" };
+
+  const updated = await setChangeNotApplied(input, reservation, operation.operation_id);
+  if (updated.meta.changes === 1) return { ok: false, reason: "operation_not_applied" };
+  return readAfterChangeWrite(input);
+};
+
+const finishUnappliedCommit = async (input: RescheduleCommit, operationId: string): Promise<RescheduleCommitResult> => {
+  const target = await readCommitTarget(input);
+  if (!target.ok) return target;
+  const { reservation } = target;
+  const updated = await setChangeNotApplied(input, reservation, operationId);
+  if (updated.meta.changes !== 1) return readAfterChangeWrite(input);
+
+  const proposal = await validateRescheduleProposal(input.db, input.admin, reservation, input.request);
+  if (!proposal.ok) return proposal;
+  if (proposal.previewFingerprint !== input.request.previewFingerprint) return { ok: false, reason: "preview_stale" };
+  return { ok: false, reason: "operation_not_applied" };
+};
+
+const buildCommitRescheduleStatements = (
+  input: RescheduleCommit, reservation: ReservationRow, proposal: RescheduleProposal, operationId: string
+) => {
+  const { db, admin, request } = input;
+  const { before, after, notificationPlan } = proposal;
+  const nextVersion = request.expectedVersion + 1;
+  const nowIso = toIso(new Date());
+  // A batch-local value lets the last statement distinguish our UPDATE from a concurrent writer at the same version.
+  const updatedBy = `reservation-change:${operationId}`;
+  const started = startedOperationCondition(input, operationId);
+  const updated = `EXISTS (SELECT 1 FROM reservations WHERE id = ? AND version = ? AND updated_by = ?)`;
+  const updatedBindings = [reservation.id, nextVersion, updatedBy];
+  const marked = `EXISTS (SELECT 1 FROM audit_logs WHERE id = ? AND target_type = 'reservation' AND target_id = ?)`;
+  const markedBindings = [operationId, reservation.id];
+  const applied = { sql: `${updated} AND ${marked}`, bindings: [...updatedBindings, ...markedBindings] };
+  const confirmed = reservation.status === "confirmed";
+  const undo = undoSourceCondition(reservation.id, request.intent, request.expectedVersion);
+  const [updateReservation, ...locks] = buildTransitionRescheduleStatements({
+    db,
+    reservationId: reservation.id,
+    customerId: reservation.customer_id,
+    storeId: reservation.store_id,
+    resourceId: reservation.resource_id,
+    expectedStatusList: [confirmed ? "confirmed" : "pending_approval"],
+    newStartAt: after.startAt,
+    newEndAt: after.endAt,
+    newDurationMinutes: after.occupancyMinutes,
+    nowIso,
+    newLockExpiresAt: confirmed ? null : reservation.pending_expires_at,
+    newLockStatus: confirmed ? "confirmed" : "pending",
+    actor: { kind: "admin", adminId: admin.id },
+    versioned: {
+      updatedBy,
+      applied,
+      update: {
+        sql: `version = ? AND line_identity_id IS ? AND resource_id = ? AND customer_id = ? AND pending_expires_at IS ?
+          AND EXISTS (SELECT 1 FROM reservation_change_operations WHERE ${started.sql})
+          AND NOT EXISTS (${ACTIVE_EXTERNAL_BLOCK_OVERLAP_SQL}) ${undo.sql}`,
+        bindings: [request.expectedVersion, reservation.line_identity_id, reservation.resource_id,
+          reservation.customer_id, reservation.pending_expires_at, ...started.bindings,
+          reservation.store_id, reservation.resource_id, after.endAt, after.startAt, ...undo.bindings],
+      },
+    },
+  });
+  const mark = db.prepare(`
+    INSERT INTO audit_logs (id, actor_type, actor_id, action, target_type, target_id, metadata_json)
+    SELECT ?, 'staff', ?, 'admin_reservation_rescheduled', 'reservation', ?, ?
+    WHERE changes() = 1 AND ${updated}
+  `).bind(operationId, admin.id, reservation.id, JSON.stringify({
+    previousStartAt: reservation.start_at,
+    previousEndAt: reservation.end_at,
+    nextStartAt: after.startAt,
+    nextEndAt: after.endAt,
+    previousDurationMinutes: before.occupancyMinutes,
+    nextDurationMinutes: after.occupancyMinutes,
+    kind: request.intent.kind,
+    ...(request.intent.kind === "undo" && { inverseOfOperationId: request.intent.inverseOfOperationId }),
+  }), ...updatedBindings);
+
+  const notificationJobId = notificationPlan.kind === "time_changed" ? crypto.randomUUID() : null;
+  const effects: RescheduleEffects = {
+    notification: { ...notificationPlan, ...(notificationJobId && { jobId: notificationJobId }) },
+    calendar: { kind: "enqueue_upsert", jobId: crypto.randomUUID() },
+  };
+  const statements = [adminWriteGuard(db, admin), updateReservation, mark, ...locks];
+
+  if (notificationJobId) {
+    statements.push(db.prepare(`
+      INSERT INTO notification_jobs (id, dedupe_key, template_key, recipient_type, recipient_id, reservation_id, status)
+      SELECT ?, ?, 'reservation_time_changed', 'customer', ?, ?, 'queued' WHERE ${applied.sql}
+    `).bind(notificationJobId, notificationJobKey(reservation.id, nextVersion),
+      reservation.customer_id, reservation.id, ...applied.bindings));
+  }
+
+  statements.push(db.prepare(`
+    INSERT INTO calendar_sync_jobs (id, dedupe_key, owner_type, owner_id, google_action, status, available_at)
+    SELECT ?, ?, 'reservation', ?, 'upsert', 'queued', ? WHERE ${applied.sql}
+  `).bind(effects.calendar.jobId, calendarJobKey(reservation.id, nextVersion), reservation.id, nowIso, ...applied.bindings));
+
+  statements.push(db.prepare(`
+    UPDATE reservation_change_operations
+    SET status = 'succeeded', updated_at = ?, before_version = ?, applied_version = ?,
+        before_snapshot_json = ?, after_snapshot_json = ?, effects_json = ?
+    WHERE ${started.sql} AND ${applied.sql}
+      AND EXISTS (SELECT 1 FROM calendar_sync_jobs WHERE id = ?)
+      AND (? IS NULL OR EXISTS (SELECT 1 FROM notification_jobs WHERE id = ?))
+  `).bind(nowIso, request.expectedVersion, nextVersion, JSON.stringify(before), JSON.stringify(after),
+    JSON.stringify(effects), ...started.bindings, ...applied.bindings,
+    effects.calendar.jobId, notificationJobId, notificationJobId));
+
+  // Restore actor attribution only after checking both durable records. Version zero violates the reservations CHECK
+  // and rolls back the batch if our UPDATE ran but either the mark or the success record is missing.
+  statements.push(db.prepare(`
+    UPDATE reservations SET updated_by = ?, version = CASE WHEN version = ? AND ${marked} AND EXISTS (
+      SELECT 1 FROM reservation_change_operations
+      WHERE operation_id = ? AND status = 'succeeded' AND applied_version = ?
+    ) THEN version ELSE 0 END
+    WHERE id = ? AND updated_by = ?
+  `).bind(admin.id, nextVersion, ...markedBindings, operationId, nextVersion, reservation.id, updatedBy));
+  return statements;
+};
+
+export async function commitAdminRescheduleReservation(input: RescheduleCommitInput): Promise<RescheduleCommitResult> {
+  if (!isNonEmptyString(input.reservationId, 128)) return { ok: false, reason: "invalid_request" };
+
+  const { db, admin, request } = input;
+  let intent = request.intent;
+  if (intent.kind === "move") {
+    const startMs = parseStrictIsoOffsetInstantMs(intent.startAt);
+    if (startMs === null) return { ok: false, reason: "invalid_time" };
+    intent = { kind: "move", startAt: toIso(new Date(startMs)) };
+  }
+  const commit: RescheduleCommit = {
+    ...input,
+    request: { ...request, intent },
+    requestHash: await sha256Hex(JSON.stringify({
+      contractVersion: request.contractVersion,
+      reservationId: input.reservationId,
+      expectedVersion: request.expectedVersion,
+      intent,
+      previewFingerprint: request.previewFingerprint,
+    })),
+  };
+
+  const target = await readCommitTarget(commit);
+  if (!target.ok) return target;
+  const prior = await readChangeOperation(commit);
+  const existing = await resolveChangeOperation(commit, prior);
+  if (existing) return existing;
+  if (!input.featureEnabled) return { ok: false, reason: "feature_disabled" };
+  const fingerprintHash = await sha256Hex(request.previewFingerprint);
+  if (!request.idempotencyKey.endsWith(`:${fingerprintHash}`)) return { ok: false, reason: "idempotency_conflict" };
+  if (commit.check) return checkChangeOperation(commit, target.reservation, prior);
+
+  const current = await readCommitTarget(commit);
+  if (!current.ok) return current;
+  const { reservation } = current;
+  const proposal = await validateRescheduleProposal(db, admin, reservation, commit.request);
+  if (!proposal.ok) {
+    if (proposal.reason === "version_conflict") {
+      return await resolveChangeOperation(commit, await readChangeOperation(commit)) ?? proposal;
+    }
+    return proposal;
+  }
+  if (proposal.previewFingerprint !== request.previewFingerprint) return { ok: false, reason: "preview_stale" };
+  if (request.expectedVersion === Number.MAX_SAFE_INTEGER) return { ok: false, reason: "write_failed" };
+
+  const operationId = crypto.randomUUID();
+  const claim = await insertChangeOperation(commit, reservation, operationId, "started");
+  if (claim.meta.changes !== 1) {
+    return readAfterChangeWrite(commit);
+  }
+
+  let applied: number | undefined;
+  try {
+    const results = await db.batch(buildCommitRescheduleStatements(commit, reservation, proposal, operationId));
+    // The reservation UPDATE follows the authorization guard and precedes the audit mark.
+    applied = results[1]?.meta.changes;
+  } catch (error) {
+    if (await adminWriteWasRevoked(db, admin, error)) return { ok: false, reason: "forbidden" };
+    const message = error instanceof Error ? error.message : String(error);
+    if (/UNIQUE constraint failed: (?:slot_locks|customer_time_locks)\./.test(message) ||
+      /(?:^|:\s)store_closed(?:$|:\s)/.test(message)) {
+      const reason = classifyReservationWriteError(error);
+      if (reason) return { ok: false, reason };
+    }
+    captureBatchWriteFailure(error, {
+      component: "reservation-reschedule", op: "batch_write_failed", helper: "commitAdminRescheduleReservation",
+    });
+    return { ok: false, reason: "write_failed" };
+  }
+
+  if (applied === 0) return finishUnappliedCommit(commit, operationId);
+  if (applied === 1) {
+    const operation = await readChangeOperation(commit);
+    if (operation?.status === "succeeded") return readChangeSuccess(commit, operation, false);
+  }
+  return { ok: false, reason: "write_failed" };
 }
