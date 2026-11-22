@@ -1,0 +1,33 @@
+docs/admin-authz-matrix.md
+  s_4302c99db155d9::t_5a244261e09c86 68
+specs/008-admin-calendar-ux/tasks.md
+  s_4302c99db155d9::t_b5a85cdbb6ee14 53,55-56
+src/admin/admin-error-codes.ts
+  s_4302c99db155d9::t_1a6cddbd0581ab 88,92
+src/admin/reservation-reschedule.ts
+  s_4302c99db155d9::t_2704764e26fac7 18,37-41,109-110,127,134-135,138-141,144-145,408-413,440-464,468,476,485-487,503,530,533-534,536-546,548,552-559,562,564,578,751,775,913-1287
+src/reservations/transitions.ts
+  s_4302c99db155d9::t_fa1d1e6b9ebce5 12,17,22-23,26,51-55,61,92,95,99-100,108,111,115-116,124,127,231-235,259-260,276,283,287-288,297-298,300-301,312,322-323,330,340-341,348,358-359
+src/routes/admin-api.ts
+  s_4302c99db155d9::t_ea6508855840a5 61,66,478,487-504,3347-3381
+src/sentry-path-templates.ts
+  s_4302c99db155d9::t_3988b3e51fccf1 61
+test/admin-reschedule-commit.test.ts
+  s_4302c99db155d9::t_61ec8d279163a0 1-907
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "12bb26fd101fd46b18072afb44944c3ec2287b06",
+  "prompts": {},
+  "sessions": {
+    "s_4302c99db155d9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20487-803e-7612-a74a-21d25e3e15d0",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
