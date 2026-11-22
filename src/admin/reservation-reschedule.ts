@@ -422,6 +422,66 @@ type AdminReschedulePreviewResult = {
   status: ReservationRow["status"] | "checked_in";
 };
 
+// The start and occupancy a preview intent asks for, checked as the write path checks them.
+const resolvePreviewChange = (reservation: ReservationRow, intent: AdminReschedulePreviewRequest["intent"], nowMs: number) => {
+  // Undo requires a successful operation to restore, which is introduced by T013.
+  if (intent.kind === "undo") return { ok: false, reason: "undo_not_available" } as const;
+  if (intent.kind === "resize" && !isValidRescheduleTreatmentMinutes(intent.treatmentMinutes)) {
+    return { ok: false, reason: "invalid_request" } as const;
+  }
+  const rawStartAt = intent.kind === "move" ? intent.startAt : reservation.start_at;
+  if (intent.kind === "move" && parseStrictIsoOffsetInstantMs(rawStartAt) === null) {
+    return { ok: false, reason: "invalid_time" } as const;
+  }
+  const startAt = parseStartAt(rawStartAt, SLOT_LOCK_INTERVAL_MINUTES);
+  if (!startAt) return { ok: false, reason: "invalid_time" } as const;
+  const durationMinutes = intent.kind === "resize"
+    ? intent.treatmentMinutes + RESERVATION_INTERVAL_MINUTES
+    : reservation.duration_minutes;
+  const time = validateRescheduleTime(reservation, startAt, durationMinutes, nowMs);
+  if (!time.ok) return time;
+  if (time.startUnchanged && durationMinutes === reservation.duration_minutes) {
+    return { ok: false, reason: "no_change" } as const;
+  }
+  return { ok: true, startAt, durationMinutes, time } as const;
+};
+
+// Reads only: the overlaps the write path's unique locks reject, plus active external blocks (contract ch.3).
+const findPreviewConflict = async (
+  db: D1Database,
+  reservation: ReservationRow,
+  slotTimes: string[],
+  startAt: Date,
+  endAt: Date
+): Promise<"slot_unavailable" | "customer_time_conflict" | undefined> => {
+  const slotPlaceholders = slotTimes.map(() => "?").join(", ");
+  const occupied = await db.prepare(`
+    SELECT 1 FROM slot_locks
+    WHERE store_id = ? AND resource_id = ?
+      AND slot_at IN (${slotPlaceholders})
+      AND NOT (owner_type = 'reservation' AND owner_id = ?)
+    UNION ALL
+    SELECT 1 FROM external_blocks
+    WHERE store_id = ? AND resource_id = ? AND status = 'active'
+      AND start_at < ? AND end_at > ?
+    LIMIT 1
+  `).bind(
+    reservation.store_id, reservation.resource_id, ...slotTimes, reservation.id,
+    reservation.store_id, reservation.resource_id, toIso(endAt), toIso(startAt)
+  ).first();
+  if (occupied) return "slot_unavailable";
+  // Match both unique lock keys, including the write path's source-specific phone hash.
+  const customerConflict = await db.prepare(`
+    SELECT 1 FROM customer_time_locks
+    WHERE slot_at IN (${slotPlaceholders})
+      AND owner_id <> ?
+      AND (customer_id = ? OR phone_hash = ${CUSTOMER_TIME_LOCK_PHONE_HASH_SQL})
+    LIMIT 1
+  `).bind(...slotTimes, reservation.id, reservation.customer_id, reservation.id).first();
+  if (customerConflict) return "customer_time_conflict";
+  return undefined;
+};
+
 export async function previewAdminRescheduleReservation(input: {
   db: D1Database;
   admin: AdminUser;
@@ -445,54 +505,14 @@ export async function previewAdminRescheduleReservation(input: {
     };
   }
   if (!isReschedulableReservation(reservation)) return { ok: false, reason: "invalid_transition" };
-  // Undo requires a successful operation to restore, which is introduced by T013.
-  if (intent.kind === "undo") return { ok: false, reason: "undo_not_available" };
-  if (intent.kind === "resize" && !isValidRescheduleTreatmentMinutes(intent.treatmentMinutes)) {
-    return { ok: false, reason: "invalid_request" };
-  }
 
-  const rawStartAt = intent.kind === "move" ? intent.startAt : reservation.start_at;
-  if (intent.kind === "move" && parseStrictIsoOffsetInstantMs(rawStartAt) === null) {
-    return { ok: false, reason: "invalid_time" };
-  }
-  const startAt = parseStartAt(rawStartAt, SLOT_LOCK_INTERVAL_MINUTES);
-  if (!startAt) return { ok: false, reason: "invalid_time" };
-  const durationMinutes = intent.kind === "resize"
-    ? intent.treatmentMinutes + RESERVATION_INTERVAL_MINUTES
-    : reservation.duration_minutes;
-  const time = validateRescheduleTime(reservation, startAt, durationMinutes, Date.now());
-  if (!time.ok) return time;
-  if (time.startUnchanged && durationMinutes === reservation.duration_minutes) {
-    return { ok: false, reason: "no_change" };
-  }
+  const change = resolvePreviewChange(reservation, intent, Date.now());
+  if (!change.ok) return change;
+  const { startAt, durationMinutes, time } = change;
   const businessTimeError = await ensureBusinessTime(input.db, reservation.store_id, reservation.timezone, startAt, time.endAt);
   if (businessTimeError) return businessTimeError;
-
-  const slotPlaceholders = time.slotTimes.map(() => "?").join(", ");
-  const occupied = await input.db.prepare(`
-    SELECT 1 FROM slot_locks
-    WHERE store_id = ? AND resource_id = ?
-      AND slot_at IN (${slotPlaceholders})
-      AND NOT (owner_type = 'reservation' AND owner_id = ?)
-    UNION ALL
-    SELECT 1 FROM external_blocks
-    WHERE store_id = ? AND resource_id = ? AND status = 'active'
-      AND start_at < ? AND end_at > ?
-    LIMIT 1
-  `).bind(
-    reservation.store_id, reservation.resource_id, ...time.slotTimes, reservation.id,
-    reservation.store_id, reservation.resource_id, toIso(time.endAt), toIso(startAt)
-  ).first();
-  if (occupied) return { ok: false, reason: "slot_unavailable" };
-  // Match both unique lock keys, including the write path's source-specific phone hash.
-  const customerConflict = await input.db.prepare(`
-    SELECT 1 FROM customer_time_locks
-    WHERE slot_at IN (${slotPlaceholders})
-      AND owner_id <> ?
-      AND (customer_id = ? OR phone_hash = ${CUSTOMER_TIME_LOCK_PHONE_HASH_SQL})
-    LIMIT 1
-  `).bind(...time.slotTimes, reservation.id, reservation.customer_id, reservation.id).first();
-  if (customerConflict) return { ok: false, reason: "customer_time_conflict" };
+  const conflict = await findPreviewConflict(input.db, reservation, time.slotTimes, startAt, time.endAt);
+  if (conflict) return { ok: false, reason: conflict };
 
   const confirmation = {
     contractVersion,
