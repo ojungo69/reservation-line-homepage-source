@@ -1,0 +1,51 @@
+admin-app/src/components/calendar-v2/use-period-swipe.ts
+  s_d52c2d995f51c6::t_ec0e32c8206288 8,21-22,44-46,54-68,71,82-84,88-90,95,99,177-191,193,214,217,232-233,242,251,254-260,265-266,287-290,296-298,302-303,309,315,318-320,338,349,355-356,362,367-370,384,404-405,411,414,433
+admin-app/src/pages/schedule-v2.test.tsx
+  s_52c3955e48bff4::t_da3917f2de3dcf 410-425,1353-1455,2414-2436,2723-2740
+admin-app/src/components/calendar-v2/body.tsx
+  s_ee3b8e80619fcf::t_c4035372a447fd 136,148,175
+admin-app/src/components/calendar-v2/columns.ts
+  s_ee3b8e80619fcf::t_74b416aba9a319 8-10
+admin-app/src/components/calendar-v2/grid.tsx
+  s_ee3b8e80619fcf::t_476ec7d191b632 15-40,42-43,54-59,61-66,68
+admin-app/src/components/calendar-v2/top-bar.tsx
+  s_ee3b8e80619fcf::t_10663534abc13c 34,55,86-103,105-143,212-213,217-219
+admin-app/src/components/calendar-v2/use-calendar-layout.ts
+  s_ee3b8e80619fcf::t_2859584f8cc9fa 3-10,17,20-22,26-41,45-47,50-51,55-68
+specs/008-admin-calendar-ux/tasks.md
+  s_ee3b8e80619fcf::t_422b89e8e0c543 22,41
+admin-app/src/pages/schedule-v2.tsx
+  s_52c3955e48bff4::t_49ef0bb8995e0a 13,104,130-132,137,164,248,255,259,277-281,285,287,318,357-362
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3456ad870610eb71131bc43a917dcaf6fe9cb428",
+  "prompts": {},
+  "sessions": {
+    "s_52c3955e48bff4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71325e2b-fe13-4768-9035-42503a99e9fb",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    },
+    "s_d52c2d995f51c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7db69c90-1ee6-4a9e-a4f5-24819169f3ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    },
+    "s_ee3b8e80619fcf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a202eb-3db6-7491-ada3-c979b78e6c94",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
