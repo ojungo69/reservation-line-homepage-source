@@ -1,0 +1,29 @@
+migrations/0061_reservation_change_operations.sql
+  s_840622fdd1ddbf::t_d9ba6df2494112 1-68
+test/migration-reservation-change-operations.test.ts
+  s_02cca59af98e92::t_3147a51fea373f 1-228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ad36341ea931e35a9390d820f442a7466880bd64",
+  "prompts": {},
+  "sessions": {
+    "s_02cca59af98e92": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20324-aef8-7373-9856-c0533406c661",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    },
+    "s_840622fdd1ddbf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20324-aef8-7fb0-ac7f-9a85a2c3e00c",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
