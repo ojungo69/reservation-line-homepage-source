@@ -74,6 +74,22 @@ Googleカレンダーの通常の週グリッドについて、1本指横スワ�
 - ハンドル操作の指への追従と、同じ指の長押しドラッグを追加できるか。
 - 実際のGoogleカレンダーで利用者が設定している予定色。今回、利用者のアカウントの色設定は取得していない。
 - 予定が密集した週の描画性能、低速通信、低性能端末、ズーム・読み上げ・ダーク表示の実機結果。
-- 旧API consumerの範囲と、新しいversion付き契約への切替方法。
+- リポジトリ外の旧API利用元と、旧経路を廃止できる時期。リポジトリ内の調査と互換導入順は下記と[契約第9章](contracts/reservation-interactions.md#9-互換導入順と公開ゲート)に記す。
 
 これらは実装タスクと公開前の検証項目であり、文書作成を止めるユーザー判断事項ではない。Googleのすべての細部と同一であるとの保証は行わない。
+
+## 6. T003 旧APIの利用元と予約version
+
+2026-11-22 に現行ソースを照合した。基点は公開版 `2697d89308e3021c3c6703612b8dc756eb0a32b2`。
+
+| 調べた経路 | 確認した内容 |
+| --- | --- |
+| 旧APIを呼ぶフォーム | 共有の詳細にある「開始時刻を変更」「長さを変更」は、どちらも `useRescheduleReservation` から旧 `POST /api/admin/reservations/:id/reschedule` へ送る。開始変更は `startAt`、長さ変更は元の `startAt` と `treatmentMinutes` を送る。各ダイアログは同じ内容の手動再送用にキーを保持する（`admin-app/src/components/schedule/reservation-detail-panel.tsx:652–684,813–820`、`admin-app/src/components/schedule/reservation-reschedule-dialog.tsx:34–42,188–202`、`admin-app/src/components/schedule/reservation-duration-dialog.tsx:41–45,111–129`、`admin-app/src/hooks/use-reservations.ts:247–268`） |
+| 共有パネルの入口 | 旧予定表の右シート、新予定表の小窓・下シート、予約一覧、顧客詳細が同じ `ReservationDetailPanel` を使う（`admin-app/src/pages/schedule.tsx:288–300`、`admin-app/src/pages/schedule-v2.tsx:149–153,377–396`、`admin-app/src/pages/reservations.tsx:760`、`admin-app/src/components/customers/customer-detail-panel.tsx:1373`） |
+| サーバーの旧変更経路 | `/reschedule` は認証後に旧parserを通し、`rescheduleAdminReservation` に渡す。`expectedVersion` はparserの返却項目にない。開始変更の候補を読む `/available-slots` は対象予約から枠の条件を導出し、15分間隔で返す（`src/routes/admin-api.ts:419–448,1028–1059,1132–1159,3232–3250`、`src/admin/operations.ts:2051,2264`） |
+| versionの保存 | `reservations.version` は初期値1。旧 `/reschedule` の開始・長さ変更は、サーバーが読んだ版から `version + 1` になることを同じbatchで検査する。応答は時刻・状態を読み直し、版や適用当時の値を返さない。承認・取消・Googleからの時刻反映も版を進める（`migrations/0001_initial.sql:176`、`src/admin/reservation-reschedule.ts:89–114,157–182,215–246,438–487`、`src/reservations/transitions.ts:138–147,245–256`、`src/admin/reservations.ts:865–873`、`src/google/import-sync.ts:2852–2863`） |
+| 詳細と承認待ち一覧 | 詳細は `row.version` を返す。承認待ち一覧は `reservations.version AS version` を選び、結果の行を返す。両方のフロント型に `version` がある（`src/admin/operations.ts:1337–1349`、`src/admin/reservations.ts:1352–1358,1369–1383`、`src/routes/admin-api.ts:824–836,1182–1200`、`admin-app/src/types/api.ts:22–31,190–202`）。承認待ち一覧で版を使う既存の例は一括承認（`admin-app/src/components/schedule/pending-approvals-card.tsx:243–252`） |
+| 日付別一覧 | SQL の `reservationSelect` は版を選ぶが、日付別の `mapReservationRow` が応答に写さない。フロントの一覧型 `Reservation` にも版はない。新予定表の週表示も日付ごとの一覧を読む（`src/admin/operations.ts:634–653,708,791–808`、`src/routes/admin-api.ts:839–858`、`admin-app/src/types/api.ts:1–20,182–188`、`admin-app/src/hooks/use-reservations.ts:20–40`、`admin-app/src/components/calendar-v2/use-calendar-days.ts:60`） |
+| D1 Sessions | 有効時はパス別の方針を使う。`/api/public/availability` は `first-primary`、ほかは既定で `first-unconstrained`。後者の経路では長さが上限以内のbookmarkがあれば使う。セッションは `readDb` に置かれ、複製から読む場合がある（`src/middleware/d1-session.ts:3–7,13–23,25–38`）。新契約の判定・書込は主DBの `env.DB` を使う。 [D1のセッションと読み取り先](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession) |
+
+T008〜T010 では新予定表から開くフォームに、詳細の `version` を確認内容とともに渡す経路を足す。現行パネルが両フォームへ渡す値に `version` はない（`admin-app/src/components/schedule/reservation-detail-panel.tsx:652–684`）。日付別一覧の版を直接使う場合は、サーバー側の一覧型と写し、フロント側の一覧型とカレンダー項目に足す。値がなければ詳細を得てから候補を確認する。版はクライアントで採番しない。既存の同期状態の更新など、版を進めない書込もあるので版だけでpreview後の条件を保証せず、commit時の再検証を行う（`src/google/calendar-sync.ts:1204–1226`）。結果不明の確定方法は[ADR 0001](adr-0001-result-unknown.md)に記す。

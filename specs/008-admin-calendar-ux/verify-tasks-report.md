@@ -108,3 +108,6 @@ Added by the implementing agent after this report was written. The sections abov
 Note on the "no time" row above: the calendar passes no time, and the shared booking form then shows its own default, 10:00. `tasks.md` now says so.
 
 A clean re-run of the verification would re-score T005 against these tests.
+
+2026-11-22 追記。「表示する予定は保存しない（オーナー確認待ち）」は、オーナーの判断で端末ごとに覚えることになった（公開版 `2697d89`）。
+2026-11-22 追記。T005 の指摘のうち、全店舗の日表示で外部予定が所属店舗の列に出て比較先の店舗列には出ないことは「全店舗の日表示では、外部予定をその店舗の列に出す（店舗の別の枠のものも）」で、Google の予定を隠しても表示中の列の空き枠数が変わらないことは「Googleカレンダーの予定を外すと Google の予定だけを隠し、店のブロックは残す」で確認済み。選択状態は「詳細を開いている間は押した予約に選択の印を付け、閉じると外す」で `aria-expanded` の切替を確認済みで、輪の印の検証は別の変更で足す（`admin-app/src/pages/schedule-v2.test.tsx:410–420,534–542,671–682`）。
