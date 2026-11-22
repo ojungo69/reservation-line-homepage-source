@@ -552,7 +552,7 @@ async function validateRescheduleProposal(
   let undo: RescheduleWindow | undefined;
   if (intent.kind === "undo") {
     const source = await readUndoSource(db, reservation.id, intent.inverseOfOperationId);
-    if (!source || source.applied_version !== expectedVersion) return { ok: false, reason: "undo_not_available" };
+    if (source?.applied_version !== expectedVersion) return { ok: false, reason: "undo_not_available" };
     undo = JSON.parse(source.before_snapshot_json) as RescheduleWindow;
   }
 
@@ -1036,7 +1036,7 @@ const changeWriteAuthorization = (input: RescheduleCommit, reservation: Reservat
   };
 };
 
-const insertChangeOperation = async (
+const insertChangeOperation = (
   input: RescheduleCommit, reservation: ReservationRow, operationId: string, status: "started" | "not_applied"
 ) => {
   const authorization = changeWriteAuthorization(input, reservation);
@@ -1180,12 +1180,12 @@ const buildCommitRescheduleStatements = (
       reservation.customer_id, reservation.id, ...applied.bindings));
   }
 
-  statements.push(db.prepare(`
+  const calendarJob = db.prepare(`
     INSERT INTO calendar_sync_jobs (id, dedupe_key, owner_type, owner_id, google_action, status, available_at)
     SELECT ?, ?, 'reservation', ?, 'upsert', 'queued', ? WHERE ${applied.sql}
-  `).bind(effects.calendar.jobId, calendarJobKey(reservation.id, nextVersion), reservation.id, nowIso, ...applied.bindings));
+  `).bind(effects.calendar.jobId, calendarJobKey(reservation.id, nextVersion), reservation.id, nowIso, ...applied.bindings);
 
-  statements.push(db.prepare(`
+  const succeedOperation = db.prepare(`
     UPDATE reservation_change_operations
     SET status = 'succeeded', updated_at = ?, before_version = ?, applied_version = ?,
         before_snapshot_json = ?, after_snapshot_json = ?, effects_json = ?
@@ -1194,24 +1194,25 @@ const buildCommitRescheduleStatements = (
       AND (? IS NULL OR EXISTS (SELECT 1 FROM notification_jobs WHERE id = ?))
   `).bind(nowIso, request.expectedVersion, nextVersion, JSON.stringify(before), JSON.stringify(after),
     JSON.stringify(effects), ...started.bindings, ...applied.bindings,
-    effects.calendar.jobId, notificationJobId, notificationJobId));
+    effects.calendar.jobId, notificationJobId, notificationJobId);
 
   // Restore actor attribution only after checking both durable records. Version zero violates the reservations CHECK
   // and rolls back the batch if our UPDATE ran but either the mark or the success record is missing.
-  statements.push(db.prepare(`
+  const restoreActor = db.prepare(`
     UPDATE reservations SET updated_by = ?, version = CASE WHEN version = ? AND ${marked} AND EXISTS (
       SELECT 1 FROM reservation_change_operations
       WHERE operation_id = ? AND status = 'succeeded' AND applied_version = ?
     ) THEN version ELSE 0 END
     WHERE id = ? AND updated_by = ?
-  `).bind(admin.id, nextVersion, ...markedBindings, operationId, nextVersion, reservation.id, updatedBy));
+  `).bind(admin.id, nextVersion, ...markedBindings, operationId, nextVersion, reservation.id, updatedBy);
+  statements.push(calendarJob, succeedOperation, restoreActor);
   return statements;
 };
 
 export async function commitAdminRescheduleReservation(input: RescheduleCommitInput): Promise<RescheduleCommitResult> {
   if (!isNonEmptyString(input.reservationId, 128)) return { ok: false, reason: "invalid_request" };
 
-  const { db, admin, request } = input;
+  const { request } = input;
   let intent = request.intent;
   if (intent.kind === "move") {
     const startMs = parseStrictIsoOffsetInstantMs(intent.startAt);
@@ -1239,11 +1240,15 @@ export async function commitAdminRescheduleReservation(input: RescheduleCommitIn
   const fingerprintHash = await sha256Hex(request.previewFingerprint);
   if (!request.idempotencyKey.endsWith(`:${fingerprintHash}`)) return { ok: false, reason: "idempotency_conflict" };
   if (commit.check) return checkChangeOperation(commit, target.reservation, prior);
+  return commitNewReschedule(commit);
+}
 
+async function commitNewReschedule(commit: RescheduleCommit): Promise<RescheduleCommitResult> {
+  const { db, admin, request } = commit;
   const current = await readCommitTarget(commit);
   if (!current.ok) return current;
   const { reservation } = current;
-  const proposal = await validateRescheduleProposal(db, admin, reservation, commit.request);
+  const proposal = await validateRescheduleProposal(db, admin, reservation, request);
   if (!proposal.ok) {
     if (proposal.reason === "version_conflict") {
       return await resolveChangeOperation(commit, await readChangeOperation(commit)) ?? proposal;
@@ -1258,7 +1263,13 @@ export async function commitAdminRescheduleReservation(input: RescheduleCommitIn
   if (claim.meta.changes !== 1) {
     return readAfterChangeWrite(commit);
   }
+  return applyRescheduleCommit(commit, reservation, proposal, operationId);
+}
 
+async function applyRescheduleCommit(
+  commit: RescheduleCommit, reservation: ReservationRow, proposal: RescheduleProposal, operationId: string
+): Promise<RescheduleCommitResult> {
+  const { db, admin } = commit;
   let applied: number | undefined;
   try {
     const results = await db.batch(buildCommitRescheduleStatements(commit, reservation, proposal, operationId));
@@ -1279,9 +1290,10 @@ export async function commitAdminRescheduleReservation(input: RescheduleCommitIn
   }
 
   if (applied === 0) return finishUnappliedCommit(commit, operationId);
-  if (applied === 1) {
-    const operation = await readChangeOperation(commit);
-    if (operation?.status === "succeeded") return readChangeSuccess(commit, operation, false);
-  }
-  return { ok: false, reason: "write_failed" };
+  if (applied !== 1) return { ok: false, reason: "write_failed" };
+
+  const operation = await readChangeOperation(commit);
+  return operation?.status === "succeeded"
+    ? readChangeSuccess(commit, operation, false)
+    : { ok: false, reason: "write_failed" };
 }
