@@ -48,6 +48,7 @@ export const ADMIN_API_FAILURE_CODES = [
   "customer_not_found",
   "customer_time_conflict",
   "email_in_use",
+  "feature_disabled",
   "forbidden",
   "forbidden_role_escalation",
   "forbidden_self_deactivation",
@@ -80,6 +81,7 @@ export const ADMIN_API_FAILURE_CODES = [
   "linked_closure_dates_immutable",
   "missing_database",
   "no_active_resource",
+  "no_change",
   "not_found",
   "not_no_show",
   "not_pending",
@@ -100,7 +102,9 @@ export const ADMIN_API_FAILURE_CODES = [
   "store_not_found",
   "sweep_failed",
   "target_already_merged",
+  "undo_not_available",
   "unsupported_freq",
+  "version_conflict",
   "write_failed",
   // -- src/routes/admin-api.ts (direct admin API response codes) --
   "invalid_allergy_notes",
@@ -117,6 +121,7 @@ export const ADMIN_API_FAILURE_CODES = [
   "referrer_name_too_long",
   "query_failed",
   "result_too_large",
+  "unsupported_contract",
   // -- src/routes/shared.ts (admin gate / period filter parse) --
   "invalid_filter",
   "invalid_status",

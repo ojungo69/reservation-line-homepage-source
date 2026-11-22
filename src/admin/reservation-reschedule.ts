@@ -1,4 +1,5 @@
 import type { AdminUser } from "./access";
+import { parseStrictIsoOffsetInstantMs } from "./parse-iso-instant";
 import { isNonEmptyString, toIso, addMinutes, parseStartAt } from "./reservation-time-utils";
 import { IDEMPOTENCY_TTL_MS, sha256Hex } from "./settings-common";
 import { ensureBusinessTime } from "../reservations/business-hours";
@@ -8,7 +9,10 @@ import {
   RESERVATION_INTERVAL_MINUTES,
   SLOT_LOCK_INTERVAL_MINUTES
 } from "../reservations/slot-times";
-import { buildRescheduleStatements as buildTransitionRescheduleStatements } from "../reservations/transitions";
+import {
+  buildRescheduleStatements as buildTransitionRescheduleStatements,
+  CUSTOMER_TIME_LOCK_PHONE_HASH_SQL
+} from "../reservations/transitions";
 import { classifyReservationWriteError } from "../reservations/write-error";
 import { captureBatchWriteFailure } from "../sentry-helpers";
 import { adminWriteGuard, adminWriteWasRevoked } from "./write-authorization";
@@ -17,6 +21,17 @@ export type AdminRescheduleReservationRequest = {
   idempotencyKey: string;
   startAt: string;
   treatmentMinutes?: number;
+};
+
+export const RESCHEDULE_PREVIEW_CONTRACT = "calendar-interactions-v1";
+
+export type AdminReschedulePreviewRequest = {
+  contractVersion: typeof RESCHEDULE_PREVIEW_CONTRACT;
+  expectedVersion: number;
+  intent:
+    | { kind: "move"; startAt: string }
+    | { kind: "resize"; treatmentMinutes: number }
+    | { kind: "undo"; inverseOfOperationId: string };
 };
 
 type AdminRescheduleReservationSuccess = {
@@ -112,6 +127,16 @@ const fetchReservation = async (db: D1Database, reservationId: string) => {
     )
     .bind(reservationId)
     .first<ReservationRow>();
+};
+
+const fetchAuthorizedRescheduleReservation = async (db: D1Database, admin: AdminUser, reservationId: string) => {
+  const reservation = await fetchReservation(db, reservationId);
+  if (!reservation) return { ok: false, reason: "not_found" } as const;
+  // Staff can change reservations at their own store on any date.
+  if (admin.role === "staff" && (!admin.store_id || reservation.store_id !== admin.store_id)) {
+    return { ok: false, reason: "forbidden" } as const;
+  }
+  return { ok: true, reservation } as const;
 };
 
 const createRequestHash = async (input: {
@@ -272,6 +297,12 @@ type RescheduleRequestValidation =
     }
   | AdminRescheduleReservationFailure;
 
+const isValidRescheduleTreatmentMinutes = (minutes: number) =>
+  Number.isInteger(minutes) &&
+  minutes >= SLOT_LOCK_INTERVAL_MINUTES &&
+  minutes <= MAX_TOTAL_SERVICE_DURATION_MINUTES &&
+  minutes % SLOT_LOCK_INTERVAL_MINUTES === 0;
+
 const validateRescheduleRequest = (input: {
   reservationId: string;
   request: AdminRescheduleReservationRequest;
@@ -303,12 +334,7 @@ const validateRescheduleRequest = (input: {
   let durationOverrideMinutes: number | undefined;
   if (input.request.treatmentMinutes !== undefined) {
     const treatmentMinutes = input.request.treatmentMinutes;
-    if (
-      !Number.isInteger(treatmentMinutes) ||
-      treatmentMinutes < SLOT_LOCK_INTERVAL_MINUTES ||
-      treatmentMinutes > MAX_TOTAL_SERVICE_DURATION_MINUTES ||
-      treatmentMinutes % SLOT_LOCK_INTERVAL_MINUTES !== 0
-    ) {
+    if (!isValidRescheduleTreatmentMinutes(treatmentMinutes)) {
       return {
         ok: false,
         reason: "invalid_request"
@@ -334,17 +360,164 @@ export const isReschedulableReservation = (reservation: {
   !reservation.checked_in_at &&
   (reservation.status === "pending_approval" || reservation.status === "confirmed");
 
-const validateRescheduleReservation = (
-  reservation: ReservationRow
-): AdminRescheduleReservationFailure | undefined => {
-  if (isReschedulableReservation(reservation)) {
-    return undefined;
+const validateRescheduleTime = (reservation: ReservationRow, startAt: Date, durationMinutes: number, nowMs: number) => {
+  // Changing only the duration is allowed after the reservation has started.
+  const startUnchanged = startAt.getTime() === new Date(reservation.start_at).getTime();
+  if (!startUnchanged && startAt.getTime() <= nowMs) {
+    return { ok: false, reason: "invalid_time" } as const;
   }
+
+  // Bound the stored duration before generating slots for a move.
+  if (durationMinutes > MAX_TOTAL_SERVICE_DURATION_MINUTES + RESERVATION_INTERVAL_MINUTES) {
+    return { ok: false, reason: "invalid_time" } as const;
+  }
+  const slotTimes = generateSlotTimesForDuration(startAt, durationMinutes, SLOT_LOCK_INTERVAL_MINUTES);
+  if (!slotTimes) {
+    return { ok: false, reason: "invalid_time" } as const;
+  }
+  return { ok: true, startUnchanged, endAt: addMinutes(startAt, durationMinutes), slotTimes } as const;
+};
+
+const planRescheduleNotification = (reservation: ReservationRow, suppressNotification: boolean) => {
+  if (reservation.status !== "confirmed") return { kind: "none", reason: "pending_approval" } as const;
+  if (suppressNotification) return { kind: "none", reason: "start_unchanged" } as const;
+  if (!reservation.line_identity_id) return { kind: "none", reason: "no_line_identity" } as const;
+  return { kind: "time_changed", reason: "start_changed" } as const;
+};
+
+const describeRescheduleWindow = (startAt: Date, endAt: Date, occupancyMinutes: number) => {
+  const treatmentMinutes = Math.max(0, occupancyMinutes - RESERVATION_INTERVAL_MINUTES);
   return {
-    ok: false,
-    reason: "invalid_transition"
+    startAt: toIso(startAt),
+    treatmentEndAt: toIso(addMinutes(startAt, treatmentMinutes)),
+    endAt: toIso(endAt),
+    occupancyMinutes,
+    treatmentMinutes
   };
 };
+
+type AdminReschedulePreviewResult = {
+  ok: true;
+  contractVersion: typeof RESCHEDULE_PREVIEW_CONTRACT;
+  reservationId: string;
+  version: number;
+  intent: AdminReschedulePreviewRequest["intent"];
+  storeId: string;
+  resourceId: string;
+  status: ReservationRow["status"];
+  before: ReturnType<typeof describeRescheduleWindow>;
+  after: ReturnType<typeof describeRescheduleWindow>;
+  notificationPlan: ReturnType<typeof planRescheduleNotification>;
+  calendarPlan: "enqueue_upsert";
+  previewFingerprint: string;
+} | {
+  ok: false;
+  reason: "invalid_request" | "forbidden" | "not_found" | "feature_disabled" | "invalid_transition"
+    | "undo_not_available" | "invalid_time" | "no_change" | "outside_business_hours" | "store_closed"
+    | "slot_unavailable" | "customer_time_conflict";
+} | {
+  ok: false;
+  reason: "version_conflict";
+  version: number;
+  status: ReservationRow["status"] | "checked_in";
+};
+
+export async function previewAdminRescheduleReservation(input: {
+  db: D1Database;
+  admin: AdminUser;
+  reservationId: string;
+  request: AdminReschedulePreviewRequest;
+  featureEnabled: boolean;
+}): Promise<AdminReschedulePreviewResult> {
+  if (!isNonEmptyString(input.reservationId, 128)) return { ok: false, reason: "invalid_request" };
+  const target = await fetchAuthorizedRescheduleReservation(input.db, input.admin, input.reservationId);
+  if (!target.ok) return target;
+  if (!input.featureEnabled) return { ok: false, reason: "feature_disabled" };
+
+  const { reservation } = target;
+  const { contractVersion, expectedVersion, intent } = input.request;
+  if (reservation.version !== expectedVersion) {
+    return {
+      ok: false,
+      reason: "version_conflict",
+      version: reservation.version,
+      status: reservation.status === "confirmed" && reservation.checked_in_at ? "checked_in" : reservation.status
+    };
+  }
+  if (!isReschedulableReservation(reservation)) return { ok: false, reason: "invalid_transition" };
+  // Undo requires a successful operation to restore, which is introduced by T013.
+  if (intent.kind === "undo") return { ok: false, reason: "undo_not_available" };
+  if (intent.kind === "resize" && !isValidRescheduleTreatmentMinutes(intent.treatmentMinutes)) {
+    return { ok: false, reason: "invalid_request" };
+  }
+
+  const rawStartAt = intent.kind === "move" ? intent.startAt : reservation.start_at;
+  if (intent.kind === "move" && parseStrictIsoOffsetInstantMs(rawStartAt) === null) {
+    return { ok: false, reason: "invalid_time" };
+  }
+  const startAt = parseStartAt(rawStartAt, SLOT_LOCK_INTERVAL_MINUTES);
+  if (!startAt) return { ok: false, reason: "invalid_time" };
+  const durationMinutes = intent.kind === "resize"
+    ? intent.treatmentMinutes + RESERVATION_INTERVAL_MINUTES
+    : reservation.duration_minutes;
+  const time = validateRescheduleTime(reservation, startAt, durationMinutes, Date.now());
+  if (!time.ok) return time;
+  if (time.startUnchanged && durationMinutes === reservation.duration_minutes) {
+    return { ok: false, reason: "no_change" };
+  }
+  const businessTimeError = await ensureBusinessTime(input.db, reservation.store_id, reservation.timezone, startAt, time.endAt);
+  if (businessTimeError) return businessTimeError;
+
+  const slotPlaceholders = time.slotTimes.map(() => "?").join(", ");
+  const occupied = await input.db.prepare(`
+    SELECT 1 FROM slot_locks
+    WHERE store_id = ? AND resource_id = ?
+      AND slot_at IN (${slotPlaceholders})
+      AND NOT (owner_type = 'reservation' AND owner_id = ?)
+    UNION ALL
+    SELECT 1 FROM external_blocks
+    WHERE store_id = ? AND resource_id = ? AND status = 'active'
+      AND start_at < ? AND end_at > ?
+    LIMIT 1
+  `).bind(
+    reservation.store_id, reservation.resource_id, ...time.slotTimes, reservation.id,
+    reservation.store_id, reservation.resource_id, toIso(time.endAt), toIso(startAt)
+  ).first();
+  if (occupied) return { ok: false, reason: "slot_unavailable" };
+  // Match both unique lock keys, including the write path's source-specific phone hash.
+  const customerConflict = await input.db.prepare(`
+    SELECT 1 FROM customer_time_locks
+    WHERE slot_at IN (${slotPlaceholders})
+      AND owner_id <> ?
+      AND (customer_id = ? OR phone_hash = ${CUSTOMER_TIME_LOCK_PHONE_HASH_SQL})
+    LIMIT 1
+  `).bind(...time.slotTimes, reservation.id, reservation.customer_id, reservation.id).first();
+  if (customerConflict) return { ok: false, reason: "customer_time_conflict" };
+
+  const confirmation = {
+    contractVersion,
+    reservationId: reservation.id,
+    intent: intent.kind === "move" ? { kind: "move", startAt: toIso(startAt) } as const : intent,
+    before: describeRescheduleWindow(new Date(reservation.start_at), new Date(reservation.end_at), reservation.duration_minutes),
+    after: describeRescheduleWindow(startAt, time.endAt, durationMinutes),
+    notificationPlan: planRescheduleNotification(reservation, time.startUnchanged),
+    calendarPlan: "enqueue_upsert"
+  } as const;
+  const previewFingerprint = await sha256Hex(JSON.stringify({
+    ...confirmation,
+    actorId: input.admin.id,
+    expectedVersion
+  }));
+  return {
+    ok: true,
+    ...confirmation,
+    version: reservation.version,
+    storeId: reservation.store_id,
+    resourceId: reservation.resource_id,
+    status: reservation.status,
+    previewFingerprint
+  };
+}
 
 const resolveRescheduleIdempotency = async (input: {
   db: D1Database;
@@ -487,11 +660,7 @@ const buildRescheduleStatements = (input: {
     ...transition.slice(1)
   ];
 
-  if (
-    input.reservation.status === "confirmed" &&
-    input.reservation.line_identity_id &&
-    !input.suppressNotification
-  ) {
+  if (planRescheduleNotification(input.reservation, input.suppressNotification).kind === "time_changed") {
     statements.push(
       input.db
         .prepare(
@@ -602,45 +771,15 @@ export async function rescheduleAdminReservation(input: {
   const startAt = requestValidation.startAt;
   const durationOverride = requestValidation.durationOverrideMinutes;
 
-  const reservation = await fetchReservation(input.db, input.reservationId);
-  if (!reservation) {
-    return {
-      ok: false,
-      reason: "not_found"
-    };
-  }
-  // staff は自店舗 scope のみ (2026-07-14 当日ガード撤廃 — reservations.ts の
-  // validateAdminActionAuthorization と同一方針: 日付を問わず自店舗予約を操作可)。
-  if (input.admin.role === "staff" && (!input.admin.store_id || reservation.store_id !== input.admin.store_id)) {
-    return { ok: false, reason: "forbidden" };
-  }
-  const transitionError = validateRescheduleReservation(reservation);
-  if (transitionError) {
-    return transitionError;
-  }
-
-  // 過去時刻ガードは開始時刻を「動かす」ときだけ適用する。施術時間変更(開始不変)は、既に
-  // 始まった予約を延長/短縮するという正当な用途があるため、開始が過去でも許可する。開始を動かす
-  // リクエスト(通常の時間変更、または start と treatmentMinutes を同時指定する混在)は従来どおり
-  // 過去への移動を拒否する。開始不変の判定は ISO 表現差に影響されないよう instant で比較する。
-  const startUnchanged = startAt.getTime() === new Date(reservation.start_at).getTime();
-  if (!startUnchanged && startAt.getTime() <= nowMs) {
-    return { ok: false, reason: "invalid_time" };
-  }
+  const target = await fetchAuthorizedRescheduleReservation(input.db, input.admin, input.reservationId);
+  if (!target.ok) return target;
+  const { reservation } = target;
+  if (!isReschedulableReservation(reservation)) return { ok: false, reason: "invalid_transition" };
 
   const effectiveDuration = durationOverride ?? reservation.duration_minutes;
-  const endAt = addMinutes(startAt, effectiveDuration);
-  const slotTimes = generateSlotTimesForDuration(startAt, effectiveDuration, SLOT_LOCK_INTERVAL_MINUTES);
-  if (!slotTimes || slotTimes.length > 48) {
-    // 48-slot upper bound mirrors the 4h cap enforced by the shared transition
-    // builder. Any reservation row with duration_minutes > 240 (legacy data or
-    // future feature drift) would otherwise throw deep inside the builder and
-    // bypass the API failure enum mapping.
-    return {
-      ok: false,
-      reason: "invalid_time"
-    };
-  }
+  const time = validateRescheduleTime(reservation, startAt, effectiveDuration, nowMs);
+  if (!time.ok) return time;
+  const { endAt, startUnchanged } = time;
 
   // Staff rescheduling intentionally omits serviceIds so it remains a manual
   // recovery path outside the customer-facing men's booking window.

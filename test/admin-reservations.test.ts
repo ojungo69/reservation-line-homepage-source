@@ -2542,6 +2542,33 @@ describe("P2 admin reservation list date scope", () => {
     }
   });
 
+  it("returns the stored reservation version in the date list API", async () => {
+    const db = createMigratedSqliteD1();
+    try {
+      const access = createAccessJwtFixture();
+      vi.stubGlobal("fetch", createFetchMock(access.jwk));
+      insertAdminUser(db);
+      seedReservation(db, {
+        id: "res_with_version",
+        startAtIso: "2026-06-01T01:00:00.000Z",
+        endAtIso: "2026-06-01T02:00:00.000Z",
+        status: "confirmed"
+      });
+      db.sqlite.prepare("UPDATE reservations SET version = 7 WHERE id = 'res_with_version'").run();
+
+      const response = await adminRequest(db, "/api/admin/reservations?range=date&date=2026-06-01", access.token);
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: true,
+        reservations: [{ id: "res_with_version", version: 7 }]
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      db.sqlite.close();
+    }
+  });
+
   it("(b) staff+date returns the requested JST window (2026-07-14: 当日 clamp 撤廃)", async () => {
     const db = createMigratedSqliteD1();
     try {
