@@ -10,7 +10,7 @@ import {
   columnState,
   openingOf,
 } from "@/components/calendar-v2/body";
-import { activeResourceIds, buildColumns, effectiveView, visibleStoreId, type CalendarColumn, type CalendarView } from "@/components/calendar-v2/columns";
+import { STORE_COLUMN_MIN_WIDTH_PX, activeResourceIds, buildColumns, effectiveView, visibleStoreId, type CalendarColumn, type CalendarView } from "@/components/calendar-v2/columns";
 import { PX_PER_MINUTE, mondayWeek } from "@/components/calendar-v2/geometry";
 import { CalendarGrid } from "@/components/calendar-v2/grid";
 import { dayLabel, shortDayLabel, spanLabel, weekHeading } from "@/components/calendar-v2/labels";
@@ -101,6 +101,7 @@ export default function ScheduleV2Page() {
   const navigate = useNavigate();
   const shell = useShellV2();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const dateBandRef = useRef<HTMLFieldSetElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const periodOf = (at: Date) => (week ? mondayWeek(at) : [at]);
@@ -126,11 +127,14 @@ export default function ScheduleV2Page() {
 
   const columnsAt = (at: Date) => (view === "list" ? [] : buildColumns(view, at, storeId, stores));
   const columns = columnsAt(date);
+  const allStoresDay = view === "day" && storeId === null;
+  const minColumnsWidth = allStoresDay ? columns.length * STORE_COLUMN_MIN_WIDTH_PX : undefined;
+  const periodKey = `${view}|${dayKeys[0]}|${storeId ?? "all"}`;
   const settingsUsable = settings !== null && !settingsQuery.isError;
   const states = columns.map((column) => columnState(column, dayByKey, settings, settingsUsable));
   const storesWhere = (test: (state: (typeof states)[number]) => boolean) =>
     [...new Set(states.filter(test).map((state) => state.column.storeName))];
-  const { overlayRef, scrollerRef, layout } = useCalendarLayout(columns.length);
+  const { overlayRef, scrollerRef, layout, columnsOverflow } = useCalendarLayout(columns.length, periodKey);
 
   // Page move stays shut while a sheet of this page is open (see ShellV2).
   const sheetOpen = selectedReservationId !== null || createDefaults !== null || pendingOpen || cancelBlock !== null;
@@ -157,7 +161,7 @@ export default function ScheduleV2Page() {
   // or the view change; scrollKey names every input read here, so a refresh does
   // not move the grid. A step to the next or previous period keeps the hours in
   // view, so days compare at the same time (INT-01-05).
-  const scrollKey = `${view}|${dayKeys[0]}|${storeId ?? "all"}|${String(settings !== null)}`;
+  const scrollKey = `${periodKey}|${String(settings !== null)}`;
   const keepHours = useRef(false);
   // Whether the grid was open at a time, so a step has hours to keep.
   const gridOpen = useRef(false);
@@ -241,17 +245,18 @@ export default function ScheduleV2Page() {
 
   const todayKey = formatJstDate(now);
   const nowJst = toJstDate(now);
+  const nowMinute = nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes();
   // The bar's 前/次, its date picker and the body's swipe and wheel move here (T006).
   const goTo = (next: Date) => {
     keepHours.current = true;
     setDate(next);
   };
   const step = (direction: -1 | 1) => goTo(addDays(date, direction * bar.stepDays));
-  usePeriodSwipe(scrollerRef, rootRef, step, `${view}|${dayKeys[0]}|${storeId ?? "all"}`);
+  usePeriodSwipe({ scrollerRef, rootRef, dateBandRef, onStep: step, periodKey, columnsOverflow });
 
   const blockHandler = isPrivileged ? onBlock : undefined;
   const headerAt = (at: Date) => (
-    <DayHeaderRow>
+    <DayHeaderRow minColumnsWidth={minColumnsWidth}>
       <DayHeaderCells
         columns={columnsAt(at)}
         dayByKey={dayByKey}
@@ -269,12 +274,17 @@ export default function ScheduleV2Page() {
     const atColumns = columnsAt(at);
     if (atColumns.length === 0) return <NoColumns loading={settingsQuery.isPending} />;
     return (
-      <CalendarGrid>
+      <CalendarGrid
+        minColumnsWidth={minColumnsWidth}
+        columnsOverflow={layout.columnsOverflow}
+        gutterNowMinute={allStoresDay && atColumns[0].dateKey === todayKey ? nowMinute : null}
+      >
         <CalendarColumns
           states={atColumns.map((column) => columnState(column, dayByKey, settings, settingsUsable))}
           week={week}
+          nowDotInGutter={allStoresDay}
           todayKey={todayKey}
-          nowMinute={nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes()}
+          nowMinute={nowMinute}
           columnPx={layout.columnPx}
           selectedId={selectedReservationId}
           layers={layers}
@@ -305,6 +315,7 @@ export default function ScheduleV2Page() {
           heading={bar.heading}
           spoken={bar.spoken}
           headingRef={headingRef}
+          dateBandRef={dateBandRef}
           date={date}
           onPickDate={goTo}
           view={view}
@@ -343,10 +354,12 @@ export default function ScheduleV2Page() {
         data-calendar-scroll=""
         // Focus falls back here when what opened a sheet is gone.
         tabIndex={-1}
-        // isolate: the grid's own layers (a focused slot's ring is z-40) stay
-        // under the bar, which comes first in the DOM. pan-y pinch-zoom: the
-        // browser scrolls and zooms, and sideways touches are the swipe's.
-        className="isolate h-full touch-pan-y touch-pinch-zoom overflow-x-hidden overflow-y-auto overscroll-contain outline-hidden"
+        // Keep the grid's layers under the bar and the neighbouring panes out of sight.
+        // With overflowing columns the browser handles both scroll axes and zoom.
+        className={cn(
+          "isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain outline-hidden",
+          !layout.columnsOverflow && "touch-pan-y touch-pinch-zoom",
+        )}
         style={{ paddingTop: layout.barPx, scrollPaddingTop: layout.barPx }}
       >
         {/* At least a screen tall, so a short day's neighbours show a screen of theirs.

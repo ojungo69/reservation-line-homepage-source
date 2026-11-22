@@ -133,6 +133,7 @@ function dayStatus(day: DayData | undefined): string {
 export function CalendarColumns({
   states,
   week,
+  nowDotInGutter,
   todayKey,
   nowMinute,
   columnPx,
@@ -144,6 +145,7 @@ export function CalendarColumns({
 }: Readonly<{
   states: readonly ColumnState[];
   week: boolean;
+  nowDotInGutter: boolean;
   todayKey: string;
   nowMinute: number;
   columnPx: number | null;
@@ -170,7 +172,7 @@ export function CalendarColumns({
         slots={state.slots}
         tint={week && today}
         nowMinute={today ? nowMinute : null}
-        showNowDot={column.key === firstToday}
+        showNowDot={!nowDotInGutter && column.key === firstToday}
         widthPx={columnPx}
         selectedId={selectedId}
         onSlot={onSlot}
