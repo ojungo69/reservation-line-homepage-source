@@ -31,6 +31,7 @@ export function CalendarTopBar({
   heading,
   spoken,
   headingRef,
+  dateBandRef,
   date,
   onPickDate,
   view,
@@ -51,6 +52,7 @@ export function CalendarTopBar({
   // Focus lands here when the control that had it goes away (a day header in the
   // week, a retry button once its alert clears).
   headingRef: Ref<HTMLHeadingElement>;
+  dateBandRef: Ref<HTMLDivElement>;
   date: Date;
   onPickDate: (date: Date) => void;
   view: CalendarView;
@@ -81,55 +83,64 @@ export function CalendarTopBar({
   return (
     <div className="glass-thick pointer-events-auto text-cal-text">
       <div className="flex min-h-15 flex-wrap items-center gap-1 px-2 py-1.5">
-        {shell?.showMenuButton && (
-          <button
-            ref={shell.menuButtonRef}
-            type="button"
-            onClick={shell.openMenu}
-            aria-label="メニュー"
-            aria-expanded={shell.menuOpen}
-            className={ICON_BUTTON}
+        <div className="flex min-w-0 max-w-full items-center gap-1">
+          {shell?.showMenuButton && (
+            <button
+              ref={shell.menuButtonRef}
+              type="button"
+              onClick={shell.openMenu}
+              aria-label="メニュー"
+              aria-expanded={shell.menuOpen}
+              className={ICON_BUTTON}
+            >
+              <Menu className="size-5" aria-hidden="true" />
+            </button>
+          )}
+          <div
+            ref={dateBandRef}
+            role="group"
+            aria-label="日付の移動"
+            className="flex min-w-0 touch-pan-y touch-pinch-zoom items-center gap-1 rounded-full bg-cal-text/5"
           >
-            <Menu className="size-5" aria-hidden="true" />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onToday}
-          className={cn("min-h-11 rounded-full px-4 text-sm font-medium hover:bg-cal-text/8", PRESSABLE)}
-        >
-          今日
-        </button>
-        <button type="button" onClick={() => onStep(-1)} aria-label={`前の${stepUnit}`} className={ICON_BUTTON}>
-          <ChevronLeft className="size-5" aria-hidden="true" />
-        </button>
-        <button type="button" onClick={() => onStep(1)} aria-label={`次の${stepUnit}`} className={ICON_BUTTON}>
-          <ChevronRight className="size-5" aria-hidden="true" />
-        </button>
-        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-          <h1 ref={headingRef} tabIndex={-1} className="min-w-0 outline-hidden">
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={cn("flex min-h-11 max-w-full items-center gap-1 rounded-full px-2 text-xl hover:bg-cal-text/8 max-sm:text-lg", PRESSABLE)}
-              >
-                <span className="truncate">{heading}</span>
-                <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
-              </button>
-            </PopoverTrigger>
-          </h1>
-          {/* Opaque: DESIGN.md §3 keeps glass to the bar, the + button, details and page move. */}
-          <PopoverContent align="start" material="surface" aria-label="日付選択">
-            <MiniCalendar
-              selected={date}
-              weekStartsOn={1}
-              onSelect={(day) => {
-                onPickDate(day);
-                setPickerOpen(false);
-              }}
-            />
-          </PopoverContent>
-        </Popover>
+            <button
+              type="button"
+              onClick={onToday}
+              className={cn("min-h-11 shrink-0 rounded-full px-4 text-sm font-medium hover:bg-cal-text/8", PRESSABLE)}
+            >
+              今日
+            </button>
+            <button type="button" onClick={() => onStep(-1)} aria-label={`前の${stepUnit}`} className={ICON_BUTTON}>
+              <ChevronLeft className="size-5" aria-hidden="true" />
+            </button>
+            <button type="button" onClick={() => onStep(1)} aria-label={`次の${stepUnit}`} className={ICON_BUTTON}>
+              <ChevronRight className="size-5" aria-hidden="true" />
+            </button>
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <h1 ref={headingRef} tabIndex={-1} className="min-w-0 outline-hidden">
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn("flex min-h-11 max-w-full items-center gap-1 rounded-full px-2 text-xl hover:bg-cal-text/8 max-sm:text-lg", PRESSABLE)}
+                  >
+                    <span className="truncate">{heading}</span>
+                    <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
+                  </button>
+                </PopoverTrigger>
+              </h1>
+              {/* Opaque: DESIGN.md §3 keeps glass to the bar, the + button, details and page move. */}
+              <PopoverContent align="start" material="surface" aria-label="日付選択">
+                <MiniCalendar
+                  selected={date}
+                  weekStartsOn={1}
+                  onSelect={(day) => {
+                    onPickDate(day);
+                    setPickerOpen(false);
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
         <p className="sr-only" aria-live="polite">
           {spoken}
         </p>
@@ -198,11 +209,14 @@ export function DayHeader({ scrollbarPx, children }: Readonly<{ scrollbarPx: num
 }
 
 /** One period's names: the time zone over the gutter, then one per column. */
-export function DayHeaderRow({ children }: Readonly<{ children: ReactNode }>) {
+export function DayHeaderRow({ children, minColumnsWidth }: Readonly<{ children: ReactNode; minColumnsWidth: number | undefined }>) {
+  const names = <div className="flex min-w-0 flex-1" style={{ minWidth: minColumnsWidth }}>{children}</div>;
   return (
     <div className="flex">
       <div className={cn("flex items-end justify-end pb-1 pr-2 text-xs", GUTTER_CLASS)}>JST</div>
-      <div className="flex min-w-0 flex-1">{children}</div>
+      {minColumnsWidth !== undefined ? (
+        <div data-calendar-columns-scroll="" className="min-w-0 flex-1 overflow-hidden">{names}</div>
+      ) : names}
     </div>
   );
 }

@@ -5,6 +5,9 @@ import { mondayWeek } from "./geometry";
 export type CalendarView = "list" | "day" | "week";
 type GridView = Exclude<CalendarView, "list">;
 
+// Match the store columns in the original schedule.
+export const STORE_COLUMN_MIN_WIDTH_PX = 120;
+
 export type CalendarColumn = Readonly<{
   key: string;
   dateKey: string;

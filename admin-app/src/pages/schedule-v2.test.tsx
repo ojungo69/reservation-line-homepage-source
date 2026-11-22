@@ -407,6 +407,22 @@ describe("ScheduleV2Page の店舗の扱い", () => {
     expect(shownBody().querySelectorAll("[data-calendar-column]")).toHaveLength(3);
   });
 
+  it("全店舗の日表示だけ、3 列に 120px ずつの幅を確保する", async () => {
+    storeState.selected = null;
+    storeState.stores = STORES;
+    const user = userEvent.setup();
+    renderPage();
+    await eventButton(/^駅前 次郎、/);
+    expect(column("2026-11-20:s1")?.parentElement?.style.minWidth).toBe("360px");
+
+    storeState.selected = "s1";
+    act(refreshPage);
+    expect(screen.getByRole("button", { name: "週" }).getAttribute("aria-pressed")).toBe("true");
+    expect(column("2026-11-20:s1")?.parentElement?.style.minWidth).toBe("");
+    await user.click(screen.getByRole("button", { name: "日" }));
+    expect(column("2026-11-20:s1")?.parentElement?.style.minWidth).toBe("");
+  });
+
   it("全店舗の日表示では、外部予定をその店舗の列に出す（店舗の別の枠のものも）", async () => {
     storeState.selected = null;
     storeState.stores = STORES;
@@ -1334,6 +1350,109 @@ const swipe = (target: Element, dx: number, dy = 0, init: PointerInit & { x?: nu
 };
 const scroller = () => document.querySelector("[data-calendar-scroll]") as HTMLElement;
 const heading = () => screen.getByRole("heading", { level: 1 }).textContent;
+const storeColumnsViewport = () => {
+  const viewport = shownBody().querySelector<HTMLElement>("[data-calendar-columns-scroll]");
+  if (!viewport) throw new Error("Store columns scroll viewport was not rendered");
+  return viewport;
+};
+
+it("全店舗の列があふれるときは、列の端に着いても本文のタッチと wheel で日付を送らない", async () => {
+  storeState.selected = null;
+  storeState.stores = STORES;
+  renderPage();
+  const card = await eventButton(/^駅前 次郎、/);
+  const viewport = storeColumnsViewport();
+  Object.defineProperties(viewport, { clientWidth: { value: 280 }, scrollWidth: { value: 360 } });
+
+  swipe(card, -150);
+  expect(heading()).toBe("11月20日（金）");
+  expect(fireEvent.wheel(viewport, { deltaX: 100 })).toBe(true);
+
+  // jsdom does not perform the native scroll: place the columns at their right edge.
+  viewport.scrollLeft = 80;
+  fireEvent.scroll(viewport);
+  const header = [...document.querySelectorAll<HTMLElement>('[data-period-side="0"] [data-calendar-columns-scroll]')]
+    .find((element) => !scroller().contains(element));
+  expect(header?.scrollLeft).toBe(80);
+  expect(fireEvent.wheel(viewport, { deltaX: 120 })).toBe(true);
+  swipe(viewport, -150);
+  expect(heading()).toBe("11月20日（金）");
+});
+
+it("列があふれてもヘッダーの帯を触って日を送り、ボタンのタップと払いを区別する", async () => {
+  storeState.selected = null;
+  storeState.stores = STORES;
+  const user = userEvent.setup();
+  renderPage();
+  await eventButton(/^駅前 次郎、/);
+  Object.defineProperties(storeColumnsViewport(), { clientWidth: { value: 280 }, scrollWidth: { value: 360 } });
+  const band = screen.getByRole("group", { name: "日付の移動" });
+  const prev = within(band).getByRole("button", { name: "前の日" });
+  const next = within(band).getByRole("button", { name: "次の日" });
+
+  swipe(band, -150);
+  expect(heading()).toBe("11月21日（土）");
+  await user.click(prev);
+  expect(heading()).toBe("11月20日（金）");
+  point("pointerDown", next, 300, 50);
+  point("pointerUp", next, 300, 50);
+  fireEvent.click(next, { detail: 1 });
+  expect(heading()).toBe("11月21日（土）");
+
+  swipe(prev, -150);
+  fireEvent.click(prev, { detail: 1 });
+  expect(heading()).toBe("11月22日（日）");
+  swipe(band, -150, 0, { type: "mouse" });
+  swipe(band, -150, 0, { type: "pen" });
+  expect(heading()).toBe("11月22日（日）");
+  // A fast flick can lift before any move decides its axis; its click is still no press.
+  point("pointerDown", next, 300, 50);
+  point("pointerUp", next, 150, 50);
+  fireEvent.click(next, { detail: 1 });
+  expect(heading()).toBe("11月23日（月）");
+
+  await user.click(within(band).getByRole("button", { name: "11月23日（月）" }));
+  expect(screen.getByRole("dialog", { name: "日付選択" })).toBeTruthy();
+});
+
+it("操作の途中で列が収まっても担当は変わらず、次の操作から本文で日付を送れる", async () => {
+  const resized: ResizeObserverCallback[] = [];
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback: ResizeObserverCallback) { resized.push(callback); }
+    observe() {}
+    disconnect() {}
+  });
+  storeState.selected = null;
+  storeState.stores = STORES;
+  renderPage();
+  await eventButton(/^駅前 次郎、/);
+  const viewport = storeColumnsViewport();
+  let width = 280;
+  Object.defineProperties(viewport, { clientWidth: { get: () => width }, scrollWidth: { value: 360 } });
+  const resize = () => act(() => {
+    for (const callback of resized) callback([], {} as ResizeObserver);
+  });
+  resize();
+  expect(viewport.classList.contains("touch-pan-y")).toBe(false);
+
+  point("pointerDown", viewport, 300, 400);
+  expect(fireEvent.wheel(viewport, { deltaX: 100 })).toBe(true);
+  width = 360;
+  resize();
+  expect(viewport.classList.contains("touch-pan-y")).toBe(true);
+  point("pointerMove", viewport, 150, 400);
+  point("pointerUp", viewport, 150, 400);
+  expect(fireEvent.wheel(viewport, { deltaX: 120 })).toBe(true);
+  expect(heading()).toBe("11月20日（金）");
+
+  await quiet();
+  expect(fireEvent.wheel(viewport, { deltaX: 100 })).toBe(false);
+  expect(heading()).toBe("11月21日（土）");
+  swipe(storeColumnsViewport(), -150);
+  expect(heading()).toBe("11月22日（日）");
+  swipe(screen.getByRole("group", { name: "日付の移動" }), 150);
+  expect(heading()).toBe("11月21日（土）");
+});
 
 describe("ScheduleV2Page のフリック（T006）", () => {
   it("日表示で内容を左へ送ると次の日、右へ送ると前の日へ動く", async () => {
@@ -2292,6 +2411,29 @@ describe("ScheduleV2Page のすべるフリック（T006 の 3 つ目）", () =>
     expect(heading()).toBe("11月20日（金）");
   });
 
+  it("ヘッダーの払いも隣の期間を見せ、すべっている途中のボタンのタップはボタンの動きにする", async () => {
+    storeState.selected = null;
+    storeState.stores = STORES;
+    renderPage();
+    await eventButton(/^駅前 次郎、/);
+    wide();
+    Object.defineProperties(storeColumnsViewport(), { clientWidth: { value: 280 }, scrollWidth: { value: 360 } });
+    const band = screen.getByRole("group", { name: "日付の移動" });
+    point("pointerDown", band, 300, 50);
+    point("pointerMove", band, 200, 50);
+    expect(paneTransforms()).toEqual(["translateX(-100px)", "translateX(-100px)"]);
+    point("pointerUp", band, 200, 50);
+    expect(flights()).toHaveLength(2);
+    expect(heading()).toBe("11月20日（金）");
+
+    const prev = within(band).getByRole("button", { name: "前の日" });
+    point("pointerDown", prev, 200, 50);
+    point("pointerUp", prev, 200, 50);
+    fireEvent.click(prev, { detail: 1 });
+    expect(heading()).toBe("11月19日（木）");
+    expect(flights()).toHaveLength(0);
+  });
+
   it("すべっている途中で画面を離れると、すべりを止める", async () => {
     const user = userEvent.setup();
     const { unmount } = renderPage();
@@ -2578,6 +2720,24 @@ const wheel = (dx: number, dy = 0, init: { deltaMode?: number; ctrlKey?: boolean
 const quiet = () => new Promise((resolve) => setTimeout(resolve, 300));
 
 describe("ScheduleV2Page の横スクロール（T006）", () => {
+  it("入力欄から始まった横 wheel は、本文に移っても入力が途切れるまで日付を送らない", async () => {
+    storeState.stores = STORES.slice(0, 1);
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "日" }));
+    const field = scroller().appendChild(document.createElement("input"));
+    try {
+      expect(fireEvent.wheel(field, { deltaX: 100 })).toBe(true);
+      expect(wheel(100)).toBe(true);
+      expect(heading()).toBe("11月20日（金）");
+      await quiet();
+      expect(wheel(100)).toBe(false);
+      expect(heading()).toBe("11月21日（土）");
+    } finally {
+      field.remove();
+    }
+  });
+
   it("横の wheel は 80px たまると 1 日動き、入力が途切れるまで次へは進まない", async () => {
     const user = userEvent.setup();
     renderPage();

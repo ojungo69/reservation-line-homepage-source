@@ -5,7 +5,7 @@ import { FRAME_MS, frameAt, releaseVelocity, springFrames, swipeAxis, swipeStep,
 // INT-04-09: a touch that starts this close to a screen edge belongs to the
 // system's back gesture.
 const EDGE_PX = 24;
-// INT-01-04, INT-08-08: fields keep their own touch handling.
+// INT-01-04, INT-08-08: fields keep their own touch and wheel handling.
 const FIELDS = "input, textarea, select, [contenteditable]";
 // How far the new period's content travels in from the side it came from.
 const ENTER_PX = 80;
@@ -18,6 +18,8 @@ type Gesture = {
   id: number;
   x: number;
   y: number;
+  area: HTMLElement;
+  areaWidth: number;
   width: number;
   // Where the strip was when the finger came down: off rest when it caught a glide.
   base: number;
@@ -39,12 +41,9 @@ function motion() {
 }
 
 /**
- * One-finger swipes and sideways wheel gestures (a Mac trackpad) on the
- * calendar body move by one period (spec 008 T006, interactions.md INT-04,
- * INT-05, INT-13). The body scrolls vertically with
- * touch-action: pan-y pinch-zoom, so the browser keeps vertical scrolling and
- * zoom and hands over sideways touches; mouse and pen are left for dragging
- * bookings (INT-03, T011). While a swipe moves, every [data-swipe-pane] strip
+ * One-finger swipes on the date bar and body, and sideways wheel gestures on
+ * the body, move by one period (T006, INT-04, INT-05, INT-13). Overflowing store
+ * columns keep their native scroll and zoom. While a swipe moves, every [data-swipe-pane] strip
  * under the root follows the finger and brings the neighbouring period in
  * (PeriodStrip); released, it glides on from the finger's speed to that period
  * or back, and the step is made once it lands, so its render never stalls the
@@ -52,14 +51,24 @@ function motion() {
  * the shown period, view and store: a change from elsewhere ends a glide
  * without its step.
  */
-export function usePeriodSwipe(
-  scrollerRef: RefObject<HTMLElement | null>,
-  rootRef: RefObject<HTMLElement | null>,
-  onStep: (direction: -1 | 1) => void,
-  periodKey: string,
-) {
+export function usePeriodSwipe({
+  scrollerRef,
+  rootRef,
+  dateBandRef,
+  onStep,
+  periodKey,
+  columnsOverflow,
+}: Readonly<{
+  scrollerRef: RefObject<HTMLElement | null>;
+  rootRef: RefObject<HTMLElement | null>;
+  dateBandRef: RefObject<HTMLElement | null>;
+  onStep: (direction: -1 | 1) => void;
+  periodKey: string;
+  columnsOverflow: () => boolean;
+}>) {
   // flushSync: the next period is on screen before the strip is put back.
   const step = useEffectEvent((direction: -1 | 1) => flushSync(() => onStep(direction)));
+  const bodyHasOverflow = useEffectEvent(columnsOverflow);
   const endSwipe = useRef(() => {});
   // 前/次, the date picker or a store moved the period under a held swipe or a
   // glide: what they would bring in is no longer next door, so both end without
@@ -70,22 +79,24 @@ export function usePeriodSwipe(
 
   useEffect(() => {
     const scroller = scrollerRef.current;
-    if (!scroller) return;
+    const root = rootRef.current;
+    const dateBand = dateBandRef.current;
+    if (!scroller || !root || !dateBand) return;
     let gesture: Gesture | null = null;
     let flight: Flight | null = null;
     let unblock: (() => void) | null = null;
-    // A finger that caught a glide: its press opens nothing, however its swipe ends.
-    let caughtId: number | null = null;
-    let wheelAxis: "x" | "y" | null = null;
+    // A touch that caught a glide or moved sideways cannot also press a control.
+    let swipePressId: number | null = null;
+    let wheelOwner: "native" | "period" | null = null;
     let wheelSum = 0;
     let wheelDone = false;
     let wheelTimer = 0;
 
-    const panes = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-pane]") ?? [])];
+    const panes = () => [...root.querySelectorAll<HTMLElement>("[data-swipe-pane]")];
     // A scrolled list's neighbours are drawn from their own top, as a step shows
     // them (the page opens a list at its top): their content moves down inside
     // the clipped pane, so the scroll height stays.
-    const listContents = () => [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *") ?? [])];
+    const listContents = () => [...root.querySelectorAll<HTMLElement>("[data-swipe-from-top] > [data-period-side] > *")];
     // A list day in view keeps the scroll it is drawn at: the shift each is drawn
     // with, and the scroll that makes.
     const shifted = new WeakMap<HTMLElement, number>();
@@ -163,17 +174,23 @@ export function usePeriodSwipe(
     const seize = () => {
       const done = flight;
       flight = null;
-      if (!done) return 0;
-      let offset = frameAt(done.frames, Number(done.animations[0]?.currentTime ?? 0));
-      for (const animation of done.animations) animation.cancel();
-      if (done.direction !== 0 && offset * done.direction < 0) {
-        const drawn = new Map(listContents().map((content) => [content, drawnAt(content)]));
-        step(done.direction);
-        offset += done.direction * done.width;
-        // Each list day stays drawn where it was; a new one shows its top.
-        for (const content of listContents()) shift(content, scroller.scrollTop - (drawn.get(content) ?? 0));
+      let offset = 0;
+      if (done) {
+        offset = frameAt(done.frames, Number(done.animations[0]?.currentTime ?? 0));
+        for (const animation of done.animations) animation.cancel();
+        if (done.direction !== 0 && offset * done.direction < 0) {
+          const drawn = new Map(listContents().map((content) => [content, drawnAt(content)]));
+          const held = gesture;
+          gesture = null;
+          step(done.direction);
+          gesture = held;
+          offset += done.direction * done.width;
+          // Each list day stays drawn where it was; a new one shows its top.
+          for (const content of listContents()) shift(content, scroller.scrollTop - (drawn.get(content) ?? 0));
+        }
+        place(offset);
       }
-      place(offset);
+      for (const pane of panes()) for (const animation of pane.getAnimations?.() ?? []) animation.cancel();
       return offset;
     };
     endSwipe.current = () => {
@@ -194,10 +211,10 @@ export function usePeriodSwipe(
         event.preventDefault();
         unblock?.();
       };
-      scroller.addEventListener("click", swallow, { capture: true });
+      root.addEventListener("click", swallow, { capture: true });
       const timer = window.setTimeout(() => unblock?.(), CLICK_GRACE_MS);
       unblock = () => {
-        scroller.removeEventListener("click", swallow, { capture: true });
+        root.removeEventListener("click", swallow, { capture: true });
         window.clearTimeout(timer);
         unblock = null;
       };
@@ -212,6 +229,8 @@ export function usePeriodSwipe(
       stop();
       land();
     };
+    const widthChanged = (active: Gesture) =>
+      scroller.clientWidth !== active.width || active.area.clientWidth !== active.areaWidth;
     // A swipe that has turned sideways gets its own layer, and a scrolled list's
     // neighbours show their top.
     const prime = () => {
@@ -220,7 +239,7 @@ export function usePeriodSwipe(
       if (top > 0) for (const content of listContents()) if (content.parentElement?.dataset.periodSide !== "0") shift(content, top);
     };
 
-    // A second finger outside the body is seen too: the listener is on the document.
+    // The document also sees a second finger outside the body or the date bar.
     const onDown = (event: PointerEvent) => {
       unblock?.();
       // INT-04-07: a second finger ends the swipe and leaves the pinch to the browser.
@@ -229,16 +248,22 @@ export function usePeriodSwipe(
         return;
       }
       const target = event.target;
-      if (!(target instanceof Element) || !scroller.contains(target) || target.closest(FIELDS)) return;
+      if (!(target instanceof Element) || target.closest(FIELDS)) return;
       if (event.pointerType !== "touch" || !event.isPrimary) return;
       if (event.clientX < EDGE_PX || event.clientX > window.innerWidth - EDGE_PX) return;
-      if (flight) caughtId = event.pointerId;
-      const base = seize();
-      for (const pane of panes()) for (const animation of pane.getAnimations?.() ?? []) animation.cancel();
+      const area = dateBand.contains(target) ? dateBand : scroller;
+      if (area === scroller && (!scroller.contains(target) || bodyHasOverflow())) return;
+      // A date button still works as a tap during a glide. It catches the glide
+      // only if the finger moves sideways.
+      const waitForSwipe = flight !== null && area === dateBand && target.closest("button") !== null;
+      swipePressId = flight && !waitForSwipe ? event.pointerId : null;
+      const base = waitForSwipe ? 0 : seize();
       gesture = {
         id: event.pointerId,
         x: event.clientX,
         y: event.clientY,
+        area,
+        areaWidth: area.clientWidth,
         width: scroller.clientWidth,
         base,
         axis: null,
@@ -259,35 +284,40 @@ export function usePeriodSwipe(
         settle(gesture.offset);
         gesture.offset = 0;
       }
-      if (gesture.axis !== "x" || reduced()) return;
+      if (gesture.axis !== "x") return;
+      swipePressId = gesture.id;
+      if (flight) gesture.base = seize();
+      if (reduced()) return;
       if (was !== "x") prime();
       gesture.offset = within(gesture.base + dx, gesture.width);
       place(gesture.offset);
     };
     const onUp = (event: PointerEvent) => {
-      if (event.pointerId === caughtId) {
-        caughtId = null;
+      const alreadyBlocked = event.pointerId === swipePressId;
+      if (alreadyBlocked) {
+        swipePressId = null;
         blockClick();
       }
       if (event.pointerId !== gesture?.id) return;
-      const { x, width, base, offset, axis: was } = gesture;
+      const { x, width, areaWidth, base, offset, axis: was } = gesture;
+      const resized = widthChanged(gesture);
       // A fast flick may lift before a move has decided the axis.
       const axis = gesture.axis ?? swipeAxis(event.clientX - x, event.clientY - gesture.y);
       // A lift away from the last move adds the distance it saw.
       const track = gesture.track.at(-1)?.x === event.clientX ? gesture.track : [...gesture.track, { x: event.clientX, t: event.timeStamp }];
       gesture = null;
-      if (axis === "x") blockClick();
+      if (axis === "x" && !alreadyBlocked) blockClick();
       if (axis !== "x") {
         settle(offset);
         return;
       }
       const travel = event.clientX - x;
-      const shown = within(base + travel, width);
+      const shown = within((flight ? seize() : base) + travel, width);
       const velocity = releaseVelocity(track, event.timeStamp);
       // INT-04-04: how far and how fast this finger moved decides; a caught
-      // glide's offset only sets where the strip glides from. INT-10-04: a body
-      // whose width changed before the size observer reported it ends the swipe.
-      const direction = scroller.clientWidth === width ? swipeStep(travel, width, velocity) : 0;
+      // glide's offset only sets where the strip glides from. INT-10-04: a size
+      // change before the observer reports it also cancels the step.
+      const direction = resized ? 0 : swipeStep(travel, areaWidth, velocity);
       if (was !== "x" && glides()) prime();
       if (direction === 0) {
         settle(shown, velocity);
@@ -305,7 +335,7 @@ export function usePeriodSwipe(
     // or its target was redrawn away mid-swipe. A capture released after a
     // normal lift finds no gesture left.
     const onCancel = (event: PointerEvent) => {
-      if (event.pointerId === caughtId) caughtId = null;
+      if (event.pointerId === swipePressId) swipePressId = null;
       if (event.pointerId === gesture?.id) stop();
     };
     // INT-10-04・05: a rotation or resize, and leaving the window or the app, end
@@ -316,25 +346,28 @@ export function usePeriodSwipe(
     const onLeave = () => {
       stop();
       land();
-      if (wheelAxis !== null) wheelDone = true;
+      if (wheelOwner !== null) wheelDone = true;
     };
     const onHidden = () => {
       if (document.hidden) onLeave();
     };
     // INT-05: a gesture is wheel input without a 250ms gap, momentum included.
-    // Its first input fixes its axis (INT-03-08); a sideways one moves one period
-    // at most, once the signed sum of all its sideways input reaches 80px.
+    // The first input fixes who handles it (INT-03-08). Only sideways input in
+    // a fitting body can move a period, once its signed sum reaches 80px.
     const onWheel = (event: WheelEvent) => {
       // INT-05-04: ctrl + wheel is the trackpad's pinch zoom.
       if (event.ctrlKey) return;
       window.clearTimeout(wheelTimer);
       wheelTimer = window.setTimeout(() => {
-        wheelAxis = null;
+        wheelOwner = null;
         wheelSum = 0;
         wheelDone = false;
       }, WHEEL_GAP_MS);
       if (event.deltaX === 0 && event.deltaY === 0) return;
-      wheelAxis ??= Math.abs(event.deltaX) > Math.abs(event.deltaY) ? "x" : "y";
+      const target = event.target;
+      const overField = target instanceof Element && target.closest(FIELDS) !== null;
+      wheelOwner ??= !overField && !bodyHasOverflow() && Math.abs(event.deltaX) > Math.abs(event.deltaY) ? "period" : "native";
+      if (overField) return;
       // INT-04-06: while the strip is off rest under a finger or gliding, a wheel
       // neither scrolls (each list day is drawn at the scroll it had) nor steps;
       // its gesture keeps going with the axis its first input took, and the
@@ -348,7 +381,7 @@ export function usePeriodSwipe(
       }
       // INT-05-01: a vertical gesture scrolls the hours. INT-05-07: input the
       // page cannot cancel may still become the browser's back or forward.
-      if (wheelAxis !== "x" || !event.cancelable) return;
+      if (wheelOwner !== "period" || !event.cancelable) return;
       event.preventDefault();
       if (wheelDone) return;
       wheelSum += wheelPx(event.deltaX, event.deltaMode, scroller.clientWidth);
@@ -368,17 +401,17 @@ export function usePeriodSwipe(
     window.addEventListener("resize", onResize);
     window.addEventListener("blur", onLeave);
     document.addEventListener("visibilitychange", onHidden);
-    // INT-10-04: the body changing width under a swipe (a layout change without a
-    // window resize) ends it too, even while the finger is held still. The first
-    // report and a change of height alone leave the swipe as it is.
+    // INT-10-04: a width change to the strips or to the area the touch started in
+    // ends the swipe even while the finger is held still.
     const sizes =
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(() => {
             const width = scroller.clientWidth;
-            if ((gesture && width !== gesture.width) || (flight && width !== flight.width)) onResize();
+            if ((gesture && widthChanged(gesture)) || (flight && width !== flight.width)) onResize();
           });
     sizes?.observe(scroller);
+    sizes?.observe(dateBand);
     // Not passive: a sideways gesture is kept from the browser's history swipe.
     scroller.addEventListener("wheel", onWheel, { passive: false });
     return () => {
@@ -397,5 +430,5 @@ export function usePeriodSwipe(
       endSwipe.current = () => {};
       unblock?.();
     };
-  }, [scrollerRef, rootRef]);
+  }, [scrollerRef, rootRef, dateBandRef]);
 }
