@@ -1,3 +1,6 @@
+/// <reference types="node" />
+
+import { createHash, webcrypto } from "node:crypto";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
@@ -126,6 +129,11 @@ function posts() {
   return fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
 }
 
+function calendarKeyPattern(fingerprint: string) {
+  const hash = createHash("sha256").update(fingerprint, "utf8").digest("hex");
+  return new RegExp(`^calendar-v1:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:${hash}$`);
+}
+
 beforeAll(async () => {
   // Load both lazy modules before starting DOM waits under the full suite's parallel load.
   await Promise.all([import("./schedule-v2"), import("./schedule")]);
@@ -144,6 +152,7 @@ beforeEach(() => {
     return Response.json(commitMove);
   };
   fetchMock.mockClear();
+  vi.stubGlobal("crypto", webcrypto);
   vi.stubGlobal("fetch", fetchMock);
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
     matches: query === "(max-width: 639.98px)", addEventListener: vi.fn(), removeEventListener: vi.fn(),
@@ -171,7 +180,21 @@ it("新しい予定表の開始時刻変更は、詳細で取得した版で pre
     contractVersion: "calendar-interactions-v1", expectedVersion: 7,
     intent: { kind: "move", startAt: "2026-11-23T02:35:00.000Z" },
     previewFingerprint: FINGERPRINT,
-    idempotencyKey: expect.stringMatching(/^calendar-v1:[0-9a-f-]{36}:a{64}$/),
+    idempotencyKey: expect.stringMatching(calendarKeyPattern(FINGERPRINT)),
+  });
+});
+
+it("commit の冪等キーに照合値の UTF-8 文字列の SHA-256 を使う", async () => {
+  renderSchedule();
+  await changeStartTime();
+
+  const detail = await screen.findByRole("dialog", { name: "予約詳細" });
+  expect(await within(detail).findByText("保存済みです")).toBeTruthy();
+  const [, commit] = posts();
+  expect(commit[0]).toBe(COMMIT);
+  expect(JSON.parse(String(commit[1]?.body))).toMatchObject({
+    previewFingerprint: FINGERPRINT,
+    idempotencyKey: expect.stringMatching(calendarKeyPattern(FINGERPRINT)),
   });
 });
 
@@ -212,7 +235,7 @@ it("新しい予定表では、占有5分の旧予約も開始を動かさず施
   expect(JSON.parse(String(posts()[0][1]?.body))).toEqual(request);
   expect(JSON.parse(String(posts()[1][1]?.body))).toEqual({
     ...request, previewFingerprint: FINGERPRINT,
-    idempotencyKey: expect.stringMatching(/^calendar-v1:[0-9a-f-]{36}:a{64}$/),
+    idempotencyKey: expect.stringMatching(calendarKeyPattern(FINGERPRINT)),
   });
 });
 
@@ -291,6 +314,7 @@ it("commit が時間切れになっても、自動で再送・照合をせず手
   vi.setSystemTime(now);
   await act(async () => {
     saveStartTime();
+    await vi.waitFor(() => expect(posts().map(([url]) => url)).toEqual([PREVIEW, COMMIT]));
     await vi.advanceTimersByTimeAsync(60_000);
   });
 
@@ -500,7 +524,7 @@ it("続けて別の変更を保存すると、取得した版と新しい冪等�
   const second = JSON.parse(String(posts()[3][1]?.body));
   expect(second).toEqual({
     contractVersion: "calendar-interactions-v1", expectedVersion: 8, intent: { kind: "resize", treatmentMinutes: 65 },
-    previewFingerprint: nextFingerprint, idempotencyKey: expect.stringMatching(/^calendar-v1:[0-9a-f-]{36}:b{64}$/),
+    previewFingerprint: nextFingerprint, idempotencyKey: expect.stringMatching(calendarKeyPattern(nextFingerprint)),
   });
   expect(second.idempotencyKey.split(":")[1]).not.toBe(first.idempotencyKey.split(":")[1]);
 });

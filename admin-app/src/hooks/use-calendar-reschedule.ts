@@ -8,6 +8,7 @@ import type {
   CalendarReschedulePreviewRequest,
   ReservationDetailResponse,
 } from "@/types/api";
+import { sha256Hex } from "../../../src/crypto-utils";
 import { reservationDetailKey } from "./use-reservations";
 
 const CONTRACT = "calendar-interactions-v1";
@@ -78,9 +79,9 @@ function failureReason(error: unknown) {
   if (typeof reason === "string" && REJECTION_STATUS[reason] === error.status) return reason;
 }
 
-function commitRequest(
+async function commitRequest(
   value: unknown, id: string, preview: CalendarReschedulePreviewRequest,
-): CalendarRescheduleCommitRequest {
+): Promise<CalendarRescheduleCommitRequest> {
   if (!isRecord(value) || value.ok !== true || value.contractVersion !== CONTRACT ||
       value.reservationId !== id || value.version !== preview.expectedVersion ||
       typeof value.previewFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(value.previewFingerprint) ||
@@ -97,11 +98,12 @@ function commitRequest(
   } else {
     throw new Error("Invalid reschedule preview intent");
   }
+  const fingerprintHash = await sha256Hex(previewFingerprint);
   return {
     ...preview,
     intent: normalized,
     previewFingerprint,
-    idempotencyKey: `calendar-v1:${crypto.randomUUID()}:${previewFingerprint}`,
+    idempotencyKey: `calendar-v1:${crypto.randomUUID()}:${fingerprintHash}`,
   };
 }
 
@@ -115,8 +117,13 @@ function currentReservation(value: unknown, id: string, expectedVersion: number,
   const { version, status, startAt, endAt } = value.reservation;
   if (value.reservation.id !== id || typeof version !== "number" ||
       !Number.isSafeInteger(version) || version <= expectedVersion || typeof status !== "string" ||
-      typeof startAt !== "string" || typeof endAt !== "string" || !(Date.parse(endAt) > Date.parse(startAt))) {
+      typeof startAt !== "string" || typeof endAt !== "string") {
     throw new Error("Invalid reservation in reschedule commit response");
+  }
+  const startMs = Date.parse(startAt);
+  const endMs = Date.parse(endAt);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) {
+    throw new Error("Invalid reservation dates in reschedule commit response");
   }
   return { version, status, startAt, endAt };
 }
@@ -248,20 +255,21 @@ export function useCalendarReschedule({
     }
     transition({ kind: "previewing" });
     const preview = { contractVersion: CONTRACT, expectedVersion: version, intent } satisfies CalendarReschedulePreviewRequest;
-    let body: CalendarRescheduleCommitRequest;
+    let body: CalendarRescheduleCommitRequest | undefined;
     try {
       const proposed = await api.post<unknown>(`${reschedulePath(id)}/preview`, preview);
       if (detailSession.current !== session) return;
-      if (writeDisabled.current) {
-        transition(IDLE);
-        onCloseEditor();
-        return;
-      }
-      body = commitRequest(proposed, id, preview);
+      if (!writeDisabled.current) body = await commitRequest(proposed, id, preview);
     } catch (error) {
       if (detailSession.current !== session) return;
       const reason = failureReason(error) ?? (error instanceof ApiError && error.status === 404 ? "unsupported_contract" : undefined);
       reject(error, reason);
+      onCloseEditor();
+      return;
+    }
+    if (detailSession.current !== session) return;
+    if (!body || writeDisabled.current) {
+      transition(IDLE);
       onCloseEditor();
       return;
     }

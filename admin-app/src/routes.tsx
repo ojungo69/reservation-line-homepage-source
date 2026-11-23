@@ -36,7 +36,10 @@ export function AppRoutes() {
   const scope = JSON.stringify([user.email, user.role, user.staffMemberId, user.storeId]);
   const [commitScope, setCommitScope] = useState<string | null>(null);
   const onCommitSessionChange = useCallback((open: boolean) => {
-    setCommitScope((current) => open ? scope : current === scope ? null : current);
+    setCommitScope((current) => {
+      if (open) return scope;
+      return current === scope ? null : current;
+    });
   }, [scope]);
   // Keep the open detail and its result visible if /me turns the feature off
   // after commit was sent (specs/008). Leaving the detail releases the shell too.

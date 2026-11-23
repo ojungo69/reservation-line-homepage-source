@@ -495,7 +495,7 @@ export function ReservationDetailPanel({
               )}
             </Section>
             {calendarReschedule?.disabled && (
-              <p role="status" className="text-sm">現在、予約の日時を変更できません。</p>
+              <output className="block text-sm">現在、予約の日時を変更できません。</output>
             )}
             {calendarChange.notice && (
               <p role={calendarChange.notice.error ? "alert" : "status"} className="text-sm">
@@ -504,7 +504,7 @@ export function ReservationDetailPanel({
             )}
             {calendarChange.unknown && (
               <div className="space-y-2">
-                <p role="status" className="text-sm">保存できたか確認できていません</p>
+                <output className="block text-sm">保存できたか確認できていません</output>
                 <Button size="sm" variant="outline" onClick={calendarChange.check} disabled={calendarChange.unknown.checking}>
                   {calendarChange.unknown.checking ? "確認中…" : "確認する"}
                 </Button>
