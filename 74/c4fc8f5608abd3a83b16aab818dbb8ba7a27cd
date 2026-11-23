@@ -1,0 +1,23 @@
+admin-app/src/components/calendar-v2/column.tsx
+  s_6549e695276cef::t_7395508c6a807b 316
+admin-app/src/pages/schedule-reservation-change.test.tsx
+  s_6549e695276cef::t_93630e8ae4d28f 315-329
+specs/008-admin-calendar-ux/tasks.md
+  s_6549e695276cef::t_06412cd3f4cd3c 62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "74c4fc8f5608abd3a83b16aab818dbb8ba7a27cd",
+  "prompts": {},
+  "sessions": {
+    "s_6549e695276cef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a207f6-8e25-7bb0-8415-cc47943259d4",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
