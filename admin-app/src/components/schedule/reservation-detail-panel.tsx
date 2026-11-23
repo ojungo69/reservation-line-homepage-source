@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useReservationDetail, useReservationAction, useUpdateTreatmentNotes, useReservationCancellationFee } from "@/hooks/use-reservations";
+import { useCalendarReschedule, type CalendarRescheduleOptions } from "@/hooks/use-calendar-reschedule";
 import { ReservationRescheduleDialog, type RescheduleTarget } from "./reservation-reschedule-dialog";
 import { ReservationDurationDialog, type DurationTarget } from "./reservation-duration-dialog";
 import { statusLabel, statusColor, formatTime, formatDateDisplay, formatFullJstDate, isRebookableStatus } from "@/lib/timeline";
@@ -54,6 +55,7 @@ type ReservationDetailPanelProps = {
   layout?: DetailLayout;
   // What the popover opens beside: the pressed booking or button.
   anchor?: DetailAnchor;
+  calendarReschedule?: CalendarRescheduleOptions;
 };
 
 /**
@@ -247,8 +249,9 @@ export function ReservationDetailPanel({
   onOpenChart,
   layout = "side",
   anchor,
+  calendarReschedule,
 }: Readonly<ReservationDetailPanelProps>) {
-  const reservationQuery = useReservationDetail(reservationId);
+  const reservationQuery = useReservationDetail(reservationId, calendarReschedule?.scope);
   const { data, isPending, isFetching } = reservationQuery;
   const { isPrivileged } = useAuth();
   const { mutate: runAction, isPending: isActioning } = useReservationAction();
@@ -256,8 +259,13 @@ export function ReservationDetailPanel({
   const { mutate: updateCancellationFee, isPending: isUpdatingFee } = useReservationCancellationFee();
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [approvalFailure, setApprovalFailure] = useState("");
-  const [rescheduleTarget, setRescheduleTarget] = useState<RescheduleTarget | null>(null);
-  const [durationTarget, setDurationTarget] = useState<DurationTarget | null>(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState<(RescheduleTarget & { version: number }) | null>(null);
+  const [durationTarget, setDurationTarget] = useState<(DurationTarget & { version: number }) | null>(null);
+  const calendarChange = useCalendarReschedule({
+    reservationId,
+    calendar: calendarReschedule,
+    onCloseEditor: () => { setRescheduleTarget(null); setDurationTarget(null); },
+  });
   // 却下のみ任意の理由を添えられる (監査ログに記録し、入力時はお客様への却下通知にも本文として届く)。
   const [rejectReason, setRejectReason] = useState("");
   const [showNotesPrompt, setShowNotesPrompt] = useState(false);
@@ -292,6 +300,11 @@ export function ReservationDetailPanel({
   }, [reservationId]);
 
   const reservation = data?.ok ? data.reservation : null;
+  const calendarChangePending = calendarChange.pending || calendarChange.unknown !== null;
+  const calendarChangeUnavailable = calendarReschedule !== undefined && (
+    calendarReschedule.disabled || calendarChangePending || isFetching || reservationQuery.isError ||
+    !reservation || !Number.isSafeInteger(reservation.version) || reservation.version < 1
+  );
   const showResourceRow = useShowResourceRow(reservation);
   const approvalReason = reservation?.status === "pending_approval" ? "" : "承認待ちではないため、承認できません。";
   // 詳細APIは期限と予約自身の友だち状態を返していない。lineFriendStatus は
@@ -306,6 +319,7 @@ export function ReservationDetailPanel({
   const hasUnsavedNotes = (editingNotes || showNotesPrompt) && notesText !== (notesBaseline ?? "");
 
   const closePanel = () => {
+    calendarChange.abandon();
     setShowNotesPrompt(false);
     setEditingNotes(false);
     setNotesText("");
@@ -334,7 +348,7 @@ export function ReservationDetailPanel({
   };
 
   const handleAction = () => {
-    if (!confirm || !reservationId || isActioning) return;
+    if (!confirm || !reservationId || isActioning || calendarChangePending) return;
     if (confirm.action === "approve" && approvalReason) return;
     setApprovalFailure("");
     // 施術メモの記録を促すのは新規の完了時だけ。訂正 (restore-completed) は
@@ -412,7 +426,10 @@ export function ReservationDetailPanel({
   };
 
   const openChart = () => {
-    if (reservation && onOpenChart) onOpenChart(reservation.customerId, reservation.id);
+    if (reservation && onOpenChart) {
+      calendarChange.abandon();
+      onOpenChart(reservation.customerId, reservation.id);
+    }
   };
   const conflictNotice = notesConflict && <ChartConflictNotice onReload={async () => {
     const result = await reservationQuery.refetch();
@@ -429,7 +446,7 @@ export function ReservationDetailPanel({
         anchor={anchor}
         open={!!reservationId}
         onOpenChange={(open) => {
-          if (open) return;
+          if (open || calendarChange.pending) return;
           if (hasUnsavedNotes) {
             setDiscardDraftNext("close");
             return;
@@ -477,6 +494,30 @@ export function ReservationDetailPanel({
                 <Row label="予約経路" value={reservationOriginLabel(reservation.reservationOrigin)!} />
               )}
             </Section>
+            {calendarReschedule?.disabled && (
+              <output className="block text-sm">現在、予約の日時を変更できません。</output>
+            )}
+            {calendarChange.notice && (
+              <p role={calendarChange.notice.error ? "alert" : "status"} className="text-sm">
+                {calendarChange.notice.text}
+              </p>
+            )}
+            {calendarChange.unknown && (
+              <div className="space-y-2">
+                <output className="block text-sm">保存できたか確認できていません</output>
+                <Button size="sm" variant="outline" onClick={calendarChange.check} disabled={calendarChange.unknown.checking}>
+                  {calendarChange.unknown.checking ? "確認中…" : "確認する"}
+                </Button>
+              </div>
+            )}
+            {calendarReschedule && reservationQuery.isError && (
+              <div className="space-y-2">
+                <p role="alert" className="text-sm">最新の予約情報を取得できませんでした。</p>
+                <Button size="sm" variant="outline" onClick={() => { void reservationQuery.refetch(); }} disabled={isFetching}>
+                  予約情報を再取得
+                </Button>
+              </div>
+            )}
 
             <Separator />
 
@@ -643,7 +684,7 @@ export function ReservationDetailPanel({
                   key={cfg.action}
                   variant={cfg.variant}
                   size="sm"
-                  disabled={isActioning}
+                  disabled={isActioning || calendarChangePending}
                   onClick={() => { setApprovalFailure(""); setConfirm(cfg); }}
                 >
                   {cfg.label}
@@ -653,10 +694,11 @@ export function ReservationDetailPanel({
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={isActioning}
+                  disabled={isActioning || calendarChangeUnavailable}
                   onClick={() =>
                     setRescheduleTarget({
                       id: reservation.id,
+                      version: reservation.version,
                       storeId: reservation.storeId,
                       resourceId: reservation.resourceId,
                       startAt: reservation.startAt,
@@ -671,10 +713,11 @@ export function ReservationDetailPanel({
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={isActioning}
+                  disabled={isActioning || calendarChangeUnavailable}
                   onClick={() =>
                     setDurationTarget({
                       id: reservation.id,
+                      version: reservation.version,
                       startAt: reservation.startAt,
                       endAt: reservation.endAt,
                     })
@@ -813,10 +856,22 @@ export function ReservationDetailPanel({
       <ReservationRescheduleDialog
         reservation={rescheduleTarget?.id === reservationId ? rescheduleTarget : null}
         onClose={() => setRescheduleTarget(null)}
+        calendarSave={calendarReschedule && {
+          pending: calendarChange.pending,
+          save: (startAt) => {
+            if (rescheduleTarget) void calendarChange.save(rescheduleTarget.id, rescheduleTarget.version, { kind: "move", startAt });
+          },
+        }}
       />
       <ReservationDurationDialog
         reservation={durationTarget?.id === reservationId ? durationTarget : null}
         onClose={() => setDurationTarget(null)}
+        calendarSave={calendarReschedule && {
+          pending: calendarChange.pending,
+          save: (treatmentMinutes) => {
+            if (durationTarget) void calendarChange.save(durationTarget.id, durationTarget.version, { kind: "resize", treatmentMinutes });
+          },
+        }}
       />
     </>
   );

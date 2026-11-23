@@ -1,5 +1,5 @@
-import { Routes, Route, Navigate } from "react-router";
-import { lazy, Suspense } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { ProtectedRoute } from "@/components/protected-route";
 import { useAuth } from "@/hooks/use-auth";
@@ -30,24 +30,25 @@ function PageLoading() {
   );
 }
 
-// The one place that picks the redesigned calendar (specs/008). Off, missing or
-// unknown keeps the current page untouched.
-function ScheduleRoute() {
-  return useAuth().calendarV2 === true ? <ScheduleV2Page /> : <SchedulePage />;
-}
-
-// The same check picks the shell (specs/008 T004b), so the new calendar always
-// sits in the new shell and the current pages in the current one.
-function ShellRoute() {
-  return useAuth().calendarV2 === true ? <AppShellV2 /> : <AppShell />;
-}
-
 export function AppRoutes() {
+  const { user, calendarV2 } = useAuth();
+  const { pathname } = useLocation();
+  const scope = JSON.stringify([user.email, user.role, user.staffMemberId, user.storeId]);
+  const [commitScope, setCommitScope] = useState<string | null>(null);
+  const onCommitSessionChange = useCallback((open: boolean) => {
+    setCommitScope((current) => {
+      if (open) return scope;
+      return current === scope ? null : current;
+    });
+  }, [scope]);
+  // Keep the open detail and its result visible if /me turns the feature off
+  // after commit was sent (specs/008). Leaving the detail releases the shell too.
+  const showCalendarV2 = calendarV2 === true || (pathname === "/" && commitScope === scope);
   return (
     <Suspense fallback={<PageLoading />}>
       <Routes>
-        <Route element={<ShellRoute />}>
-          <Route index element={<ScheduleRoute />} />
+        <Route element={showCalendarV2 ? <AppShellV2 /> : <AppShell />}>
+          <Route index element={showCalendarV2 ? <ScheduleV2Page onCommitSessionChange={onCommitSessionChange} /> : <SchedulePage />} />
           <Route path="reservations" element={<ReservationsPage />} />
           <Route path="menu" element={<MenuPage />} />
           {/* Customers are staff-accessible (own-store only). The backend store-scopes

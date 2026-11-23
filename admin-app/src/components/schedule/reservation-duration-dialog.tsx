@@ -26,27 +26,30 @@ export type DurationTarget = {
 };
 
 // 占有時間（end - start, 分）から施術時間（バッファ除く）を逆算する。下限で丸める。
-export const occupancyToTreatment = (startAt: string, endAt: string): number => {
+export const occupancyToTreatment = (startAt: string, endAt: string, minimum = MIN_TREATMENT_MINUTES): number => {
   const occ = Math.round((new Date(endAt).getTime() - new Date(startAt).getTime()) / 60000);
-  return Math.max(MIN_TREATMENT_MINUTES, occ - INTERVAL_MINUTES);
+  return Math.max(minimum, occ - INTERVAL_MINUTES);
 };
 
 export function ReservationDurationDialog({
   reservation,
   onClose,
+  calendarSave,
 }: Readonly<{
   reservation: DurationTarget | null;
   onClose: () => void;
+  calendarSave?: { save: (minutes: number) => void; pending: boolean };
 }>) {
   // mutation は Dialog 側で持ち、送信中は Escape・外側クリック・× による dismiss を止める。
   // in-flight のまま form が unmount されて idempotency キーを失うのを防ぐ（reschedule dialog と同方針）。
   const { mutate: reschedule, isPending } = useRescheduleReservation();
   // idempotency キー状態は開閉をまたいで生き残るこのダイアログ本体で保持する。
   const keyStatesRef = useRef<Map<string, RescheduleKeyState>>(new Map());
+  const pending = calendarSave?.pending ?? isPending;
   return (
     <PendingDialog
       open={reservation !== null}
-      pending={isPending}
+      pending={pending}
       onClose={onClose}
     >
       {reservation && (
@@ -55,9 +58,10 @@ export function ReservationDurationDialog({
           key={reservation.id}
           reservation={reservation}
           reschedule={reschedule}
-          isPending={isPending}
+          isPending={pending}
           keyStatesRef={keyStatesRef}
           onClose={onClose}
+          saveCalendarChange={calendarSave?.save}
         />
       )}
     </PendingDialog>
@@ -70,14 +74,17 @@ function DurationForm({
   isPending,
   keyStatesRef,
   onClose,
+  saveCalendarChange,
 }: Readonly<{
   reservation: DurationTarget;
   reschedule: ReturnType<typeof useRescheduleReservation>["mutate"];
   isPending: boolean;
   keyStatesRef: React.RefObject<Map<string, RescheduleKeyState>>;
   onClose: () => void;
+  saveCalendarChange?: (minutes: number) => void;
 }>) {
-  const currentTreatment = occupancyToTreatment(reservation.startAt, reservation.endAt);
+  // 旧予約は清掃だけを占有している場合があり、新経路では施術0分から入力できる。
+  const currentTreatment = occupancyToTreatment(reservation.startAt, reservation.endAt, saveCalendarChange ? 0 : MIN_TREATMENT_MINUTES);
   const [minutes, setMinutes] = useState<number>(currentTreatment);
   const [error, setError] = useState<string | null>(null);
 
@@ -106,6 +113,10 @@ function DurationForm({
     }
     if (minutes === currentTreatment) {
       setError("施術時間が現在と同じです。別の長さを入力してください。");
+      return;
+    }
+    if (saveCalendarChange) {
+      saveCalendarChange(minutes);
       return;
     }
     // 開始時刻は変更しない。キーは（予約, 施術時間）で識別する — 同じ長さの再送は replay され、
@@ -160,6 +171,7 @@ function DurationForm({
             min={MIN_TREATMENT_MINUTES}
             max={MAX_TREATMENT_MINUTES}
             step={STEP_MINUTES}
+            disabled={saveCalendarChange !== undefined && isPending}
             value={Number.isNaN(minutes) ? "" : minutes}
             onChange={(e) => setMinutes(e.target.valueAsNumber)}
           />

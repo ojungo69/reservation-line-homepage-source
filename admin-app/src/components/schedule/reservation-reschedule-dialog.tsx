@@ -29,9 +29,10 @@ export type RescheduleTarget = {
 type Props = {
   reservation: RescheduleTarget | null;
   onClose: () => void;
+  calendarSave?: { save: (startAt: string) => void; pending: boolean };
 };
 
-export function ReservationRescheduleDialog({ reservation, onClose }: Readonly<Props>) {
+export function ReservationRescheduleDialog({ reservation, onClose, calendarSave }: Readonly<Props>) {
   // mutation は Dialog 側で持つ。送信中は Escape・外側クリック・×による dismiss を止めて、
   // in-flight のまま form が unmount されて idempotency キーを失うのを防ぐ。
   const { mutate: reschedule, isPending } = useRescheduleReservation();
@@ -40,10 +41,11 @@ export function ReservationRescheduleDialog({ reservation, onClose }: Readonly<P
   // 開き直して同じ時刻を再送したときに新キーで重複した副作用（顧客通知）が起きうる。
   // 予約IDごとに保持することで、別予約を挟んで送信しても各予約の未確定キーが上書きされない。
   const keyStatesRef = useRef<Map<string, RescheduleKeyState>>(new Map());
+  const pending = calendarSave?.pending ?? isPending;
   return (
     <PendingDialog
       open={reservation !== null}
-      pending={isPending}
+      pending={pending}
       onClose={onClose}
     >
       {reservation && (
@@ -52,9 +54,10 @@ export function ReservationRescheduleDialog({ reservation, onClose }: Readonly<P
           key={reservation.id}
           reservation={reservation}
           reschedule={reschedule}
-          isPending={isPending}
+          isPending={pending}
           keyStatesRef={keyStatesRef}
           onClose={onClose}
+          saveCalendarChange={calendarSave?.save}
         />
       )}
     </PendingDialog>
@@ -69,6 +72,7 @@ function renderRescheduleSlotsField({
   slots,
   time,
   onSelectTime,
+  disabled,
 }: {
   fetching: boolean;
   failed: boolean;
@@ -76,6 +80,7 @@ function renderRescheduleSlotsField({
   slots: AvailableSlot[];
   time: string;
   onSelectTime: (time: string) => void;
+  disabled: boolean;
 }) {
   if (fetching) {
     return (
@@ -106,6 +111,7 @@ function renderRescheduleSlotsField({
           <button
             key={slot.startAt}
             type="button"
+            disabled={disabled}
             className={cn(
               badgeVariants({ variant: selected ? "default" : "outline" }),
               "min-h-11 min-w-11 cursor-pointer justify-center text-xs",
@@ -126,17 +132,20 @@ function RescheduleForm({
   isPending,
   keyStatesRef,
   onClose,
+  saveCalendarChange,
 }: Readonly<{
   reservation: RescheduleTarget;
   reschedule: ReturnType<typeof useRescheduleReservation>["mutate"];
   isPending: boolean;
   keyStatesRef: React.RefObject<Map<string, RescheduleKeyState>>;
   onClose: () => void;
+  saveCalendarChange?: (startAt: string) => void;
 }>) {
 
   const [date, setDate] = useState(() => formatJstDate(new Date(reservation.startAt)));
   const [time, setTime] = useState(() => formatTime(reservation.startAt));
   const [error, setError] = useState<string | null>(null);
+  const calendarInputLocked = saveCalendarChange !== undefined && isPending;
 
   // reschedule 照会は excludeReservationId だけを渡す。施術時間・担当リソース・顧客は
   // サーバが予約行から導出する（クライアント計算の keep-in-sync 定数を持たない）ため、
@@ -185,6 +194,10 @@ function RescheduleForm({
       setError("変更後の時間が現在と同じです。別の時間を選択してください。");
       return;
     }
+    if (saveCalendarChange) {
+      saveCalendarChange(startAt);
+      return;
+    }
     const keyState = resolveRescheduleKey(
       keyStatesRef.current.get(reservation.id) ?? null,
       reservation.id,
@@ -211,7 +224,8 @@ function RescheduleForm({
       <DialogHeader>
         <DialogTitle>開始時刻を変更</DialogTitle>
         <DialogDescription>
-          施術時間はそのままに、開始時刻を移動します。確定済みの予約はお客様に変更が通知されます。
+          施術時間はそのままに、開始時刻を移動します。
+          {!saveCalendarChange && "確定済みの予約はお客様に変更が通知されます。"}
         </DialogDescription>
       </DialogHeader>
 
@@ -227,6 +241,7 @@ function RescheduleForm({
               id="reschedule-date"
               type="date"
               value={date}
+              disabled={calendarInputLocked}
               min={formatJstDate(new Date())}
               onChange={(e) => setDate(e.target.value)}
             />
@@ -236,6 +251,7 @@ function RescheduleForm({
               id="reschedule-time"
               type="time"
               value={time}
+              disabled={calendarInputLocked}
               step="300"
               onChange={(e) => setTime(e.target.value)}
             />
@@ -253,6 +269,7 @@ function RescheduleForm({
             slots,
             time,
             onSelectTime: setTime,
+            disabled: calendarInputLocked,
           })}
         </div>
 

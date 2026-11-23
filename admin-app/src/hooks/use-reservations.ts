@@ -56,13 +56,20 @@ export function usePendingReservations() {
   });
 }
 
-export function useReservationDetail(id: string | null) {
+export function reservationDetailKey(id: string | null, calendarScope?: string) {
+  const key = ["reservations", "detail", id] as const;
+  return calendarScope === undefined ? key : [...key, calendarScope] as const;
+}
+
+export function useReservationDetail(id: string | null, calendarScope?: string) {
+  const path = `/api/admin/reservations/${id}`;
   return useQuery({
-    queryKey: ["reservations", "detail", id],
-    queryFn: () =>
-      api.get<ReservationDetailResponse>(`/api/admin/reservations/${id}`),
+    queryKey: reservationDetailKey(id, calendarScope),
+    queryFn: (context) => calendarScope === undefined
+      ? api.get<ReservationDetailResponse>(path)
+      : api.get<ReservationDetailResponse>(path, { signal: context.signal }),
     enabled: !!id,
-    staleTime: 15_000,
+    staleTime: calendarScope === undefined ? 15_000 : 0,
   });
 }
 
