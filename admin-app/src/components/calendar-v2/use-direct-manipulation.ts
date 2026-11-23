@@ -226,6 +226,13 @@ export function useDirectManipulation({
       ignoreDown.current = event;
       cancel();
     };
+    const startDrag = (gesture: Gesture, distance: number, ending: boolean) => {
+      const threshold = gesture.touch ? TOUCH_THRESHOLD_PX : MOUSE_THRESHOLD_PX;
+      if (distance < threshold) return false;
+      gesture.started = true;
+      if (!ending) gesture.target.setPointerCapture?.(gesture.id);
+      return true;
+    };
     const onMove = (event: PointerEvent, ending = false) => {
       const gesture = active.current;
       if (event.pointerId !== gesture?.id) return;
@@ -239,14 +246,10 @@ export function useDirectManipulation({
         if (!gesture.started && distance >= TOUCH_THRESHOLD_PX) cancel();
         return;
       }
-      if (!gesture.started) {
-        if (distance < (gesture.touch ? TOUCH_THRESHOLD_PX : MOUSE_THRESHOLD_PX)) return;
-        gesture.started = true;
-        if (!ending) gesture.target.setPointerCapture?.(event.pointerId);
-      }
+      if (!gesture.started && !startDrag(gesture, distance, ending)) return;
       point = { x, y };
       const drop = draw();
-      if (!ending && drop && drop.kind === "change" && scrollSpeed(y)) {
+      if (!ending && drop?.kind === "change" && scrollSpeed(y)) {
         if (!scrollFrame) scrollFrame = requestAnimationFrame(autoscroll);
       } else {
         stopScroll();

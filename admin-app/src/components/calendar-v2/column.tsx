@@ -258,8 +258,12 @@ export function CalendarColumnView({
         let onPointerDown: ((event: PointerEvent<HTMLButtonElement>) => void) | undefined;
         if (editable) {
           onPointerDown = (event) => {
-            const kind = event.pointerType === "touch" ? "select"
-              : (event.target as Element).closest("[data-calendar-resize-grip]") ? "resize" : "move";
+            let kind: "select" | "resize" | "move" = "move";
+            if (event.pointerType === "touch") {
+              kind = "select";
+            } else if (event.target instanceof Element && event.target.closest("[data-calendar-resize-grip]")) {
+              kind = "resize";
+            }
             direct.start(event, { kind, column, reservation: item.reservation });
           };
         }
@@ -283,11 +287,10 @@ export function CalendarColumnView({
               }}
             />
             {editable && selected && (
-              <div
-                role="group"
+              <fieldset
                 aria-label="選択した予約の操作"
                 data-calendar-selection=""
-                className={cn("absolute right-0.5 z-30 flex w-max divide-cal-grid rounded-lg border border-cal-outline bg-cal-surface shadow-sm",
+                className={cn("absolute right-0.5 z-30 flex w-max min-w-0 divide-cal-grid rounded-lg border border-cal-outline bg-cal-surface shadow-sm",
                   stacked ? "flex-col divide-y" : "divide-x")}
                 style={{ top: Math.min(top + height + 2, DAY_PX - HANDLE_PX * (stacked ? 3 : 1) - 2) }}
               >
@@ -326,7 +329,7 @@ export function CalendarColumnView({
                 >
                   <X className="size-4" aria-hidden="true" />
                 </button>
-              </div>
+              </fieldset>
             )}
           </Fragment>
         );

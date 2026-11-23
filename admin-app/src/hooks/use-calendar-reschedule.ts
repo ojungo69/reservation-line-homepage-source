@@ -1,5 +1,5 @@
 import { use, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
-import { QueryClientContext } from "@tanstack/react-query";
+import { QueryClientContext, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "@/lib/api-client";
 import { actionErrorMessage } from "@/lib/error-messages";
 import type {
@@ -57,6 +57,8 @@ type Confirmation = Readonly<{
   after: PreviewWindow;
   notifiesCustomer: boolean;
 }>;
+type ChangeRequestContext = { source?: Reservation; onCloseEditor?: () => void };
+type PreparedPreview = { proposed: unknown; body: CalendarRescheduleCommitRequest };
 type Operation = Readonly<{
   id: string;
   body: CalendarRescheduleCommitRequest;
@@ -259,6 +261,24 @@ export function useCalendarReschedule(calendar: CalendarRescheduleOptions) {
     };
   }, [operation]);
 
+  const handleCommitFailure = (operation: Operation, check: boolean, error: unknown) => {
+    const reason = failureReason(error);
+    if (reason === "operation_not_applied") {
+      refreshReservations();
+      transition({ kind: "idle", notice: { text: "保存されていません。この変更はこの後も保存されません。" } });
+      return;
+    }
+    if (!check && reason) {
+      reject(error, reason);
+      return;
+    }
+    if (reason === "feature_disabled" || (!reason && error instanceof ApiError && error.status === 404)) {
+      calendar.onUnavailable();
+      refreshReservations();
+    }
+    transition({ kind: "unknown", operation, checking: false });
+  };
+
   const commit = async (operation: Operation, check: boolean) => {
     if (!queryClient) return;
     const { id, body } = operation;
@@ -284,19 +304,7 @@ export function useCalendarReschedule(calendar: CalendarRescheduleOptions) {
       transition({ kind: "idle", notice: { text: "保存済みです" } });
     } catch (error) {
       if (!canUseResult()) return;
-      const reason = failureReason(error);
-      if (reason === "operation_not_applied") {
-        refreshReservations();
-        transition({ kind: "idle", notice: { text: "保存されていません。この変更はこの後も保存されません。" } });
-      } else if (!check && reason) {
-        reject(error, reason);
-      } else {
-        if (reason === "feature_disabled" || (!reason && error instanceof ApiError && error.status === 404)) {
-          calendar.onUnavailable();
-          refreshReservations();
-        }
-        transition({ kind: "unknown", operation, checking: false });
-      }
+      handleCommitFailure(operation, check, error);
     }
     if (operation.confirmation && stateRef.current.kind !== "unknown") releaseCommitSession();
   };
@@ -319,9 +327,67 @@ export function useCalendarReschedule(calendar: CalendarRescheduleOptions) {
     await commit(operation, false);
   };
 
-  const request = async (id: string, version: number | undefined, intent: CalendarRescheduleIntent, {
-    source, onCloseEditor,
-  }: { source?: Reservation; onCloseEditor?: () => void }) => {
+  const refreshPreviewVersion = async (client: QueryClient, source: Reservation, current: () => boolean) => {
+    const detail = await client.fetchQuery({
+      queryKey: reservationDetailKey(source.id, calendarScope),
+      queryFn: ({ signal }) => api.get<ReservationDetailResponse>(reservationPath(source.id), { signal }),
+      staleTime: 0,
+    });
+    if (!current()) return;
+    const latest = detail.ok ? detail.reservation : null;
+    if (latest?.id !== source.id || !canChangeReservationTime(latest.status) || latest.storeId !== source.storeId ||
+        latest.resourceId !== source.resourceId || Date.parse(latest.startAt) !== Date.parse(source.startAt) ||
+        Date.parse(latest.endAt) !== Date.parse(source.endAt)) {
+      reject(undefined, "version_conflict");
+      return;
+    }
+    if (!hasVersion(latest.version)) throw new Error("Missing reservation version");
+    return latest.version;
+  };
+
+  const preparePreview = async ({
+    client, id, version, intent, source, current,
+  }: {
+    client: QueryClient;
+    id: string;
+    version: number | undefined;
+    intent: CalendarRescheduleIntent;
+    source: Reservation | undefined;
+    current: () => boolean;
+  }): Promise<PreparedPreview | undefined> => {
+    let expectedVersion = version;
+    if (source && !hasVersion(expectedVersion)) {
+      expectedVersion = await refreshPreviewVersion(client, source, current);
+      if (!current() || expectedVersion === undefined) return;
+    }
+    if (!hasVersion(expectedVersion)) throw new Error("Missing reservation version");
+    const preview = { contractVersion: CONTRACT, expectedVersion, intent } satisfies CalendarReschedulePreviewRequest;
+    const proposed = await api.post<unknown>(`${reservationPath(id)}/reschedule/preview`, preview);
+    if (!current()) return;
+    const body = await commitRequest(proposed, id, preview);
+    if (!current()) return;
+    return { proposed, body };
+  };
+
+  const applyPreview = (id: string, { proposed, body }: PreparedPreview, { source, onCloseEditor }: ChangeRequestContext) => {
+    if (writeDisabled.current) {
+      transition(IDLE);
+      return;
+    }
+    if (source) {
+      transition({ kind: "confirming", confirmation: confirmationOf(proposed, body, source) });
+      return;
+    }
+    return startCommit(id, body, { onCloseEditor });
+  };
+
+  const handlePreviewFailure = (error: unknown) => {
+    const reason = failureReason(error) ?? (error instanceof ApiError && error.status === 404 ? "unsupported_contract" : undefined);
+    reject(error, reason);
+  };
+
+  const request = async (id: string, version: number | undefined, intent: CalendarRescheduleIntent, context: ChangeRequestContext) => {
+    const { source, onCloseEditor } = context;
     const session = scopeSession.current;
     if (!session || !queryClient || stateRef.current.kind !== "idle") return;
     if (!source && !hasVersion(version)) return;
@@ -333,39 +399,11 @@ export function useCalendarReschedule(calendar: CalendarRescheduleOptions) {
     const current = () => scopeSession.current === session && stateRef.current === draft;
     transition(draft);
     try {
-      if (source && !hasVersion(version)) {
-        const detail = await queryClient.fetchQuery({
-          queryKey: reservationDetailKey(id, calendarScope),
-          queryFn: ({ signal }) => api.get<ReservationDetailResponse>(reservationPath(id), { signal }),
-          staleTime: 0,
-        });
-        if (!current()) return;
-        const latest = detail.ok ? detail.reservation : null;
-        if (latest?.id !== id || !canChangeReservationTime(latest.status) || latest.storeId !== source.storeId ||
-            latest.resourceId !== source.resourceId || Date.parse(latest.startAt) !== Date.parse(source.startAt) ||
-            Date.parse(latest.endAt) !== Date.parse(source.endAt)) {
-          reject(undefined, "version_conflict");
-          return;
-        }
-        version = latest.version;
-      }
-      if (!hasVersion(version)) throw new Error("Missing reservation version");
-      const preview = { contractVersion: CONTRACT, expectedVersion: version, intent } satisfies CalendarReschedulePreviewRequest;
-      const proposed = await api.post<unknown>(`${reservationPath(id)}/reschedule/preview`, preview);
-      if (!current()) return;
-      const body = await commitRequest(proposed, id, preview);
-      if (!current()) return;
-      if (writeDisabled.current) {
-        transition(IDLE);
-      } else if (source) {
-        transition({ kind: "confirming", confirmation: confirmationOf(proposed, body, source) });
-      } else {
-        await startCommit(id, body, { onCloseEditor });
-      }
+      const prepared = await preparePreview({ client: queryClient, id, version, intent, source, current });
+      if (!current() || !prepared) return;
+      await applyPreview(id, prepared, context);
     } catch (error) {
-      if (!current()) return;
-      const reason = failureReason(error) ?? (error instanceof ApiError && error.status === 404 ? "unsupported_contract" : undefined);
-      reject(error, reason);
+      if (current()) handlePreviewFailure(error);
     } finally {
       if (scopeSession.current === session) onCloseEditor?.();
     }
@@ -381,6 +419,13 @@ export function useCalendarReschedule(calendar: CalendarRescheduleOptions) {
     transition({ ...current, checking: true });
     void commit(current.operation, true);
   };
+
+  let confirmation: Confirmation | undefined;
+  if (state.kind === "confirming") {
+    confirmation = state.confirmation;
+  } else if (state.kind === "committing") {
+    confirmation = state.operation.confirmation;
+  }
 
   return {
     save: (id: string, version: number, intent: CalendarRescheduleIntent, onCloseEditor: () => void) =>
@@ -405,7 +450,7 @@ export function useCalendarReschedule(calendar: CalendarRescheduleOptions) {
       releaseCommitSession();
     },
     busy: state.kind !== "idle",
-    confirmation: state.kind === "confirming" ? state.confirmation : state.kind === "committing" ? state.operation.confirmation : undefined,
+    confirmation,
     pending: state.kind === "previewing" || state.kind === "committing",
     unknown: state.kind === "unknown" ? state : null,
     notice: state.kind === "idle" ? state.notice : undefined,

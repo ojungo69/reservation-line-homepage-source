@@ -419,9 +419,9 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
         (calendarChange.pending && !confirmation)) && (
         <div className="pointer-events-none absolute left-2 z-40 max-w-[calc(100%-1rem)] rounded-md border border-cal-outline bg-cal-surface px-3 py-2 shadow-sm"
           style={{ top: layout.barPx }}>
-          {dragError && <p role="status" className="text-sm">{dragError}</p>}
+          {dragError && <output className="block text-sm">{dragError}</output>}
           <CalendarRescheduleFeedback change={calendarChange} disabled={rescheduleDisabled} />
-          {calendarChange.pending && !confirmation && <p role="status" className="text-sm">変更できるか確認しています…</p>}
+          {calendarChange.pending && !confirmation && <output className="block text-sm">変更できるか確認しています…</output>}
         </div>
       )}
 

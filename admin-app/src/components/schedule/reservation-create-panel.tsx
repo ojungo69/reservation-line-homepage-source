@@ -216,22 +216,27 @@ function ServiceSelectionFieldset({
   services,
   selectedIds,
   totalMinutes,
-  limitHintVisible,
   overLimit,
   unavailableNotice,
-  hintIds,
   onToggle,
 }: Readonly<{
   storeId: string;
   services: ServiceChoice[];
   selectedIds: string[];
   totalMinutes: number;
-  limitHintVisible: boolean;
   overLimit: boolean;
   unavailableNotice: string | null;
-  hintIds: string | undefined;
   onToggle: (id: string) => void;
 }>) {
+  const limitHintVisible = !overLimit && services.some(
+    (service) => !selectedIds.includes(service.id) && !canAddService(service, selectedIds, services),
+  );
+  const hintIds = [
+    selectedIds.length > 0 ? "rcp-service-summary" : null,
+    limitHintVisible ? "rcp-service-limit-hint" : null,
+    overLimit ? "rcp-service-over-limit" : null,
+    unavailableNotice ? "rcp-service-unavailable" : null,
+  ].filter(Boolean).join(" ") || undefined;
   return (
     <fieldset className="space-y-1" aria-describedby={hintIds}>
       <legend className="text-xs font-medium text-muted-foreground">メニュー（複数選択可）</legend>
@@ -566,6 +571,15 @@ function groupSlotsByResource(data: AvailableSlotsResponse | undefined, resource
   return map;
 }
 
+function preferredRangeRelease(
+  date: string, time: string, preferredEndMinute: number | undefined, durationMinutes: number | undefined,
+) {
+  const rangeStart = preferredEndMinute !== undefined && durationMinutes !== undefined
+    ? Date.parse(`${date}T${time}:00+09:00`) : Number.NaN;
+  if (durationMinutes === undefined || !Number.isFinite(rangeStart)) return null;
+  return formatDateTime(new Date(rangeStart + (durationMinutes + CLEANING_MINUTES) * 60_000).toISOString());
+}
+
 export function ReservationCreatePanel({
   open,
   onClose,
@@ -683,26 +697,7 @@ export function ReservationCreatePanel({
   const overLimit = isOverSelectionLimit(serviceIds, storeServices);
   // 上限超過中（rebook 初期値の超過など）は空き枠取得を抑止する。
   const durationMinutes = totalMinutes > 0 && !overLimit ? totalMinutes : undefined;
-  const rangeStart = preferredEndMinute !== undefined && durationMinutes !== undefined
-    ? Date.parse(`${date}T${time}:00+09:00`) : NaN;
-  const rangeRelease = Number.isFinite(rangeStart)
-    ? formatDateTime(new Date(rangeStart + (totalMinutes + CLEANING_MINUTES) * 60_000).toISOString())
-    : null;
-
-  const limitHintVisible =
-    !overLimit &&
-    storeServices.some(
-      (s) => !serviceIds.includes(s.id) && !canAddService(s, serviceIds, storeServices),
-    );
-  const serviceHintIds =
-    [
-      serviceIds.length > 0 ? "rcp-service-summary" : null,
-      limitHintVisible ? "rcp-service-limit-hint" : null,
-      overLimit ? "rcp-service-over-limit" : null,
-      unavailableNotice ? "rcp-service-unavailable" : null,
-    ]
-      .filter(Boolean)
-      .join(" ") || undefined;
+  const rangeRelease = preferredRangeRelease(date, time, preferredEndMinute, durationMinutes);
 
   const toggleService = (id: string) => {
     setServiceIds((prev) =>
@@ -875,10 +870,8 @@ export function ReservationCreatePanel({
               services={storeServices}
               selectedIds={serviceIds}
               totalMinutes={totalMinutes}
-              limitHintVisible={limitHintVisible}
               overLimit={overLimit}
               unavailableNotice={unavailableNotice}
-              hintIds={serviceHintIds}
               onToggle={toggleService}
             />
 

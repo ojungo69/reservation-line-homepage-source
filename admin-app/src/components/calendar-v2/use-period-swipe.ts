@@ -359,6 +359,19 @@ export function usePeriodSwipe({
     const onHidden = () => {
       if (document.hidden) onLeave();
     };
+    const onPeriodWheel = (event: WheelEvent) => {
+      // INT-05-01: a vertical gesture scrolls the hours. INT-05-07: input the
+      // page cannot cancel may still become the browser's back or forward.
+      if (wheelOwner !== "period" || !event.cancelable) return;
+      event.preventDefault();
+      if (wheelDone) return;
+      wheelSum += wheelPx(event.deltaX, event.deltaMode, scroller.clientWidth);
+      const direction = wheelStep(wheelSum);
+      if (direction === 0) return;
+      wheelDone = true;
+      step(direction);
+      enter(direction);
+    };
     // INT-05: a gesture is wheel input without a 250ms gap, momentum included.
     // The first input fixes who handles it (INT-03-08). Only sideways input in
     // a fitting body can move a period, once its signed sum reaches 80px.
@@ -392,17 +405,7 @@ export function usePeriodSwipe({
         if (event.cancelable) event.preventDefault();
         return;
       }
-      // INT-05-01: a vertical gesture scrolls the hours. INT-05-07: input the
-      // page cannot cancel may still become the browser's back or forward.
-      if (wheelOwner !== "period" || !event.cancelable) return;
-      event.preventDefault();
-      if (wheelDone) return;
-      wheelSum += wheelPx(event.deltaX, event.deltaMode, scroller.clientWidth);
-      const direction = wheelStep(wheelSum);
-      if (direction === 0) return;
-      wheelDone = true;
-      step(direction);
-      enter(direction);
+      onPeriodWheel(event);
     };
 
     // On the document: a lost capture is reported there when its target is gone.
