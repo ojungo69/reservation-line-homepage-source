@@ -313,7 +313,7 @@ export function CalendarColumnView({
                       if (booking instanceof HTMLElement) onReservation(shown.id, booking);
                     }}
                   >
-                    <Icon className="size-5" aria-hidden="true" />
+                    <Icon className="pointer-events-none size-5" aria-hidden="true" />
                   </button>
                 ))}
                 <button

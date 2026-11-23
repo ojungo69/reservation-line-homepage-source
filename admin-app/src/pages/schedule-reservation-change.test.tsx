@@ -312,6 +312,21 @@ it("タッチではカードを動かしても変更せず、選択した予約�
   expect(posts().map(([url]) => url)).toEqual([PREVIEW]);
 });
 
+it("選んだ予約の移動と施術終了時刻変更のハンドルは、アイコンを指の当たり先にしない", async () => {
+  renderSchedule();
+  const { booking } = await openTimeGrid();
+  pointer("pointerDown", booking, 250, 280, "touch");
+  pointer("pointerUp", booking, 250, 280, "touch");
+  fireEvent.click(booking, { detail: 1 });
+  const detail = await screen.findByRole("dialog", { name: "予約詳細" });
+  fireEvent.click(within(detail).getByRole("button", { name: "Close" }));
+
+  const move = await screen.findByRole("button", { name: "予約を移動" });
+  const resize = screen.getByRole("button", { name: "施術終了時刻を変更" });
+  expect(move.querySelector("svg")?.classList.contains("pointer-events-none")).toBe(true);
+  expect(resize.querySelector("svg")?.classList.contains("pointer-events-none")).toBe(true);
+});
+
 it("指がハンドルの中のアイコンに当たっていても、捕捉を移すときの知らせではドラッグを止めない", async () => {
   const startAt = "2026-11-23T02:30:00.000Z";
   const after = { startAt, endAt: "2026-11-23T03:30:00.000Z", treatmentEndAt: "2026-11-23T03:25:00.000Z", occupancyMinutes: 60, treatmentMinutes: 55 };
