@@ -547,7 +547,7 @@ describe("ScheduleV2Page の予約と外部予定", () => {
     expect(captured.detail?.reservationId).toBe("res-off");
   });
 
-  it("詳細を開いている間は押した予約に選択の印を付け、閉じると外す", async () => {
+  it("詳細を閉じても予約の選択と操作ハンドルは残り、Escで選択を解除できる", async () => {
     const user = userEvent.setup();
     renderPage();
     const event = await eventButton(/^山田 花子、/);
@@ -563,7 +563,12 @@ describe("ScheduleV2Page の予約と外部予定", () => {
     act(() => captured.detail?.onClose());
     const closed = await eventButton(/^山田 花子、/);
     expect(closed.getAttribute("aria-expanded")).toBe("false");
+    expect(closed.classList.contains("ring-cal-primary")).toBe(true);
+    expect(await screen.findByRole("button", { name: "予約を移動" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "施術終了時刻を変更" })).toBeTruthy();
+    await user.keyboard("{Escape}");
     expect(closed.classList.contains("ring-cal-primary")).toBe(false);
+    expect(screen.queryByRole("button", { name: "予約を移動" })).toBeNull();
   });
 
   it("サイドバーを常に出す広い画面では、押した予約の隣に小窓で開く", async () => {

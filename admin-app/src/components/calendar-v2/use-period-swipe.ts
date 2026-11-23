@@ -7,6 +7,7 @@ import { FRAME_MS, frameAt, releaseVelocity, springFrames, swipeAxis, swipeStep,
 const EDGE_PX = 24;
 // INT-01-04, INT-08-08: fields keep their own touch and wheel handling.
 const FIELDS = "input, textarea, select, [contenteditable]";
+const DIRECT_HANDLE = "[data-calendar-handle]";
 // How far the new period's content travels in from the side it came from.
 const ENTER_PX = 80;
 // The click a swiped touch may still produce comes right after it lifts.
@@ -58,6 +59,7 @@ export function usePeriodSwipe({
   onStep,
   periodKey,
   columnsOverflow,
+  directOwnsPointer,
 }: Readonly<{
   scrollerRef: RefObject<HTMLElement | null>;
   rootRef: RefObject<HTMLElement | null>;
@@ -65,10 +67,12 @@ export function usePeriodSwipe({
   onStep: (direction: -1 | 1) => void;
   periodKey: string;
   columnsOverflow: () => boolean;
+  directOwnsPointer: (event?: PointerEvent) => boolean;
 }>) {
   // flushSync: the next period is on screen before the strip is put back.
   const step = useEffectEvent((direction: -1 | 1) => flushSync(() => onStep(direction)));
   const bodyHasOverflow = useEffectEvent(columnsOverflow);
+  const hasDirectPointer = useEffectEvent(directOwnsPointer);
   const endSwipe = useRef(() => {});
   // 前/次, the date picker or a store moved the period under a held swipe or a
   // glide: what they would bring in is no longer next door, so both end without
@@ -248,7 +252,11 @@ export function usePeriodSwipe({
         return;
       }
       const target = event.target;
-      if (!(target instanceof Element) || target.closest(FIELDS)) return;
+      if (!(target instanceof Element) || target.closest(FIELDS) || hasDirectPointer(event)) return;
+      if (target.closest(DIRECT_HANDLE)) {
+        endSwipe.current();
+        return;
+      }
       if (event.pointerType !== "touch" || !event.isPrimary) return;
       if (event.clientX < EDGE_PX || event.clientX > window.innerWidth - EDGE_PX) return;
       const area = dateBand.contains(target) ? dateBand : scroller;
@@ -351,6 +359,19 @@ export function usePeriodSwipe({
     const onHidden = () => {
       if (document.hidden) onLeave();
     };
+    const onPeriodWheel = (event: WheelEvent) => {
+      // INT-05-01: a vertical gesture scrolls the hours. INT-05-07: input the
+      // page cannot cancel may still become the browser's back or forward.
+      if (wheelOwner !== "period" || !event.cancelable) return;
+      event.preventDefault();
+      if (wheelDone) return;
+      wheelSum += wheelPx(event.deltaX, event.deltaMode, scroller.clientWidth);
+      const direction = wheelStep(wheelSum);
+      if (direction === 0) return;
+      wheelDone = true;
+      step(direction);
+      enter(direction);
+    };
     // INT-05: a gesture is wheel input without a 250ms gap, momentum included.
     // The first input fixes who handles it (INT-03-08). Only sideways input in
     // a fitting body can move a period, once its signed sum reaches 80px.
@@ -368,6 +389,11 @@ export function usePeriodSwipe({
       const overField = target instanceof Element && target.closest(FIELDS) !== null;
       wheelOwner ??= !overField && !bodyHasOverflow() && Math.abs(event.deltaX) > Math.abs(event.deltaY) ? "period" : "native";
       if (overField) return;
+      if (hasDirectPointer()) {
+        wheelDone = true;
+        if (event.cancelable) event.preventDefault();
+        return;
+      }
       // INT-04-06: while the strip is off rest under a finger or gliding, a wheel
       // neither scrolls (each list day is drawn at the scroll it had) nor steps;
       // its gesture keeps going with the axis its first input took, and the
@@ -379,17 +405,7 @@ export function usePeriodSwipe({
         if (event.cancelable) event.preventDefault();
         return;
       }
-      // INT-05-01: a vertical gesture scrolls the hours. INT-05-07: input the
-      // page cannot cancel may still become the browser's back or forward.
-      if (wheelOwner !== "period" || !event.cancelable) return;
-      event.preventDefault();
-      if (wheelDone) return;
-      wheelSum += wheelPx(event.deltaX, event.deltaMode, scroller.clientWidth);
-      const direction = wheelStep(wheelSum);
-      if (direction === 0) return;
-      wheelDone = true;
-      step(direction);
-      enter(direction);
+      onPeriodWheel(event);
     };
 
     // On the document: a lost capture is reported there when its target is gone.

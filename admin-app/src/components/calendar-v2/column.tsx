@@ -1,11 +1,15 @@
-import { useState, type KeyboardEvent } from "react";
+import { Fragment, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { GripHorizontal, MoveVertical, X } from "lucide-react";
+import { canChangeReservationTime } from "@/hooks/use-calendar-reschedule";
 import { displayServiceName } from "@/lib/service-pricing";
 import { formatTime, statusLabel } from "@/lib/timeline";
+import { cn } from "@/lib/utils";
 import type { ExternalBlock, Reservation } from "@/types/api";
 import type { CalendarColumn } from "./columns";
 import { CalendarEvent, eventLines, type EventTone } from "./event";
-import { DAY_MINUTES, MIN_EVENT_PX, PX_PER_MINUTE, SLOT_MINUTES, clipToDay, drawnSpan, layoutLanes, type Span } from "./geometry";
-import { spanLabel } from "./labels";
+import { CLEANING_MINUTES, DAY_MINUTES, MIN_EVENT_PX, PX_PER_MINUTE, SLOT_MINUTES, clipToDay, drawnSpan, layoutLanes, type Span } from "./geometry";
+import { gridTime, spanLabel } from "./labels";
+import type { CalendarDirectManipulation } from "./use-direct-manipulation";
 
 export type CalendarItem =
   | Readonly<{ kind: "reservation"; span: Span; reservation: Reservation }>
@@ -15,12 +19,7 @@ export type ClosureBand = Readonly<{ id: string; span: Span; reason: string | nu
 
 const DAY_PX = DAY_MINUTES * PX_PER_MINUTE;
 const MIN_EVENT_MINUTES = MIN_EVENT_PX / PX_PER_MINUTE;
-// RESERVATION_INTERVAL_MINUTES (src/reservations/slot-times.ts): every stored
-// booking ends with this much cleaning.
-const CLEANING_MINUTES = 5;
-
-const clock = (minute: number) =>
-  `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(Math.floor(minute % 60)).padStart(2, "0")}`;
+const HANDLE_PX = 44;
 
 // A marker the block always shows, so its state is said in words, not only by its
 // color (DESIGN.md §3): 承認待ち has its own fill, the others share the booking's.
@@ -91,8 +90,8 @@ function present(item: CalendarItem, dayLabel: string, dateKey: string) {
   const { block } = item;
   // A block can run past midnight (a Google event), so the block shows the part
   // drawn in this day's column, and the label says its real days and times.
-  const start = clock(item.span.start);
-  const end = clock(item.span.end);
+  const start = gridTime(item.span.start);
+  const end = gridTime(item.span.end);
   const title = block.titleSnapshot ?? "外部予定";
   // Only Google's own blocks say Google; the store's and the system's are blocks.
   const google = block.source === "google_calendar";
@@ -129,6 +128,8 @@ type ColumnProps = Readonly<{
   showNowDot: boolean;
   widthPx: number | null;
   selectedId: string | null;
+  detailId: string | null;
+  direct?: CalendarDirectManipulation;
   // Each gets the element that was pressed, so focus can go back to it.
   onSlot: (column: CalendarColumn, minute: number, opener: HTMLElement) => void;
   onReservation: (id: string, opener: HTMLElement) => void;
@@ -150,6 +151,8 @@ export function CalendarColumnView({
   showNowDot,
   widthPx,
   selectedId,
+  detailId,
+  direct,
   onSlot,
   onReservation,
   onBlock,
@@ -160,6 +163,7 @@ export function CalendarColumnView({
   const tabStop =
     tabMinute !== null && slots.includes(tabMinute) ? tabMinute : (slots.find((minute) => minute >= entryMinute) ?? slots[0]);
   const placed = layoutLanes(items.map((item) => ({ item, ...drawnSpan(item.span, MIN_EVENT_MINUTES) })));
+  const candidate = direct?.candidate?.column.key === column.key ? direct.candidate : null;
   return (
     <div data-calendar-column={column.key} className="relative min-w-0 flex-1 border-l border-cal-grid" style={{ height: DAY_PX }}>
       {tint && <div aria-hidden="true" className="absolute inset-0 bg-cal-selected/20" />}
@@ -189,10 +193,11 @@ export function CalendarColumnView({
           tabIndex={minute === tabStop ? 0 : -1}
           data-slot-minutes={minute}
           // The band below is not read out, so the slot says what it covers.
-          aria-label={`${dayLabel} ${clock(minute)} ${column.storeName}に予約を追加${
+          aria-label={`${dayLabel} ${gridTime(minute)} ${column.storeName}に予約を追加${
             hidden.some((span) => minute < span.end && minute + SLOT_MINUTES > span.start) ? "（この時間には非表示の予定があります）" : ""
           }`}
           onClick={(event) => onSlot(column, minute, event.currentTarget)}
+          onPointerDown={direct ? (event) => direct.start(event, { kind: "range", column }) : undefined}
           onFocus={() => setTabMinute(minute)}
           onKeyDown={moveSlotFocus}
           // The slot stays under the bookings, so a focused one never takes their
@@ -247,25 +252,101 @@ export function CalendarColumnView({
         let onSelect: ((opener: HTMLElement) => void) | undefined;
         if (item.kind === "reservation") onSelect = (opener) => onReservation(item.reservation.id, opener);
         else if (onBlock && item.block.source === "admin_block") onSelect = (opener) => onBlock(item.block, opener);
+        const editable = item.kind === "reservation" && direct && canChangeReservationTime(item.reservation.status);
+        const selected = selectedId === shown.id;
+        const stacked = widthPx !== null && widthPx < HANDLE_PX * 3 + 4;
+        let onPointerDown: ((event: PointerEvent<HTMLButtonElement>) => void) | undefined;
+        if (editable) {
+          onPointerDown = (event) => {
+            let kind: "select" | "resize" | "move" = "move";
+            if (event.pointerType === "touch") {
+              kind = "select";
+            } else if (event.target instanceof Element && event.target.closest("[data-calendar-resize-grip]")) {
+              kind = "resize";
+            }
+            direct.start(event, { kind, column, reservation: item.reservation });
+          };
+        }
         return (
-          <CalendarEvent
-            key={`${item.kind}-${shown.id}`}
-            tone={shown.tone}
-            lines={lines}
-            inline={inline}
-            label={shown.label}
-            selected={selectedId === shown.id}
-            onSelect={onSelect}
-            cleaning={cleaning ? { top: (cleaning.start - start) * PX_PER_MINUTE, height: (cleaning.end - cleaning.start) * PX_PER_MINUTE } : null}
-            style={{
-              top,
-              height,
-              left: `calc(${(lane / lanes) * 100}% + 2px)`,
-              width: `calc(${(span / lanes) * 100}% - 4px)`,
-            }}
-          />
+          <Fragment key={`${item.kind}-${shown.id}`}>
+            <CalendarEvent
+              tone={shown.tone}
+              lines={lines}
+              inline={inline}
+              label={shown.label}
+              selected={selected}
+              expanded={detailId === shown.id}
+              onSelect={onSelect}
+              onPointerDown={onPointerDown}
+              cleaning={cleaning ? { top: (cleaning.start - start) * PX_PER_MINUTE, height: (cleaning.end - cleaning.start) * PX_PER_MINUTE } : null}
+              style={{
+                top,
+                height,
+                left: `calc(${(lane / lanes) * 100}% + 2px)`,
+                width: `calc(${(span / lanes) * 100}% - 4px)`,
+              }}
+            />
+            {editable && selected && (
+              <fieldset
+                aria-label="選択した予約の操作"
+                data-calendar-selection=""
+                className={cn("absolute right-0.5 z-30 flex w-max min-w-0 divide-cal-grid rounded-lg border border-cal-outline bg-cal-surface shadow-sm",
+                  stacked ? "flex-col divide-y" : "divide-x")}
+                style={{ top: Math.min(top + height + 2, DAY_PX - HANDLE_PX * (stacked ? 3 : 1) - 2) }}
+              >
+                {([
+                  { kind: "move", label: "予約を移動", Icon: MoveVertical },
+                  { kind: "resize", label: "施術終了時刻を変更", Icon: GripHorizontal },
+                ] as const).map(({ kind, label, Icon }) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    aria-label={label}
+                    aria-haspopup="dialog"
+                    title={label}
+                    data-calendar-handle={kind}
+                    className={cn("grid size-[44px] shrink-0 touch-none select-none place-items-center rounded text-cal-primary hover:bg-cal-selected focus-visible:z-1 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cal-primary",
+                      kind === "move" ? "cursor-grab active:cursor-grabbing" : "cursor-ns-resize")}
+                    onPointerDown={(event) => direct.start(event, { kind, column, reservation: item.reservation })}
+                    onClick={(event) => {
+                      const booking = event.currentTarget.parentElement?.previousElementSibling;
+                      if (booking instanceof HTMLElement) onReservation(shown.id, booking);
+                    }}
+                  >
+                    <Icon className="size-5" aria-hidden="true" />
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  aria-label="予約の選択を解除"
+                  title="予約の選択を解除"
+                  className="grid size-[44px] shrink-0 place-items-center rounded hover:bg-cal-text/5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cal-primary"
+                  onClick={(event) => {
+                    const booking = event.currentTarget.parentElement?.previousElementSibling;
+                    if (booking instanceof HTMLElement) booking.focus();
+                    direct.clearSelection();
+                  }}
+                >
+                  <X className="size-4" aria-hidden="true" />
+                </button>
+              </fieldset>
+            )}
+          </Fragment>
         );
       })}
+      {candidate && (
+        <div
+          aria-hidden="true"
+          data-calendar-candidate=""
+          className="pointer-events-none absolute inset-x-0.5 z-30 min-h-1 overflow-hidden rounded-md border-2 border-dashed border-cal-primary bg-cal-selected/55"
+          style={{ top: candidate.span.start * PX_PER_MINUTE, height: (Math.min(DAY_MINUTES, candidate.span.end) - candidate.span.start) * PX_PER_MINUTE }}
+        >
+          {candidate.treatmentEnd !== undefined && (
+            <div className="absolute inset-x-0 border-t border-dashed border-cal-primary bg-cal-surface/65"
+              style={{ top: (candidate.treatmentEnd - candidate.span.start) * PX_PER_MINUTE, height: CLEANING_MINUTES * PX_PER_MINUTE }} />
+          )}
+        </div>
+      )}
       {nowMinute !== null && (
         // A surface halo keeps the line 3:1 apart from whatever it crosses: in dark
         // mode it is about as light as a confirmed booking (tasks.md T005).

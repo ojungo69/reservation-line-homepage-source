@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
@@ -12,9 +12,9 @@ import {
   openingOf,
 } from "@/components/calendar-v2/body";
 import { STORE_COLUMN_MIN_WIDTH_PX, activeResourceIds, buildColumns, effectiveView, visibleStoreId, type CalendarColumn, type CalendarView } from "@/components/calendar-v2/columns";
-import { PX_PER_MINUTE, mondayWeek } from "@/components/calendar-v2/geometry";
+import { PX_PER_MINUTE, mondayWeek, type Span } from "@/components/calendar-v2/geometry";
 import { CalendarGrid } from "@/components/calendar-v2/grid";
-import { dayLabel, shortDayLabel, spanLabel, weekHeading } from "@/components/calendar-v2/labels";
+import { dayLabel, gridTime, shortDayLabel, spanLabel, weekHeading } from "@/components/calendar-v2/labels";
 import { CalendarNotices } from "@/components/calendar-v2/notices";
 import { PeriodStrip } from "@/components/calendar-v2/period-strip";
 import { CalendarLayers, CreateReservationButton } from "@/components/calendar-v2/sidebar-parts";
@@ -24,22 +24,24 @@ import { useCalendarLayout } from "@/components/calendar-v2/use-calendar-layout"
 import { stableAnchor } from "@/components/calendar-v2/stable-anchor";
 import { useCalendarLayers } from "@/components/calendar-v2/use-calendar-layers";
 import { useCalendarView } from "@/components/calendar-v2/use-calendar-view";
+import { useDirectManipulation } from "@/components/calendar-v2/use-direct-manipulation";
 import { usePeriodSwipe } from "@/components/calendar-v2/use-period-swipe";
 import { useReturnFocus } from "@/components/calendar-v2/use-return-focus";
 import { PendingApprovalsCard } from "@/components/schedule/pending-approvals-card";
 import { ReservationCreatePanel } from "@/components/schedule/reservation-create-panel";
-import { ReservationDetailPanel } from "@/components/schedule/reservation-detail-panel";
+import { CalendarRescheduleFeedback, ReservationDetailPanel } from "@/components/schedule/reservation-detail-panel";
 import { PRESSABLE } from "@/components/shell-v2/pressable";
 import { useShellV2 } from "@/components/shell-v2/shell-context";
 import { PendingConfirmDialog } from "@/components/ui/pending-confirm-dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
+import { useCalendarReschedule } from "@/hooks/use-calendar-reschedule";
 import { useExternalBlockCancel } from "@/hooks/use-external-blocks";
 import { DOCKED_QUERY, NARROW_QUERY, useMediaQuery } from "@/hooks/use-media-query";
 import { usePendingReservations } from "@/hooks/use-reservations";
 import { useSettings } from "@/hooks/use-settings";
 import { useStores } from "@/hooks/use-stores";
-import { addDays, formatFullJstDate, formatJstDate, toJstDate } from "@/lib/timeline";
+import { addDays, formatFullJstDate, formatJstDate, formatTime, toJstDate } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import type { ExternalBlock } from "@/types/api";
 
@@ -74,6 +76,7 @@ type CreateDefaults = Readonly<{
   storeId: string | null;
   resourceId: string | null;
   minutes: number | null;
+  preferredEndMinute?: number;
   date?: Date;
   serviceIds?: string[];
   customer?: { id?: string | null; displayName: string; displayNameKana?: string | null; phone?: string | null } | null;
@@ -92,6 +95,13 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
   // The next successful /me response takes precedence over a rejection observed here.
   const meRevision = () => queryClient.getQueryState(["auth", "me"])?.dataUpdateCount ?? 0;
   const [rescheduleUnavailableAt, setRescheduleUnavailableAt] = useState<number | null>(null);
+  const rescheduleDisabled = calendarV2 !== true || rescheduleUnavailableAt === meRevision();
+  const calendarChange = useCalendarReschedule({
+    scope: calendarScope,
+    disabled: rescheduleDisabled,
+    onUnavailable: () => setRescheduleUnavailableAt(meRevision()),
+    onCommitSessionChange,
+  });
   const { stores, selectedStoreId } = useStores();
   const storeId = visibleStoreId(selectedStoreId, stores);
   const narrow = useMediaQuery(NARROW_QUERY);
@@ -126,6 +136,8 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
   const cancelBlockMutation = useExternalBlockCancel();
 
   const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);
+  const [detailReservationId, setDetailReservationId] = useState<string | null>(null);
+  const [dragError, setDragError] = useState("");
   const [createDefaults, setCreateDefaults] = useState<CreateDefaults | null>(null);
   const [pendingOpen, setPendingOpen] = useState(false);
   const [cancelBlock, setCancelBlock] = useState<ExternalBlock | null>(null);
@@ -141,9 +153,15 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
   const storesWhere = (test: (state: (typeof states)[number]) => boolean) =>
     [...new Set(states.filter(test).map((state) => state.column.storeName))];
   const { overlayRef, scrollerRef, layout, columnsOverflow } = useCalendarLayout(columns.length, periodKey);
+  const detailId = detailReservationId ?? calendarChange.unknown?.operation.id ?? null;
+  const clearDrop = useEffectEvent(() => calendarChange.cancelDrop());
+  useLayoutEffect(() => {
+    clearDrop();
+    setDragError("");
+  }, [periodKey]);
 
   // Page move stays shut while a sheet of this page is open (see ShellV2).
-  const sheetOpen = selectedReservationId !== null || createDefaults !== null || pendingOpen || cancelBlock !== null;
+  const sheetOpen = detailId !== null || createDefaults !== null || pendingOpen || cancelBlock !== null || calendarChange.busy;
   useEffect(() => {
     if (!shell) return;
     shell.setPaletteBlocked(sheetOpen);
@@ -156,11 +174,18 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
   // Chosen when it opens and kept while open: a switch across 64rem would mount a
   // second modal over an open confirmation (the discard check) and take its focus.
   const [detailLayout, setDetailLayout] = useState<"popover" | "bottom">("popover");
-  const openDetail = (id: string, from: HTMLElement) => {
+  const prepareDetail = (id: string, from: HTMLElement) => {
     opener.current = from;
     detailAnchor.current = stableAnchor(from);
     setDetailLayout(docked ? "popover" : "bottom");
     setSelectedReservationId(id);
+    setDragError("");
+  };
+  const openDetail = (id: string, from: HTMLElement) => {
+    if (calendarChange.busy) return;
+    calendarChange.close();
+    prepareDetail(id, from);
+    setDetailReservationId(id);
   };
 
   // Open at the store's opening time (DESIGN.md §5) when the shown days, the store
@@ -211,21 +236,42 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
     navigate(".", { replace: true, state: null });
   }, [location.state, navigate]);
 
-  const onSlot = (column: CalendarColumn, minutes: number, from: HTMLElement) => {
-    if (!settings) return;
+  const createFromGrid = (column: CalendarColumn, minutes: number, from: HTMLElement, range?: Span) => {
+    if (!settings || sheetOpen) return;
     // Slots exist only where the store has an active resource (columnState).
     const ids = activeResourceIds(column.storeId, settings.resources);
     opener.current = from;
-    setCreateDefaults({ storeId: column.storeId, resourceId: ids.length === 1 ? ids[0] : null, minutes, date: column.date });
+    setSelectedReservationId(null);
+    setDragError("");
+    calendarChange.close();
+    setCreateDefaults({
+      storeId: column.storeId, resourceId: ids.length === 1 ? ids[0] : null, minutes, date: column.date,
+      preferredEndMinute: range?.end,
+    });
   };
+  const directEnabled = view !== "list" && !rescheduleDisabled && !sheetOpen;
+  const direct = useDirectManipulation({
+    enabled: directEnabled, scrollerRef, overlayRef, selectedId: selectedReservationId, states,
+    layoutKey: `${calendarScope}|${periodKey}|${layout.barPx}|${layout.columnPx}|${layout.scrollbarPx}`,
+    onSelect: setSelectedReservationId,
+    onRange: (column, span, from) => createFromGrid(column, span.start, from, span),
+    onChange: (reservation, intent, from) => {
+      const booking = from.matches("[data-calendar-handle]") ? from.parentElement?.previousElementSibling : from;
+      prepareDetail(reservation.id, booking instanceof HTMLElement ? booking : from);
+      void calendarChange.previewDrop(reservation, intent);
+    },
+    onInvalid: setDragError,
+  });
   // The sidebar's 予約を追加 and the ＋ button: the shown store and day, no time,
   // as the current calendar's create button.
   const openCreate = (from: HTMLElement) => {
+    if (calendarChange.busy) return;
     shell?.closeMenu();
     opener.current = from;
     setCreateDefaults(NO_DEFAULTS);
   };
   const onBlock = (block: ExternalBlock, from: HTMLElement) => {
+    if (calendarChange.busy) return;
     opener.current = from;
     setCancelBlock(block);
   };
@@ -258,7 +304,7 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
     setDate(next);
   };
   const step = (direction: -1 | 1) => goTo(addDays(date, direction * bar.stepDays));
-  usePeriodSwipe({ scrollerRef, rootRef, dateBandRef, onStep: step, periodKey, columnsOverflow });
+  usePeriodSwipe({ scrollerRef, rootRef, dateBandRef, onStep: step, periodKey, columnsOverflow, directOwnsPointer: direct.ownsPointer });
 
   const blockHandler = isPrivileged ? onBlock : undefined;
   const headerAt = (at: Date) => (
@@ -273,7 +319,7 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
       />
     </DayHeaderRow>
   );
-  const bodyAt = (at: Date) => {
+  const bodyAt = (at: Date, current = false) => {
     if (view === "list") {
       return <DayList day={dayByKey.get(formatJstDate(at))} storeId={storeId} layers={layers} onDetails={openDetail} />;
     }
@@ -286,15 +332,17 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
         gutterNowMinute={allStoresDay && atColumns[0].dateKey === todayKey ? nowMinute : null}
       >
         <CalendarColumns
-          states={atColumns.map((column) => columnState(column, dayByKey, settings, settingsUsable))}
+          states={current ? states : atColumns.map((column) => columnState(column, dayByKey, settings, settingsUsable))}
           week={week}
           nowDotInGutter={allStoresDay}
           todayKey={todayKey}
           nowMinute={nowMinute}
           columnPx={layout.columnPx}
-          selectedId={selectedReservationId}
+          selectedId={current ? selectedReservationId : null}
+          detailId={current ? detailId : null}
+          direct={current && directEnabled ? direct : undefined}
           layers={layers}
-          onSlot={onSlot}
+          onSlot={createFromGrid}
           onReservation={openDetail}
           onBlock={blockHandler}
         />
@@ -302,16 +350,18 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
     );
   };
   // The bar's names and the body each sit in a strip of three periods.
-  const strip = (paneAt: (at: Date) => ReactNode, className?: string) => (
+  const strip = (paneAt: (at: Date, current: boolean) => ReactNode, className?: string) => (
     <PeriodStrip
       className={className}
       fromTop={view === "list"}
-      prev={{ key: formatJstDate(periodOf(prevDate)[0]), content: paneAt(prevDate) }}
-      current={{ key: dayKeys[0], content: paneAt(date) }}
-      next={{ key: formatJstDate(periodOf(nextDate)[0]), content: paneAt(nextDate) }}
+      prev={{ key: formatJstDate(periodOf(prevDate)[0]), content: paneAt(prevDate, false) }}
+      current={{ key: dayKeys[0], content: paneAt(date, true) }}
+      next={{ key: formatJstDate(periodOf(nextDate)[0]), content: paneAt(nextDate, false) }}
     />
   );
   const dayHeader = <DayHeader scrollbarPx={layout.scrollbarPx}>{strip(headerAt)}</DayHeader>;
+  const candidate = direct.candidate;
+  const confirmation = calendarChange.confirmation;
 
   return (
     <div ref={rootRef} className="relative h-full overflow-hidden bg-cal-surface text-cal-text">
@@ -333,6 +383,7 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
           pendingCount={pendingCount}
           pendingCapped={pendingCapped}
           onOpenPending={(from) => {
+            if (calendarChange.busy) return;
             opener.current = from;
             setPendingOpen(true);
           }}
@@ -354,6 +405,25 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
           onRetried={() => headingRef.current?.focus()}
         />
       </div>
+
+      {candidate && (
+        <div aria-hidden="true" className="pointer-events-none absolute left-2 z-40 max-w-[calc(100%-1rem)] rounded-md border border-cal-outline bg-cal-surface px-3 py-2 text-sm shadow-sm"
+          style={{ top: layout.barPx }}>
+          <div>{dayLabel(candidate.column.date)} {candidate.column.storeName}{candidate.reservation && `・${candidate.reservation.resourceName}`}</div>
+          {candidate.treatmentEnd === undefined
+            ? <div>希望の時間帯 {gridTime(candidate.span.start)}–{gridTime(candidate.span.end)}</div>
+            : <div>{gridTime(candidate.span.start)} 開始・{gridTime(candidate.treatmentEnd)} 施術終了・{gridTime(candidate.span.end)} 枠の解放</div>}
+        </div>
+      )}
+      {candidate === null && detailId === null && (dragError || calendarChange.notice || rescheduleUnavailableAt === meRevision() ||
+        (calendarChange.pending && !confirmation)) && (
+        <div className="pointer-events-none absolute left-2 z-40 max-w-[calc(100%-1rem)] rounded-md border border-cal-outline bg-cal-surface px-3 py-2 shadow-sm"
+          style={{ top: layout.barPx }}>
+          {dragError && <output className="block text-sm">{dragError}</output>}
+          <CalendarRescheduleFeedback change={calendarChange} disabled={rescheduleDisabled} />
+          {calendarChange.pending && !confirmation && <output className="block text-sm">変更できるか確認しています…</output>}
+        </div>
+      )}
 
       <div
         ref={scrollerRef}
@@ -395,16 +465,14 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
 
       <ReservationDetailPanel
         key={calendarScope}
-        reservationId={selectedReservationId}
-        calendarReschedule={{
-          scope: calendarScope,
-          disabled: calendarV2 === false || rescheduleUnavailableAt === meRevision(),
-          onUnavailable: () => setRescheduleUnavailableAt(meRevision()),
-          onCommitSessionChange,
-        }}
+        reservationId={detailId}
+        calendarReschedule={{ scope: calendarScope, disabled: rescheduleDisabled, change: calendarChange }}
         layout={detailLayout}
         anchor={detailAnchor}
-        onClose={() => setSelectedReservationId(null)}
+        onClose={() => {
+          calendarChange.close();
+          setDetailReservationId(null);
+        }}
         onOpenChart={(customerId, reservationId) =>
           navigate(`/customers?customerId=${encodeURIComponent(customerId)}&reservationId=${encodeURIComponent(reservationId)}`, {
             state: { fromSchedule: true },
@@ -429,10 +497,33 @@ export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onC
           defaultResourceId={createDefaults.resourceId}
           defaultDate={createDefaults.date ?? date}
           defaultMinutes={createDefaults.minutes}
+          preferredEndMinute={createDefaults.preferredEndMinute}
           defaultServiceIds={createDefaults.serviceIds}
           defaultCustomer={createDefaults.customer}
         />
       )}
+      <PendingConfirmDialog
+        open={confirmation !== undefined}
+        pending={calendarChange.pending}
+        title="予約の変更を確認"
+        description={confirmation && (
+          <>
+            <span className="block">{confirmation.reservation.storeName}・{confirmation.reservation.resourceName}</span>
+            {([["変更前", confirmation.before], ["変更後", confirmation.after]] as const).map(([label, time]) => (
+              <span key={label} className="mt-2 block">
+                {label} {spanLabel(time.startAt, time.treatmentEndAt)}（施術 {time.treatmentMinutes}分、枠の解放 {formatTime(time.endAt)}）
+              </span>
+            ))}
+            <span className="mt-2 block">{confirmation.notifiesCustomer
+              ? "開始日時の変更をお客様へLINEでお知らせします。"
+              : "お客様へのLINE通知はありません。"}</span>
+          </>
+        )}
+        confirmLabel="変更を保存"
+        pendingLabel="保存中…"
+        onOpenChange={(open) => { if (!open) calendarChange.cancelDrop(); }}
+        onConfirm={calendarChange.confirmDrop}
+      />
       <Sheet open={pendingOpen} onOpenChange={setPendingOpen}>
         <SheetContent side="right" className="w-full sm:max-w-md" aria-describedby={undefined}>
           <SheetTitle>承認待ち</SheetTitle>

@@ -1,11 +1,12 @@
 import { use, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
-import { QueryClientContext } from "@tanstack/react-query";
+import { QueryClientContext, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "@/lib/api-client";
 import { actionErrorMessage } from "@/lib/error-messages";
 import type {
   CalendarRescheduleCommitRequest,
   CalendarRescheduleIntent,
   CalendarReschedulePreviewRequest,
+  Reservation,
   ReservationDetailResponse,
 } from "@/types/api";
 import { sha256Hex } from "../../../src/crypto-utils";
@@ -47,10 +48,28 @@ export type CalendarRescheduleOptions = Readonly<{
 }>;
 
 type Notice = { text: string; error?: boolean };
-type Operation = Readonly<{ id: string; body: CalendarRescheduleCommitRequest; sentAt: number }>;
+type PreviewWindow = { startAt: string; treatmentEndAt: string; endAt: string; treatmentMinutes: number };
+type Confirmation = Readonly<{
+  id: string;
+  body: CalendarRescheduleCommitRequest;
+  reservation: Reservation;
+  before: PreviewWindow;
+  after: PreviewWindow;
+  notifiesCustomer: boolean;
+}>;
+type ChangeRequestContext = { source?: Reservation; onCloseEditor?: () => void };
+type PreparedPreview = { proposed: unknown; body: CalendarRescheduleCommitRequest };
+type Operation = Readonly<{
+  id: string;
+  body: CalendarRescheduleCommitRequest;
+  sentAt: number;
+  confirmation?: Confirmation;
+  onCloseEditor?: () => void;
+}>;
 type ChangeState =
   | { kind: "idle"; notice?: Notice }
-  | { kind: "previewing" }
+  | { kind: "previewing"; direct: boolean }
+  | { kind: "confirming"; confirmation: Confirmation }
   | { kind: "committing"; operation: Operation }
   | { kind: "unknown"; operation: Operation; checking: boolean };
 const IDLE: ChangeState = { kind: "idle" };
@@ -63,8 +82,12 @@ function checkTimeLeft(operation: Operation) {
   return CHECK_WINDOW_MS - (performance.now() - operation.sentAt);
 }
 
-function reschedulePath(id: string) {
-  return `/api/admin/reservations/${encodeURIComponent(id)}/reschedule`;
+function reservationPath(id: string) {
+  return `/api/admin/reservations/${encodeURIComponent(id)}`;
+}
+
+export function canChangeReservationTime(status: string) {
+  return status === "pending_approval" || status === "confirmed";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -128,16 +151,41 @@ function currentReservation(value: unknown, id: string, expectedVersion: number,
   return { version, status, startAt, endAt };
 }
 
-export function useCalendarReschedule({
-  reservationId,
-  calendar,
-  onCloseEditor,
-}: Readonly<{ reservationId: string | null; calendar?: CalendarRescheduleOptions; onCloseEditor: () => void }>) {
+function previewWindow(value: unknown): PreviewWindow {
+  if (!isRecord(value)) throw new Error("Invalid reschedule preview window");
+  const { startAt, treatmentEndAt, endAt, treatmentMinutes } = value;
+  if (typeof startAt !== "string" || typeof treatmentEndAt !== "string" || typeof endAt !== "string" ||
+      ![startAt, treatmentEndAt, endAt].every((date) => Number.isFinite(Date.parse(date))) ||
+      typeof treatmentMinutes !== "number" || !Number.isFinite(treatmentMinutes)) {
+    throw new Error("Invalid reschedule preview window");
+  }
+  return { startAt, treatmentEndAt, endAt, treatmentMinutes };
+}
+
+function confirmationOf(value: unknown, body: CalendarRescheduleCommitRequest, reservation: Reservation): Confirmation {
+  if (!isRecord(value) || value.storeId !== reservation.storeId || value.resourceId !== reservation.resourceId ||
+      !isRecord(value.notificationPlan)) {
+    throw new Error("Invalid reschedule confirmation");
+  }
+  const { kind } = value.notificationPlan;
+  if (kind !== "none" && kind !== "time_changed") throw new Error("Invalid reschedule notification plan");
+  return {
+    id: reservation.id, body, reservation, before: previewWindow(value.before), after: previewWindow(value.after),
+    notifiesCustomer: kind === "time_changed",
+  };
+}
+
+function hasVersion(version: number | undefined): version is number {
+  return typeof version === "number" && Number.isSafeInteger(version) && version >= 1;
+}
+
+export type CalendarReschedule = ReturnType<typeof useCalendarReschedule>;
+
+export function useCalendarReschedule(calendar: CalendarRescheduleOptions) {
   const queryClient = use(QueryClientContext);
-  const calendarScope = calendar?.scope;
-  const onCommitSessionChange = calendar?.onCommitSessionChange;
-  const detailSession = useRef<{ id: string; sentCommit: boolean } | null>(null);
-  const writeDisabled = useRef(calendar?.disabled);
+  const { scope: calendarScope, onCommitSessionChange } = calendar;
+  const scopeSession = useRef<{ sentCommit: boolean } | null>(null);
+  const writeDisabled = useRef(calendar.disabled);
   const [state, setState] = useState<ChangeState>(IDLE);
   // Event handlers also use the current phase before React renders disabled buttons.
   const stateRef = useRef(state);
@@ -147,20 +195,22 @@ export function useCalendarReschedule({
   }, []);
 
   useLayoutEffect(() => {
-    if (calendarScope === undefined) return;
     if (stateRef.current !== IDLE) transition(IDLE);
-    if (!reservationId) return;
-    const session = { id: reservationId, sentCommit: false };
-    detailSession.current = session;
+    const session = { sentCommit: false };
+    scopeSession.current = session;
     return () => {
-      detailSession.current = null;
+      scopeSession.current = null;
       if (session.sentCommit) onCommitSessionChange?.(false);
     };
-  }, [calendarScope, reservationId, transition, onCommitSessionChange]);
+  }, [calendarScope, transition, onCommitSessionChange]);
 
   useLayoutEffect(() => {
-    writeDisabled.current = calendar?.disabled;
-  }, [calendar?.disabled]);
+    writeDisabled.current = calendar.disabled;
+    const current = stateRef.current;
+    if (calendar.disabled && (current.kind === "confirming" || (current.kind === "previewing" && current.direct))) {
+      transition(IDLE);
+    }
+  }, [calendar.disabled, transition]);
 
   const refreshReservations = () => {
     void queryClient?.invalidateQueries({ queryKey: ["reservations"] });
@@ -169,7 +219,7 @@ export function useCalendarReschedule({
   const reject = (error: unknown, reason: string | undefined) => {
     if (reason) refreshReservations();
     if (reason === "feature_disabled" || reason === "unsupported_contract") {
-      calendar?.onUnavailable();
+      calendar.onUnavailable();
       transition(IDLE);
       return;
     }
@@ -178,11 +228,19 @@ export function useCalendarReschedule({
     transition({ kind: "idle", notice: { text, error: true } });
   };
 
+  const releaseCommitSession = () => {
+    const session = scopeSession.current;
+    if (!session?.sentCommit) return;
+    session.sentCommit = false;
+    onCommitSessionChange?.(false);
+  };
+
   const expire = (operation: Operation) => {
-    if (!detailSession.current || operationOf(stateRef.current) !== operation) return;
+    if (!scopeSession.current || operationOf(stateRef.current) !== operation) return;
     refreshReservations();
     transition({ kind: "idle", notice: { text: "保存結果の確認期限が過ぎました。最新の予約情報をご確認ください。" } });
-    onCloseEditor();
+    operation.onCloseEditor?.();
+    if (operation.confirmation) releaseCommitSession();
   };
   const expireFromTimer = useEffectEvent(expire);
   const operation = operationOf(state);
@@ -203,17 +261,35 @@ export function useCalendarReschedule({
     };
   }, [operation]);
 
+  const handleCommitFailure = (operation: Operation, check: boolean, error: unknown) => {
+    const reason = failureReason(error);
+    if (reason === "operation_not_applied") {
+      refreshReservations();
+      transition({ kind: "idle", notice: { text: "保存されていません。この変更はこの後も保存されません。" } });
+      return;
+    }
+    if (!check && reason) {
+      reject(error, reason);
+      return;
+    }
+    if (reason === "feature_disabled" || (!reason && error instanceof ApiError && error.status === 404)) {
+      calendar.onUnavailable();
+      refreshReservations();
+    }
+    transition({ kind: "unknown", operation, checking: false });
+  };
+
   const commit = async (operation: Operation, check: boolean) => {
     if (!queryClient) return;
     const { id, body } = operation;
     const canUseResult = () => {
-      if (!detailSession.current || operationOf(stateRef.current) !== operation) return false;
+      if (!scopeSession.current || operationOf(stateRef.current) !== operation) return false;
       if (checkTimeLeft(operation) > 0) return true;
       expire(operation);
       return false;
     };
     try {
-      const response = await api.post<unknown>(`${reschedulePath(id)}/commit${check ? "?mode=check" : ""}`, body);
+      const response = await api.post<unknown>(`${reservationPath(id)}/reschedule/commit${check ? "?mode=check" : ""}`, body);
       if (!canUseResult()) return;
 
       const latest = currentReservation(response, id, body.expectedVersion, check);
@@ -228,58 +304,109 @@ export function useCalendarReschedule({
       transition({ kind: "idle", notice: { text: "保存済みです" } });
     } catch (error) {
       if (!canUseResult()) return;
-      const reason = failureReason(error);
-      if (reason === "operation_not_applied") {
-        refreshReservations();
-        transition({ kind: "idle", notice: { text: "保存されていません。この変更はこの後も保存されません。" } });
-      } else if (!check && reason) {
-        reject(error, reason);
-      } else {
-        if (reason === "feature_disabled") {
-          calendar?.onUnavailable();
-          refreshReservations();
-        }
-        transition({ kind: "unknown", operation, checking: false });
-      }
+      handleCommitFailure(operation, check, error);
     }
-    if (!check) onCloseEditor();
+    if (operation.confirmation && stateRef.current.kind !== "unknown") releaseCommitSession();
   };
 
-  const save = async (id: string, version: number, intent: CalendarRescheduleIntent) => {
-    const session = detailSession.current;
-    if (session?.id !== id || !queryClient ||
-        stateRef.current.kind !== "idle" || !Number.isSafeInteger(version) || version < 1) return;
-    if (writeDisabled.current) {
-      onCloseEditor();
-      return;
-    }
-    transition({ kind: "previewing" });
-    const preview = { contractVersion: CONTRACT, expectedVersion: version, intent } satisfies CalendarReschedulePreviewRequest;
-    let body: CalendarRescheduleCommitRequest | undefined;
-    try {
-      const proposed = await api.post<unknown>(`${reschedulePath(id)}/preview`, preview);
-      if (detailSession.current !== session) return;
-      if (!writeDisabled.current) body = await commitRequest(proposed, id, preview);
-    } catch (error) {
-      if (detailSession.current !== session) return;
-      const reason = failureReason(error) ?? (error instanceof ApiError && error.status === 404 ? "unsupported_contract" : undefined);
-      reject(error, reason);
-      onCloseEditor();
-      return;
-    }
-    if (detailSession.current !== session) return;
-    if (!body || writeDisabled.current) {
+  const startCommit = async (id: string, body: CalendarRescheduleCommitRequest, context: {
+    confirmation?: Confirmation;
+    onCloseEditor?: () => void;
+  }) => {
+    const session = scopeSession.current;
+    if (!session || writeDisabled.current) {
       transition(IDLE);
-      onCloseEditor();
       return;
     }
-    const operation = { id, body, sentAt: performance.now() };
+    const operation = { id, body, sentAt: performance.now(), ...context };
     if (!session.sentCommit) {
       session.sentCommit = true;
       onCommitSessionChange?.(true);
     }
     transition({ kind: "committing", operation });
     await commit(operation, false);
+  };
+
+  const refreshPreviewVersion = async (client: QueryClient, source: Reservation, current: () => boolean) => {
+    const detail = await client.fetchQuery({
+      queryKey: reservationDetailKey(source.id, calendarScope),
+      queryFn: ({ signal }) => api.get<ReservationDetailResponse>(reservationPath(source.id), { signal }),
+      staleTime: 0,
+    });
+    if (!current()) return;
+    const latest = detail.ok ? detail.reservation : null;
+    if (latest?.id !== source.id || !canChangeReservationTime(latest.status) || latest.storeId !== source.storeId ||
+        latest.resourceId !== source.resourceId || Date.parse(latest.startAt) !== Date.parse(source.startAt) ||
+        Date.parse(latest.endAt) !== Date.parse(source.endAt)) {
+      reject(undefined, "version_conflict");
+      return;
+    }
+    if (!hasVersion(latest.version)) throw new Error("Missing reservation version");
+    return latest.version;
+  };
+
+  const preparePreview = async ({
+    client, id, version, intent, source, current,
+  }: {
+    client: QueryClient;
+    id: string;
+    version: number | undefined;
+    intent: CalendarRescheduleIntent;
+    source: Reservation | undefined;
+    current: () => boolean;
+  }): Promise<PreparedPreview | undefined> => {
+    let expectedVersion = version;
+    if (source && !hasVersion(expectedVersion)) {
+      expectedVersion = await refreshPreviewVersion(client, source, current);
+      if (!current() || expectedVersion === undefined) return;
+    }
+    if (!hasVersion(expectedVersion)) throw new Error("Missing reservation version");
+    const preview = { contractVersion: CONTRACT, expectedVersion, intent } satisfies CalendarReschedulePreviewRequest;
+    const proposed = await api.post<unknown>(`${reservationPath(id)}/reschedule/preview`, preview);
+    if (!current()) return;
+    const body = await commitRequest(proposed, id, preview);
+    if (!current()) return;
+    return { proposed, body };
+  };
+
+  const applyPreview = (id: string, { proposed, body }: PreparedPreview, { source, onCloseEditor }: ChangeRequestContext) => {
+    if (writeDisabled.current) {
+      transition(IDLE);
+      return;
+    }
+    if (source) {
+      transition({ kind: "confirming", confirmation: confirmationOf(proposed, body, source) });
+      return;
+    }
+    return startCommit(id, body, { onCloseEditor });
+  };
+
+  const handlePreviewFailure = (error: unknown) => {
+    const reason = failureReason(error) ?? (error instanceof ApiError && error.status === 404 ? "unsupported_contract" : undefined);
+    reject(error, reason);
+  };
+
+  const request = async (id: string, version: number | undefined, intent: CalendarRescheduleIntent, context: ChangeRequestContext) => {
+    const { source, onCloseEditor } = context;
+    const session = scopeSession.current;
+    if (!session || !queryClient || stateRef.current.kind !== "idle") return;
+    if (!source && !hasVersion(version)) return;
+    if (writeDisabled.current) {
+      onCloseEditor?.();
+      return;
+    }
+    const draft = { kind: "previewing", direct: source !== undefined } as const;
+    const current = () => scopeSession.current === session && stateRef.current === draft;
+    transition(draft);
+    try {
+      const prepared = await preparePreview({ client: queryClient, id, version, intent, source, current });
+      if (!current() || !prepared) return;
+      await applyPreview(id, prepared, context);
+    } catch (error) {
+      if (current()) handlePreviewFailure(error);
+    } finally {
+      if (scopeSession.current === session) onCloseEditor?.();
+    }
   };
 
   const check = () => {
@@ -293,15 +420,37 @@ export function useCalendarReschedule({
     void commit(current.operation, true);
   };
 
+  let confirmation: Confirmation | undefined;
+  if (state.kind === "confirming") {
+    confirmation = state.confirmation;
+  } else if (state.kind === "committing") {
+    confirmation = state.operation.confirmation;
+  }
+
   return {
-    save,
-    check,
-    abandon: () => {
-      if (stateRef.current.kind === "unknown") {
-        refreshReservations();
-        transition(IDLE);
-      }
+    save: (id: string, version: number, intent: CalendarRescheduleIntent, onCloseEditor: () => void) =>
+      request(id, version, intent, { onCloseEditor }),
+    previewDrop: (reservation: Reservation, intent: CalendarRescheduleIntent) =>
+      request(reservation.id, reservation.version, intent, { source: reservation }),
+    confirmDrop: () => {
+      const current = stateRef.current;
+      if (current.kind !== "confirming") return;
+      const { id, body } = current.confirmation;
+      void startCommit(id, body, { confirmation: current.confirmation });
     },
+    cancelDrop: () => {
+      const current = stateRef.current;
+      if (current.kind === "confirming" || (current.kind === "previewing" && current.direct)) transition(IDLE);
+    },
+    check,
+    close: () => {
+      if (stateRef.current.kind === "committing") return;
+      if (stateRef.current.kind === "unknown") refreshReservations();
+      if (stateRef.current !== IDLE) transition(IDLE);
+      releaseCommitSession();
+    },
+    busy: state.kind !== "idle",
+    confirmation,
     pending: state.kind === "previewing" || state.kind === "committing",
     unknown: state.kind === "unknown" ? state : null,
     notice: state.kind === "idle" ? state.notice : undefined,
