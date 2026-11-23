@@ -1,0 +1,29 @@
+admin-app/src/components/calendar-v2/column.tsx
+  s_0e71bbde30a7a0::t_eea6f589de43c9 261-266,290,293,332
+admin-app/src/components/calendar-v2/use-direct-manipulation.ts
+  s_0e71bbde30a7a0::t_f63df18dc13057 229-235,249,252
+admin-app/src/components/calendar-v2/use-period-swipe.ts
+  s_0e71bbde30a7a0::t_6927a22ef7496c 362-374,408
+admin-app/src/components/schedule/reservation-create-panel.tsx
+  s_0e71bbde30a7a0::t_ac9e5299030f7a 231-239,574-582,700
+admin-app/src/hooks/use-calendar-reschedule.ts
+  s_0e71bbde30a7a0::t_27e78899c1cd8a 2,60-61,264-281,307,330-390,402-404,406,423-429,453
+admin-app/src/pages/schedule-v2.tsx
+  s_0e71bbde30a7a0::t_31acc38cb68a31 422,424
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3ec03e3779eab72b078678e9bf07ed3870f88b85",
+  "prompts": {},
+  "sessions": {
+    "s_0e71bbde30a7a0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_0e71bbde30a7a0",
+        "model": "unknown"
+      },
+      "human_author": "ojungo69 <210335670+ojungo69@users.noreply.github.com>"
+    }
+  }
+}
