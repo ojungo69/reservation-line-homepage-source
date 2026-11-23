@@ -5,6 +5,8 @@ import type { BusinessHour } from "@/types/api";
 export const HOUR_PX = 48;
 export const PX_PER_MINUTE = HOUR_PX / 60;
 export const DAY_MINUTES = 24 * 60;
+// A stored reservation includes five minutes of cleanup.
+export const CLEANING_MINUTES = 5;
 // A 5-minute booking stays visible and tappable, but is not stretched to the 44px
 // touch size: its height stays close to its length (DESIGN.md §4).
 export const MIN_EVENT_PX = 18;
@@ -15,7 +17,7 @@ const SLOTS = Array.from({ length: DAY_MINUTES / SLOT_MINUTES }, (_, index) => i
 
 export type Span = Readonly<{ start: number; end: number }>;
 
-const spansOverlap = (a: Span, b: Span) => a.start < b.end && b.start < a.end;
+export const spansOverlap = (a: Span, b: Span) => a.start < b.end && b.start < a.end;
 
 /** The part of a span inside one JST day, as minutes from its midnight; null when it misses the day. */
 export function clipToDay(startAt: string, endAt: string, dayKey: string): Span | null {

@@ -224,8 +224,7 @@ function RescheduleForm({
       <DialogHeader>
         <DialogTitle>開始時刻を変更</DialogTitle>
         <DialogDescription>
-          施術時間はそのままに、開始時刻を移動します。
-          {!saveCalendarChange && "確定済みの予約はお客様に変更が通知されます。"}
+          施術時間はそのままに、開始時刻を移動します。確定済みの予約はお客様に変更が通知されます。
         </DialogDescription>
       </DialogHeader>
 

@@ -1,4 +1,4 @@
-import type { CSSProperties, MouseEvent } from "react";
+import type { CSSProperties, MouseEvent, PointerEventHandler } from "react";
 import { cn } from "@/lib/utils";
 
 export type EventTone = "confirmed" | "pending" | "external";
@@ -89,8 +89,10 @@ export function CalendarEvent({
   label,
   style,
   selected = false,
+  expanded = false,
   cleaning = null,
   onSelect,
+  onPointerDown,
 }: Readonly<{
   tone: EventTone;
   lines: readonly EventLine[];
@@ -98,11 +100,13 @@ export function CalendarEvent({
   label: string;
   style: CSSProperties;
   selected?: boolean;
+  expanded?: boolean;
   // The cleaning time at the end of a booking, in px from the block's top: marked
   // by a dashed line drawn behind the text, with no tint, so the text keeps its
   // contrast where the band crosses it (a short block centers its label).
   cleaning?: Readonly<{ top: number; height: number }> | null;
   onSelect?: (opener: HTMLElement) => void;
+  onPointerDown?: PointerEventHandler<HTMLButtonElement>;
 }>) {
   const className = cn(
     "absolute z-10 overflow-hidden rounded-md px-1.5 text-left text-xs leading-4 ring-1 ring-cal-surface",
@@ -139,14 +143,25 @@ export function CalendarEvent({
       type="button"
       aria-label={label}
       aria-haspopup="dialog"
-      aria-expanded={selected}
+      aria-expanded={expanded}
+      aria-current={selected || undefined}
       onClick={(event: MouseEvent<HTMLButtonElement>) => onSelect(event.currentTarget)}
-      className={cn(className, "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cal-primary")}
+      onPointerDown={onPointerDown}
+      className={cn(
+        className,
+        "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cal-primary",
+        onPointerDown && "cursor-grab select-none active:cursor-grabbing [-webkit-touch-callout:none]",
+      )}
       style={style}
       data-event-tone={tone}
     >
       {body}
       {band}
+      {onPointerDown && (
+        <span aria-hidden="true" data-calendar-resize-grip="" className="absolute inset-x-0 bottom-0 hidden h-2 cursor-ns-resize place-items-center any-pointer-fine:grid">
+          <span className="h-0.5 w-4 max-w-1/2 rounded-full bg-current" />
+        </span>
+      )}
     </button>
   );
 }

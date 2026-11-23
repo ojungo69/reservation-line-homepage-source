@@ -22,7 +22,9 @@ import { useCreateReservation, useAvailableSlots } from "@/hooks/use-reservation
 import { useSettings } from "@/hooks/use-settings";
 import { useCustomerSearch } from "@/hooks/use-customers";
 import { useAuth } from "@/hooks/use-auth";
-import { formatJstDate, formatTime } from "@/lib/timeline";
+import { formatDateTime, formatJstDate, formatTime } from "@/lib/timeline";
+import { CLEANING_MINUTES } from "@/components/calendar-v2/geometry";
+import { gridTime } from "@/components/calendar-v2/labels";
 import { isShortPhoneQuery, needsFullPhoneHint } from "@/lib/customer-search-hints";
 import { buildCustomerPart, type CreateMode } from "@/lib/reservation-create-mode";
 import {
@@ -59,6 +61,7 @@ type ReservationCreatePanelProps = {
   defaultResourceId: string | null;
   defaultDate: Date;
   defaultMinutes: number | null;
+  preferredEndMinute?: number;
   defaultServiceIds?: string[] | null;
   defaultCustomer?: {
     id?: string | null;
@@ -570,6 +573,7 @@ export function ReservationCreatePanel({
   defaultResourceId,
   defaultDate,
   defaultMinutes,
+  preferredEndMinute,
   defaultServiceIds,
   defaultCustomer,
 }: Readonly<ReservationCreatePanelProps>) {
@@ -588,9 +592,7 @@ export function ReservationCreatePanel({
   const [resourceId, setResourceId] = useState(defaultResourceId ?? "");
   const [initialDate] = useState(() => formatJstDate(defaultDate));
   const [date, setDate] = useState(initialDate);
-  const initialTime = defaultMinutes == null
-    ? "10:00"
-    : `${String(Math.floor(defaultMinutes / 60)).padStart(2, "0")}:${String(defaultMinutes % 60).padStart(2, "0")}`;
+  const initialTime = defaultMinutes == null ? "10:00" : gridTime(defaultMinutes);
   const [time, setTime] = useState(initialTime);
   // 空き枠クリック由来の時刻か（メニュー変更時にリセットするかの判定に使う）。
   const [timeFromSlot, setTimeFromSlot] = useState(false);
@@ -681,6 +683,11 @@ export function ReservationCreatePanel({
   const overLimit = isOverSelectionLimit(serviceIds, storeServices);
   // 上限超過中（rebook 初期値の超過など）は空き枠取得を抑止する。
   const durationMinutes = totalMinutes > 0 && !overLimit ? totalMinutes : undefined;
+  const rangeStart = preferredEndMinute !== undefined && durationMinutes !== undefined
+    ? Date.parse(`${date}T${time}:00+09:00`) : NaN;
+  const rangeRelease = Number.isFinite(rangeStart)
+    ? formatDateTime(new Date(rangeStart + (totalMinutes + CLEANING_MINUTES) * 60_000).toISOString())
+    : null;
 
   const limitHintVisible =
     !overLimit &&
@@ -892,6 +899,16 @@ export function ReservationCreatePanel({
               {target.resources.kind === "none" && NO_RESOURCE_CREATE_NOTICE}
             </output>
 
+            {defaultMinutes !== null && preferredEndMinute !== undefined && (
+              <p className="text-sm text-muted-foreground">
+                ご希望の時間帯は {initialDate} {initialTime}〜{gridTime(preferredEndMinute)} です。
+              </p>
+            )}
+            {rangeRelease && (
+              <p className="text-sm text-muted-foreground">
+                選択したメニューの施術時間は{totalMinutes}分です。清掃後に枠が空く時刻は {rangeRelease} です。
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <Field id="rcp-date" label="日付">
                 <Input id="rcp-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />

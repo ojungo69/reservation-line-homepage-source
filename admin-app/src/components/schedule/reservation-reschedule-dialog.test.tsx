@@ -42,4 +42,20 @@ describe("ReservationRescheduleDialog", () => {
     expect(screen.getByText("空き枠")).toBeTruthy();
     expect(screen.queryByText(/担当/)).toBeNull();
   });
+
+  it("新しい予定表から開いても、確定済みの予約は通知されると知らせる", () => {
+    render(
+      <ReservationRescheduleDialog
+        reservation={reservation}
+        onClose={() => {}}
+        calendarSave={{ save: () => {}, pending: false }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "施術時間はそのままに、開始時刻を移動します。確定済みの予約はお客様に変更が通知されます。",
+      ),
+    ).toBeTruthy();
+  });
 });

@@ -8,6 +8,7 @@ import { activeResourceIds, type CalendarColumn } from "./columns";
 import { clipToDay, closedRanges, openSlotMinutes, SLOT_MINUTES, type Span } from "./geometry";
 import { dayLabel, dayOfMonth, weekdayOf } from "./labels";
 import type { DayData } from "./use-calendar-days";
+import type { CalendarDirectManipulation } from "./use-direct-manipulation";
 
 export type CalendarSettings = Extract<SettingsResponse, { ok: true }>["settings"];
 
@@ -87,6 +88,8 @@ export type ColumnState = Readonly<{
   // None while the day's data is incomplete (UX-21: it must not read as free
   // time) or the store has no active resource to book.
   slots: number[];
+  reservationsReady: boolean;
+  rangeResources: readonly string[];
   noResource: boolean;
   // No opening hours saved at all: the settings call the store 未設定・予約受付不可.
   noHours: boolean;
@@ -104,12 +107,14 @@ export function columnState(
   const items = columnItems(column, day);
   const closures = closureBands(column, settings);
   const closed = settings ? closedRanges(settings.businessHours, column.storeId, jstWeekday(column.date)) : [];
-  const noResource = settings !== null && activeResourceIds(column.storeId, settings.resources).length === 0;
+  const activeResources = settings ? activeResourceIds(column.storeId, settings.resources) : [];
+  const noResource = settings !== null && activeResources.length === 0;
   // Any row, open or closed, counts as set, as in the settings (src/admin/settings-business-hours.ts).
   const noHours = settings !== null && !settings.businessHours.some((row) => row.storeId === column.storeId);
   const closuresUnknown =
     settings !== null && settings.closures.filter((closure) => closure.storeId === column.storeId).length >= CLOSURE_ROW_CAP;
-  const offers = settingsUsable && reservationsComplete(day) && !closuresUnknown && !noResource && !noHours;
+  const reservationsReady = reservationsComplete(day);
+  const offers = settingsUsable && reservationsReady && !closuresUnknown && !noResource && !noHours;
   return {
     column,
     items,
@@ -117,6 +122,8 @@ export function columnState(
     closures,
     entryMinute: Math.floor((openingOf(settings, column) ?? FALLBACK_OPENING_MINUTE) / SLOT_MINUTES) * SLOT_MINUTES,
     slots: offers ? openSlotMinutes([...closed, ...closures.map((band) => band.span)]) : [],
+    reservationsReady,
+    rangeResources: offers ? activeResources : [],
     noResource,
     noHours,
     closuresUnknown,
@@ -138,6 +145,8 @@ export function CalendarColumns({
   nowMinute,
   columnPx,
   selectedId,
+  detailId,
+  direct,
   layers,
   onSlot,
   onReservation,
@@ -150,6 +159,8 @@ export function CalendarColumns({
   nowMinute: number;
   columnPx: number | null;
   selectedId: string | null;
+  detailId: string | null;
+  direct?: CalendarDirectManipulation;
   layers: Layers;
   onSlot: (column: CalendarColumn, minute: number, opener: HTMLElement) => void;
   onReservation: (id: string, opener: HTMLElement) => void;
@@ -175,6 +186,8 @@ export function CalendarColumns({
         showNowDot={!nowDotInGutter && column.key === firstToday}
         widthPx={columnPx}
         selectedId={selectedId}
+        detailId={detailId}
+        direct={state.reservationsReady ? direct : undefined}
         onSlot={onSlot}
         onReservation={onReservation}
         onBlock={onBlock}

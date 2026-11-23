@@ -1,5 +1,8 @@
 import { WEEKDAYS, formatJstDate, formatTime, toJstDate } from "@/lib/timeline";
 
+export const gridTime = (minute: number) =>
+  `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(Math.floor(minute % 60)).padStart(2, "0")}`;
+
 function parts(date: Date) {
   const jst = toJstDate(date);
   return { year: jst.getUTCFullYear(), month: jst.getUTCMonth() + 1, day: jst.getUTCDate(), weekday: WEEKDAYS[jst.getUTCDay()] };
