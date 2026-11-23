@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
 import { Plus } from "lucide-react";
 import {
@@ -84,8 +85,13 @@ const NO_DEFAULTS: CreateDefaults = { storeId: null, resourceId: null, minutes: 
  * The calendar on the switch's on side (spec 008 T005): a week of one store or a
  * day with a column per store on one 24-hour axis, under a floating glass bar.
  */
-export default function ScheduleV2Page() {
-  const { isPrivileged } = useAuth();
+export default function ScheduleV2Page({ onCommitSessionChange }: Readonly<{ onCommitSessionChange?: (open: boolean) => void }>) {
+  const { isPrivileged, user, calendarV2 } = useAuth();
+  const calendarScope = JSON.stringify([user.email, user.role, user.staffMemberId, user.storeId]);
+  const queryClient = useQueryClient();
+  // The next successful /me response takes precedence over a rejection observed here.
+  const meRevision = () => queryClient.getQueryState(["auth", "me"])?.dataUpdateCount ?? 0;
+  const [rescheduleUnavailableAt, setRescheduleUnavailableAt] = useState<number | null>(null);
   const { stores, selectedStoreId } = useStores();
   const storeId = visibleStoreId(selectedStoreId, stores);
   const narrow = useMediaQuery(NARROW_QUERY);
@@ -388,7 +394,14 @@ export default function ScheduleV2Page() {
       )}
 
       <ReservationDetailPanel
+        key={calendarScope}
         reservationId={selectedReservationId}
+        calendarReschedule={{
+          scope: calendarScope,
+          disabled: calendarV2 === false || rescheduleUnavailableAt === meRevision(),
+          onUnavailable: () => setRescheduleUnavailableAt(meRevision()),
+          onCommitSessionChange,
+        }}
         layout={detailLayout}
         anchor={detailAnchor}
         onClose={() => setSelectedReservationId(null)}

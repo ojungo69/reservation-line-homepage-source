@@ -88,6 +88,21 @@ export type ReservationDetail = Reservation & {
   } | null;
 };
 
+export type CalendarRescheduleIntent =
+  | { kind: "move"; startAt: string }
+  | { kind: "resize"; treatmentMinutes: number };
+
+export type CalendarReschedulePreviewRequest = {
+  contractVersion: "calendar-interactions-v1";
+  expectedVersion: number;
+  intent: CalendarRescheduleIntent;
+};
+
+export type CalendarRescheduleCommitRequest = CalendarReschedulePreviewRequest & {
+  idempotencyKey: string;
+  previewFingerprint: string;
+};
+
 export type ExternalBlock = {
   id: string;
   storeId: string;
